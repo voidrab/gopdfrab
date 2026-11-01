@@ -22,14 +22,13 @@ import (
 // spec default) or reconciling metadata that already describes the same
 // embedded data two different ways.
 
-// fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by giving any
-// CIDFontType2 descendant font that lacks a CIDToGIDMap, or has one that is
-// neither a stream nor Identity, the spec-default /CIDToGIDMap /Identity,
-// mirroring the detection in validateFontDict (checks_font.go). /Identity is
-// the PDF default applied when the key is absent, and what a reader falls
-// back to for a value it cannot use. It therefore never changes rendered
-// appearance or breaks a conformant file, so the fixer applies it to every such
-// font.
+// fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by setting the
+// spec-default /CIDToGIDMap /Identity on every CIDFontType2 descendant font
+// whose CIDToGIDMap is absent or is neither a stream nor Identity. The
+// detection mirrors validateFontDict (checks_font.go). /Identity is the PDF
+// default applied when the key is absent, and what a reader falls back to for
+// a value it cannot use, so the repair never changes rendered appearance or
+// breaks a conformant file.
 type fontDictFixer struct{}
 
 func (fontDictFixer) Applies(c pdf.Check) bool {
@@ -58,11 +57,10 @@ func (fontDictFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 // type0FontFixer remediates Type0 font CIDSystemInfo and CMap WMode
 // mismatches, mirroring validateType0Font/validateCMapWMode
 // (checks_font.go/checks_font_program.go). The descendant CIDFont's
-// CIDSystemInfo is authoritative -- it describes the glyph data actually
-// embedded -- so a CMap CIDSystemInfo with another Registry or Ordering, or a
-// lower Supplement, is overwritten to match it;
-// a mismatched dictionary /WMode is overwritten to match the value the CMap
-// stream itself declares.
+// CIDSystemInfo is authoritative because it describes the glyph data actually
+// embedded. A CMap CIDSystemInfo with another Registry or Ordering, or a lower
+// Supplement, is overwritten to match it. A mismatched dictionary /WMode is
+// overwritten to match the value the CMap stream itself declares.
 type type0FontFixer struct{}
 
 func (type0FontFixer) Applies(c pdf.Check) bool {
@@ -93,7 +91,8 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (
 		if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
 			cmapCSI, hasCmapCSI := cmap.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
 			cidCSI, hasCidCSI := cid.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
-			// A CIDFont without an integer Supplement has none to give the CMap.
+			// A CIDFont without an integer Supplement has none to give
+			// the CMap.
 			_, cidSupplement := cidCSI.Entries.Get("Supplement").(pdf.PDFInteger)
 			if hasCmapCSI && hasCidCSI && (!verify.SameCIDSystemInfo(cmapCSI, cidCSI) ||
 				cidSupplement && !verify.SupplementCovered(cmapCSI, cidCSI)) {

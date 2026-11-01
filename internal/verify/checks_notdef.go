@@ -9,9 +9,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// winAnsiBullets are the WinAnsiEncoding codes ISO 32000-1 leaves undefined
-// and veraPDF maps to the bullet glyph, so that showing them does not count as
-// a reference to .notdef.
+// winAnsiBullets holds the WinAnsiEncoding codes that ISO 32000-1 leaves
+// undefined and veraPDF maps to the bullet glyph. Showing them is not a
+// reference to .notdef.
 var winAnsiBullets = map[int]bool{127: true, 129: true, 141: true, 143: true, 144: true, 157: true}
 
 // validateNotdefReferences reports a font whose shown codes select the .notdef
@@ -94,9 +94,9 @@ func sortedKeys(set map[int]bool) []int {
 // simpleFontShowsNotdef reports whether code selects .notdef in a simple
 // font. The glyph name comes from the Encoding: a Differences entry, or else
 // the WinAnsiEncoding or MacRomanEncoding base table. A symbolic TrueType
-// font's Encoding is ignored, and a TrueType font the Encoding gives no name
-// falls back to its program, which veraPDF trusts for every code but 0 when
-// the program is missing.
+// font's Encoding is ignored. When the Encoding names no glyph for code, a
+// TrueType code selects .notdef only if it is 0 and the font has no embedded
+// program, as veraPDF trusts the program for every other code.
 func simpleFontShowsNotdef(v pdf.PDFDict, subtype string, desc pdf.PDFDict, code int) bool {
 	trueType := subtype == "TrueType"
 	enc := v.Entries.Get("Encoding")
@@ -112,10 +112,10 @@ func simpleFontShowsNotdef(v pdf.PDFDict, subtype string, desc pdf.PDFDict, code
 	return name == ".notdef"
 }
 
-// encodingGlyphName returns the glyph name a simple font's Encoding gives
-// code, and false when it gives none, so that the font's own encoding
-// applies. Only the base encodings veraPDF tabulates name glyphs: an Encoding
-// of StandardEncoding, say, gives none.
+// encodingGlyphName returns the glyph name that a simple font's Encoding gives
+// code, and false when it gives none. Only the WinAnsiEncoding and
+// MacRomanEncoding base encodings name glyphs, as veraPDF's tables do; an
+// Encoding of StandardEncoding, for example, gives none.
 func encodingGlyphName(enc pdf.PDFValue, code int) (string, bool) {
 	base := enc
 	if dict, ok := enc.(pdf.PDFDict); ok {
@@ -149,9 +149,10 @@ func encodingGlyphName(enc pdf.PDFValue, code int) (string, bool) {
 	return table[code], true
 }
 
-// cidGlyphPresence returns whether each CID has a glyph in a CIDFont's
-// embedded program, as veraPDF decides it, and false when the program is
-// missing or unreadable. CID 0 never has one: it is the .notdef glyph.
+// cidGlyphPresence returns a function reporting whether a CID has a glyph in
+// a CIDFont's embedded program, as veraPDF decides it. It returns false when
+// the program is missing or unreadable. CID 0 never has a glyph, as it is the
+// .notdef glyph.
 func cidGlyphPresence(cid pdf.PDFDict, ctx *ValidationContext) (func(int) bool, bool) {
 	subtype, _ := cid.Entries.Get("Subtype").(pdf.PDFName)
 	desc, _ := cid.Entries.Get("FontDescriptor").(pdf.PDFDict)
@@ -210,9 +211,10 @@ func cidGlyphPresence(cid pdf.PDFDict, ctx *ValidationContext) (func(int) bool, 
 	return nil, false
 }
 
-// cidToGID returns the CID-to-glyph mapping a CIDToGIDMap value gives: the
-// identity for Identity or no entry, or the two-byte glyph indices of a
-// stream, which maps no CID past its end. ok is false for any other value.
+// cidToGID returns the CID-to-glyph mapping that a CIDToGIDMap value gives:
+// the identity for Identity or no entry, or the two-byte glyph indices of a
+// stream. CIDs past the end of the stream are unmapped. ok is false for any
+// other value.
 func cidToGID(c2g pdf.PDFValue, ctx *ValidationContext) (gidOf func(int) (int, bool), ok bool) {
 	if c2g == nil || c2g == (pdf.PDFName{Value: "Identity"}) {
 		return func(c int) (int, bool) { return c, true }, true

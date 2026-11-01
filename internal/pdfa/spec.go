@@ -33,8 +33,8 @@ type Spec struct {
 	// FontFileSubtypes are the /Subtype values an embedded font file may have.
 	FontFileSubtypes Names
 	// PredefinedCMaps are the CMaps a composite font may name without
-	// embedding them, and the only ones an embedded CMap may use, when the
-	// level checks what a CMap uses (UseCMapPredefined).
+	// embedding them. When UseCMapPredefined is set, they are also the only
+	// CMaps an embedded CMap may use.
 	PredefinedCMaps   Names
 	UseCMapPredefined bool
 	// SubsetSetsOptional says whether a subset font's descriptor may omit its

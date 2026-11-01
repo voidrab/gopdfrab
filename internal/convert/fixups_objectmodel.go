@@ -206,13 +206,14 @@ func mustBeClearMask(typeName, key string) int64 {
 	return mask
 }
 
-// constraintFixer remediates the object model's ConstraintViolated check where a
-// conformance-neutral repair exists: reserved flag bits are cleared (readers must ignore
-// them), a DecodeParms array is resized to its Filter coupling, surplus FontFile* variants
-// are pruned to the descriptor's preferred one, and own-key numeric bounds (Length1 >= 0)
-// are clamped, and a font descriptor's Style gets a 12-byte Panose or goes (see
-// fixPanose). Cross-key semantic couplings (image-mask consistency, must-be-set bits,
-// structure-attribute key sets) have no neutral repair and stay residuals.
+// constraintFixer remediates the object model's ConstraintViolated check where
+// a conformance-neutral repair exists: reserved flag bits are cleared (readers
+// must ignore them), a DecodeParms array is resized to its Filter coupling,
+// surplus FontFile* variants are pruned to the descriptor's preferred one,
+// own-key numeric bounds (Length1 >= 0) are clamped, and a font descriptor's
+// Style gets a 12-byte Panose or is removed (see fixPanose). Cross-key semantic
+// couplings (image-mask consistency, must-be-set bits, structure-attribute key
+// sets) have no neutral repair and stay residuals.
 type constraintFixer struct{}
 
 func (constraintFixer) Applies(c pdf.Check) bool {
@@ -247,13 +248,13 @@ func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 	return changed, nil
 }
 
-// fixPanose repairs the Style dictionary of a font descriptor d whose Panose
-// is not the 12 bytes ISO 32000-1 9.8.3.2 requires: a 2-byte family class
-// followed by the 10-byte PANOSE classification. A bare 10-byte
-// classification gets family class 0, no classification; any other value
-// cannot be read, so the Style dictionary, which only guides font
-// substitution, is removed. The Style dictionary is direct, so the finding
-// names no object to target and the whole-graph walk repairs it.
+// fixPanose repairs the Style dictionary of font descriptor d whose Panose is
+// not the 12 bytes ISO 32000-1 9.8.3.2 requires: a 2-byte family class
+// followed by the 10-byte PANOSE classification. A bare 10-byte classification
+// gets the family class 0, which means no classification. Any other value
+// cannot be read, so the Style dictionary, which only guides font substitution,
+// is removed. The Style dictionary is direct, so no finding names an object to
+// repair, and the whole-graph walk applies this fix.
 func fixPanose(d pdf.PDFDict) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "FontDescriptor"}) {
 		return false

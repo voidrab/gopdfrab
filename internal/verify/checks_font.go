@@ -160,10 +160,10 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 				}
 			}
 		}
-		// Without a W array every CID has the default width, and the CIDs
-		// shown still need glyphs.
+		// A missing W array leaves w empty, so every CID takes the default
+		// width; the subset checks still cover the CIDs shown.
 		if w, _ := v.Entries.Get("W").(pdf.PDFArray); !renderingMode3 {
-			// A code cut short selects no glyph at all.
+			// A code cut short by the end of a string selects no glyph.
 			partial := subset && containsFontFile && ctx.showsPartialCode(v)
 			if partial {
 				ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, v, "a shown string ends in the middle of a two-byte character code")
@@ -319,11 +319,11 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 	}
 }
 
-// part2TrueTypeEncodingProblem describes how a non-symbolic TrueType font's
-// Encoding breaks 6.2.11.6, or returns "". The Encoding, or its BaseEncoding,
-// must be MacRomanEncoding or WinAnsiEncoding, and Differences may name only
-// Adobe Glyph List glyphs of a program with a (3,1) cmap subtable, as veraPDF
-// reads the rule.
+// part2TrueTypeEncodingProblem returns a description of how a non-symbolic
+// TrueType font's Encoding breaks 6.2.11.6, or "" if it does not. The Encoding,
+// or its BaseEncoding, must be MacRomanEncoding or WinAnsiEncoding. Differences
+// may name only Adobe Glyph List glyphs, and only when the program has a (3,1)
+// cmap subtable, as veraPDF reads the rule.
 func part2TrueTypeEncodingProblem(enc pdf.PDFValue, cmaps sfntCmaps, haveCmaps bool, desc pdf.PDFDict) string {
 	base := enc
 	dict, isDict := enc.(pdf.PDFDict)
@@ -369,7 +369,7 @@ func DescendantCIDFont(v pdf.PDFDict) pdf.PDFDict {
 	return pdf.PDFDict{}
 }
 
-// ValidCIDToGIDMap reports whether a CIDToGIDMap value is one ISO 32000-1
+// ValidCIDToGIDMap reports whether a CIDToGIDMap value is one that ISO 32000-1
 // allows: a stream or the name Identity.
 func ValidCIDToGIDMap(c2g pdf.PDFValue) bool {
 	if d, ok := c2g.(pdf.PDFDict); ok {
@@ -391,7 +391,7 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 	if cmapOK {
 		// 6.3.3.3: an embedded CMap's WMode shall be consistent.
 		validateCMapWMode(v, cmap, ctx)
-		// 6.2.11.3.3: it may use only a predefined CMap.
+		// 6.2.11.3.3: an embedded CMap may use only predefined CMaps.
 		if ctx.Spec.UseCMapPredefined {
 			if used := cmap.Entries.Get("UseCMap"); used != nil && !ctx.Spec.PredefinedCMaps.Has(cmapName(used)) {
 				ctx.Report(pdf.Checks.Font.UseCMapNotPredefined, v, fmt.Sprintf("CMap uses CMap /%s, which is not predefined", cmapName(used)))

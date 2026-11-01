@@ -17,7 +17,8 @@ import (
 // 6.3.5-1, and a defined-but-used glyph missing from the descriptor's CharSet
 // violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
 // string stands in as the glyph set when the program is unparseable. A level
-// whose subsets may omit the CharSet checks the program alone when it does.
+// whose subsets may omit the CharSet checks the program alone when the CharSet
+// is absent.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	var charSet map[string]bool
 	if charSetVal, ok := desc.Entries.Lookup("CharSet"); ok {
@@ -59,7 +60,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		}
 	}
 	if glyphSet == nil {
-		return // neither a CharSet nor a readable program to check against
+		return // Without a CharSet or a readable program, nothing can be checked.
 	}
 
 	glyphNames, ok := type1SubsetGlyphNames(v, desc, ctx)
@@ -244,8 +245,9 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 	}
 	csCount := int(binary.BigEndian.Uint16(data[td.CSOffset : td.CSOffset+2]))
 
-	// The CIDs shown when usage is known, so that one relying on the default
-	// width is checked too; otherwise those the W array lists.
+	// With known usage, the CIDs checked are those shown, including those
+	// that rely on the default width DW. Otherwise they are the CIDs the W
+	// array lists.
 	cidList, _ := cidsToCheck(obj, w, ctx)
 
 	// CID-keyed CFFs remap glyph IDs to CIDs via the Charset table (GID and
@@ -623,9 +625,9 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		return r.Fallback(cc)
 	}
 
-	// The codes shown when usage is known, a zero width included, since a
-	// shown glyph's width is wrong whatever it is; otherwise every code with
-	// a nonzero width, as zero often only marks a code the font leaves unused.
+	// With known usage, every shown code is checked, including those with a
+	// zero width. Otherwise only codes with a nonzero width are checked, as a
+	// zero width often marks a code the font leaves unused.
 	var shown map[int]bool
 	knownUsage := false
 	if fontDict, ok := obj.(pdf.PDFDict); ok {
@@ -713,8 +715,8 @@ type sfntCmaps struct {
 	symbol, unicode bool
 }
 
-// trueTypeCmaps describes the cmap table of an embedded TrueType font, and
-// reports whether it could be read.
+// trueTypeCmaps returns the cmap table summary of an embedded TrueType font,
+// and whether it could be read.
 func trueTypeCmaps(ctx *ValidationContext, desc pdf.PDFDict) (sfntCmaps, bool) {
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok {

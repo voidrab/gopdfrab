@@ -985,7 +985,8 @@ func isContainer(val pdf.PDFValue) bool {
 // complete is false when any content stream failed to decode, meaning the
 // sets are a subset of the truth. Since every one of them drives a check
 // *suppression*, callers must discard them all in that case. It also records
-// on ctx the composite fonts a shown string ends in mid-code for.
+// on ctx the composite fonts whose shown strings end in the middle of a
+// two-byte code.
 func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	reachable map[uintptr]bool,
 	invisibleOnly map[uintptr]bool,

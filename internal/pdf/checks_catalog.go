@@ -293,8 +293,8 @@ type fontChecks struct {
 	TrueTypeEncoding         Check
 	SymbolicTrueTypeEncoding Check
 	SymbolicTrueTypeCmap     Check
-	// Rules of PDF/A-2 alone: CMaps a CMap uses, non-symbolic TrueType cmap
-	// tables and the .notdef glyph.
+	// PDF/A-2 rules: the CMaps a CMap uses, non-symbolic TrueType cmap tables,
+	// and the .notdef glyph.
 	UseCMapNotPredefined    Check
 	NonSymbolicTrueTypeCmap Check
 	NotdefGlyphReference    Check

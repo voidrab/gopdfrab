@@ -24,8 +24,8 @@ var glyphListNames = sync.OnceValue(func() map[string]bool {
 })
 
 // InAdobeGlyphList reports whether name is a glyph name the Adobe Glyph List
-// defines. The list itself omits .notdef; veraPDF's copy of it adds the name,
-// so it counts here too.
+// defines. The list omits .notdef, but veraPDF's copy includes it, so .notdef
+// counts here as well.
 func InAdobeGlyphList(name string) bool {
 	return name == ".notdef" || glyphListNames()[name]
 }

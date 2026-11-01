@@ -7,16 +7,17 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// notdefFixer remediates Checks.Font.NotdefGlyphReference (6.2.11.8) by
-// taking the character codes that select the .notdef glyph out of the
-// strings content streams show. Each removed code leaves a TJ adjustment of
-// its advance behind, so the text after it stays where it was; what is lost
-// is the .notdef glyph itself, an empty box or nothing. A ' or " operator
-// whose string loses a code is spelled out as the operators it stands for.
-// A string that ends in the middle of a two-byte code loses that byte.
+// notdefFixer remediates Checks.Font.NotdefGlyphReference (6.2.11.8). It
+// removes from the strings that content streams show each character code that
+// selects the .notdef glyph. Each removed code leaves a TJ adjustment of its
+// advance, so the text after it keeps its position; only the .notdef glyph
+// itself, an empty box or nothing, is lost. A ' or " operator whose string
+// loses a code is rewritten as the operators it stands for. A code cut short
+// at the end of a string is dropped.
 //
-// A stream's font is known from its own Tf on: text a form shows in the font
-// of the stream that draws it is left alone.
+// The font state of a stream starts empty, so text shown before the stream's
+// own Tf is left alone. That includes text a form shows in a font selected by
+// the stream that draws it.
 type notdefFixer struct{}
 
 func (notdefFixer) Applies(c pdf.Check) bool {
@@ -30,8 +31,8 @@ func (notdefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	}), nil
 }
 
-// walkContentStreamDictsWithResources is walkContentStreamDicts handing the
-// rewrite each stream's resources too.
+// walkContentStreamDictsWithResources is walkContentStreamDicts, except that
+// rewrite also receives each stream's resources.
 func walkContentStreamDictsWithResources(trailer *pdf.PDFDict, rewrite func(stream, resources pdf.PDFDict) (pdf.PDFDict, bool)) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {

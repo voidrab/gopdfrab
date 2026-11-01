@@ -196,11 +196,11 @@ func (l *Lexer) UnreadToken(t Token) {
 	l.pushed = append(l.pushed, t)
 }
 
-// validateObjectStart validates the "N G obj" header framing required by 6.1.8
-// and returns the header's declared object number, or -1 when the header is not
-// a well-formed int/int/obj triple, and how many bytes of white space before
-// the header it skipped. White space there is no violation, as veraPDF reads
-// the rule; whether the number starts a line is the caller's check. Advances
+// validateObjectStart validates the "N G obj" header framing required by 6.1.8.
+// It returns the declared object number, or -1 when the header is not a
+// well-formed int/int/obj triple, and the number of white space bytes skipped
+// before the header. Leading white space is not a violation, as veraPDF reads
+// the rule; the caller checks whether the number starts a line. It advances
 // past the header even on violations, so resolution can continue.
 func (l *Lexer) validateObjectStart() (int, int64, []error) {
 	var errs []error

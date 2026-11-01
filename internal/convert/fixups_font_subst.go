@@ -846,10 +846,10 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 }
 
 // trueTypeEncodingFixer remediates the TrueType encoding checks of 6.3.7 and
-// 6.2.11.6. A non-symbolic font whose program has no cmap subtable but the
-// Microsoft Symbol (3,0) one, which only a symbolic font may rely on, is made
-// symbolic: its codes then select glyphs through that subtable, as a reader
-// falls back to when no other applies.
+// 6.2.11.6. A non-symbolic font whose embedded program has a cmap table holding
+// only the Microsoft Symbol (3,0) subtable is made symbolic, since only a
+// symbolic font may rely on that subtable. Its codes then select glyphs through
+// the subtable, as a reader falls back to when no other applies.
 type trueTypeEncodingFixer struct{ doc *pdf.Reader }
 
 func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {

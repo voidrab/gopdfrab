@@ -22,12 +22,12 @@ var useCMapOpRe = regexp.MustCompile(`/\S+\s+usecmap\b`)
 // endCMapRe matches the operator that ends a CMap's definitions.
 var endCMapRe = regexp.MustCompile(`\bendcmap\b`)
 
-// useCMapFixer remediates Checks.Font.UseCMapNotPredefined (6.2.11.3.3): an
-// embedded CMap whose UseCMap is an embedded CMap the level does not
-// predefine. The used CMap's mappings are copied into the CMap ahead of its
-// own, which take precedence as they did over the used ones, and the UseCMap
-// entry and usecmap operator go. A UseCMap that names a CMap the file does
-// not embed cannot be merged and stays reported.
+// useCMapFixer remediates Checks.Font.UseCMapNotPredefined (6.2.11.3.3). It
+// handles an embedded CMap whose UseCMap is an embedded CMap that the level
+// does not predefine. The used CMap's mappings are copied ahead of the CMap's
+// own, which keep precedence, and the UseCMap entry and usecmap operator are
+// removed. A UseCMap that names a CMap the file does not embed cannot be merged
+// and stays reported.
 type useCMapFixer struct{ spec *pdfa.Spec }
 
 func (useCMapFixer) Applies(c pdf.Check) bool {
@@ -88,10 +88,10 @@ func (f useCMapFixer) mergeUsedCMaps(cmap pdf.PDFDict, depth int) bool {
 }
 
 // mergeCMapPrograms returns the CMap program own with the mapping blocks of
-// base, the program it uses, inserted before its own blocks, and its usecmap
-// operator replaced by one for next, the CMap base uses, or removed when next
-// is empty. A reader resolving a code that both map takes own's mapping,
-// defined later, as usecmap semantics require.
+// base, the program it uses, inserted before its own blocks. Its usecmap
+// operator is replaced by one naming next, the CMap base uses, or removed when
+// next is empty. Under usecmap semantics a later mapping overrides an earlier
+// one, so a code that both CMaps map resolves to own's mapping.
 func mergeCMapPrograms(own, base []byte, next string) []byte {
 	own = useCMapOpRe.ReplaceAll(own, nil)
 	var blocks []byte

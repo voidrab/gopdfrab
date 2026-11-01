@@ -9,7 +9,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
-// a2bSpecForTest is PDF/A-2b's spec.
+// a2bSpecForTest returns the PDF/A-2b spec.
 func a2bSpecForTest() *pdfa.Spec { s, _ := pdfa.For(pdf.A2B); return &s }
 
 // cmapStream returns an embedded CMap stream holding program, with the given
@@ -44,8 +44,9 @@ func TestMergeCMapPrograms(t *testing.T) {
 		t.Errorf("merged program = %q, want %q", got, want)
 	}
 
-	// Without mapping blocks of its own the used ones go before endcmap, and
-	// without even that at the end; next is used in place of base.
+	// A CMap without mapping blocks of its own gets the used ones before its
+	// endcmap, or at the end when it has no endcmap. next replaces base in the
+	// usecmap operator.
 	got = string(mergeCMapPrograms([]byte("begincmap\nendcmap\n"), []byte(baseCMap), "H"))
 	if !strings.HasPrefix(got, "begincmap\n/H usecmap\n1 begincodespacerange") || !strings.HasSuffix(got, "endcidchar\nendcmap\n") {
 		t.Errorf("merged program = %q", got)
@@ -245,7 +246,8 @@ func TestNotdefFixerCompositeFont(t *testing.T) {
 	if changed, _ := (notdefFixer{}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix changed nothing")
 	}
-	// CID 0 takes the default width; the byte left over goes without one.
+	// CID 0 has no /W entry, so its advance is DW, 900. The trailing partial
+	// code is dropped without an adjustment.
 	if got := contentOf(t, page); !strings.Contains(got, "[(\x00\x01) -900 (\x00\x02)] TJ") {
 		t.Errorf("content = %q", got)
 	}
@@ -367,8 +369,9 @@ func TestTrueTypeEncodingFixerSymbolOnlyCmap(t *testing.T) {
 		t.Error("Encoding kept on the now symbolic font")
 	}
 
-	// Left alone without the report, and for every program that has another
-	// subtable or cannot be read.
+	// Without the report the font is left alone. onlySymbolCmap is false for
+	// a program with another subtable, one without a (3,0) subtable, or one
+	// that cannot be read.
 	font, _ = fontWith(streamOf(sfntCmapOnly([2]uint16{3, 0})))
 	trailer = trailerWith("F", font)
 	if changed, _ := (trueTypeEncodingFixer{}).Fix(&trailer, nil); changed {
@@ -414,8 +417,8 @@ func TestType0FontFixerSupplement(t *testing.T) {
 		t.Errorf("CMap Supplement = %v, want 3", got)
 	}
 
-	// A CIDFont without a Supplement has none to give, so a second pass
-	// would change nothing either.
+	// A CIDFont without an integer Supplement gives the CMap no Supplement
+	// to copy, so the CMap is left alone.
 	font, _ = fontWith(nil, nil)
 	trailer = trailerWith("F", font)
 	if changed, _ := (type0FontFixer{}).Fix(&trailer, nil); changed {
