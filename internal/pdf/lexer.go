@@ -198,20 +198,22 @@ func (l *Lexer) UnreadToken(t Token) {
 
 // validateObjectStart validates the "N G obj" header framing required by 6.1.8
 // and returns the header's declared object number, or -1 when the header is not
-// a well-formed int/int/obj triple. Advances past the header even on
-// violations, so resolution can continue.
-func (l *Lexer) validateObjectStart() (int, []error) {
+// a well-formed int/int/obj triple, and how many bytes of white space before
+// the header it skipped. White space there is no violation, as veraPDF reads
+// the rule; whether the number starts a line is the caller's check. Advances
+// past the header even on violations, so resolution can continue.
+func (l *Lexer) validateObjectStart() (int, int64, []error) {
 	var errs []error
 
-	// The object shall begin at the cross-reference offset with no leading
-	// white space.
-	if b, ok := l.peekByte(); ok && IsWhitespace(b) {
-		errs = append(errs, fmt.Errorf("object header preceded by white space"))
+	var skipped int64
+	for b, ok := l.peekByte(); ok && IsWhitespace(b); b, ok = l.peekByte() {
+		l.readByte()
+		skipped++
 	}
 
 	objTok := l.NextToken()
 	if objTok.Type != TokenInteger {
-		return -1, append(errs, fmt.Errorf("invalid object number: %q", objTok.Value))
+		return -1, skipped, append(errs, fmt.Errorf("invalid object number: %q", objTok.Value))
 	}
 
 	if err := l.requireSingleSpace(); err != nil {
@@ -220,7 +222,7 @@ func (l *Lexer) validateObjectStart() (int, []error) {
 
 	genTok := l.NextToken()
 	if genTok.Type != TokenInteger {
-		return -1, append(errs, fmt.Errorf("invalid generation number: %q", genTok.Value))
+		return -1, skipped, append(errs, fmt.Errorf("invalid generation number: %q", genTok.Value))
 	}
 
 	if err := l.requireSingleSpace(); err != nil {
@@ -229,14 +231,14 @@ func (l *Lexer) validateObjectStart() (int, []error) {
 
 	objKw := l.NextToken()
 	if objKw.Type != TokenObjectStart {
-		return -1, append(errs, fmt.Errorf("expected 'obj' keyword, got %q", objKw.Value))
+		return -1, skipped, append(errs, fmt.Errorf("expected 'obj' keyword, got %q", objKw.Value))
 	}
 
 	if err := l.requireEOL(); err != nil {
 		errs = append(errs, fmt.Errorf("'obj' keyword not followed by single EOL: %v", err))
 	}
 
-	return objTok.IntValue(), errs
+	return objTok.IntValue(), skipped, errs
 }
 
 // validateEndObj validates the framing around an unconsumed endobj keyword

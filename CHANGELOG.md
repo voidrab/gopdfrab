@@ -55,6 +55,9 @@ Everything under `internal/` may change in any release without notice.
 - Verify reports a `stream` keyword followed by a lone carriage return, which
   the rule on stream framing does not allow: the EOL must be CRLF or a single
   LF. It also reports an indirect object whose number does not start a line.
+- Verify no longer reports white space between an object's cross-reference
+  offset and its header as an object framing violation. The header only has
+  to start a line, as veraPDF reads the rule.
 - An inline image's dictionary and string parameters, such as the `/DP`
   decode parameters of a CCITT image, are read as values. They used to be
   spilled into the parameter list, so that verify misread them and a convert

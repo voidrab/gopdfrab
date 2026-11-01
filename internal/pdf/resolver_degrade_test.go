@@ -368,23 +368,27 @@ func TestUndefinedObjectIsNullNotDegraded(t *testing.T) {
 
 // TestObjectNumberPrecededByEOL verifies that an object whose number does not
 // start a line is a framing violation, while one at the start of a line or of
-// the file is not.
+// the file is not. An offset may point at white space before the header, and
+// the byte before the number decides.
 func TestObjectNumberPrecededByEOL(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		prefix string
+		back   int  // how many bytes before the header the offset points
 		want   bool // whether a framing diagnostic is recorded
 	}{
-		{"start of file", "", false},
-		{"after LF", "x\n", false},
-		{"after CR", "x\r", false},
-		{"after spaces", "x\n   ", true},
-		{"after a token", "endobj ", true},
+		{"start of file", "", 0, false},
+		{"after LF", "x\n", 0, false},
+		{"after CR", "x\r", 0, false},
+		{"after spaces", "x\n   ", 0, true},
+		{"after a token", "endobj ", 0, true},
+		{"offset at the EOL before it", "x\n", 1, false},
+		{"offset at spaces after an EOL", "x\n  ", 2, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			data := []byte(tc.prefix + "1 0 obj\n<< >>\nendobj\n")
 			d := &Reader{src: memSource(data)}
-			if _, _, err := d.readObjectAt(int64(len(tc.prefix)), 1, false); err != nil {
+			if _, _, err := d.readObjectAt(int64(len(tc.prefix)-tc.back), 1, false); err != nil {
 				t.Fatalf("readObjectAt: %v", err)
 			}
 			if got := len(framingDiagsFor(d, 1)) > 0; got != tc.want {
