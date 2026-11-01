@@ -1577,7 +1577,7 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	page.Entries.Set("Contents", pdf.NewStreamDict(pdf.NewPDFDict().Entries, content))
 
 	ctx := &ValidationContext{Spec: a1bSpec}
-	reachable, invisibleOnly, usedCodes, usedCIDs, _ := ComputeContentUsage(page, ctx)
+	reachable, invisibleOnly, usedCodes, usedCIDs, _, _ := ComputeContentUsage(page, ctx)
 
 	xobjPtr := pdf.ValuePointer(xobj.Entries)
 	if !reachable[xobjPtr] {
@@ -1628,7 +1628,7 @@ func TestComputeContentUsageThroughInheritedResources(t *testing.T) {
 	pages.Entries.Set("Kids", pdf.PDFArray{page})
 	page.Entries.Set("Parent", pages)
 
-	_, _, usedCodes, _, _ := ComputeContentUsage(pages, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, _, _, _ := ComputeContentUsage(pages, &ValidationContext{Spec: a1bSpec})
 	if len(usedCodes[pdf.ValuePointer(font.Entries)]) == 0 {
 		t.Error("no usage recorded for a font named only by inherited resources")
 	}
@@ -1668,7 +1668,7 @@ func TestComputeContentUsageAcrossASplitContents(t *testing.T) {
 	page.Entries.Set("Resources", resources)
 	page.Entries.Set("Contents", pdf.PDFArray{first, second})
 
-	_, _, usedCodes, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, _, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
 	if !usedCodes[pdf.ValuePointer(font.Entries)][int('A')] {
 		t.Errorf("code 'A' shown after a stream boundary not attributed: got %v", usedCodes[pdf.ValuePointer(font.Entries)])
 	}
@@ -1712,7 +1712,7 @@ func TestComputeContentUsageRestoresFontOnQ(t *testing.T) {
 	page.Entries.Set("Resources", resources)
 	page.Entries.Set("Contents", pdf.NewStreamDict(pdf.NewPDFDict().Entries, data))
 
-	_, _, usedCodes, usedCIDs, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, usedCIDs, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
 	codes := usedCodes[pdf.ValuePointer(simple.Entries)]
 	if !codes['D'] || !codes['O'] {
 		t.Errorf("text after Q not attributed to the restored simple font: codes %v", codes)
@@ -1767,7 +1767,7 @@ func TestComputeContentUsageFormInheritsFont(t *testing.T) {
 		{Op: "BT"}, tf("F2"), {Op: "ET"}, do,
 	})))
 
-	_, _, usedCodes, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, _, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
 	for name, f := range map[string]pdf.PDFDict{"F1": f1, "F2": f2} {
 		if codes := usedCodes[pdf.ValuePointer(f.Entries)]; !codes['A'] || !codes['B'] {
 			t.Errorf("%s: form text not attributed to the inherited font: %v", name, codes)
@@ -2390,7 +2390,7 @@ func TestComputeContentUsageCompleteness(t *testing.T) {
 				page.Entries.Set("Annots", tc.annots)
 			}
 			ctx := &ValidationContext{Spec: a1bSpec}
-			_, _, usedCodes, _, complete := ComputeContentUsage(page, ctx)
+			_, _, usedCodes, _, _, complete := ComputeContentUsage(page, ctx)
 			if complete != tc.wantComplete {
 				t.Errorf("complete = %v, want %v (issues %v)", complete, tc.wantComplete, ctx.Issues())
 			}

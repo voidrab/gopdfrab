@@ -194,6 +194,9 @@ var stableCheckIDs = map[string]int{
 	"JPXColourMethod":                  182,
 	"JPXCIEJab":                        183,
 	"JPXBitDepth":                      184,
+	"UseCMapNotPredefined":             185,
+	"NonSymbolicTrueTypeCmap":          186,
+	"NotdefGlyphReference":             187,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {

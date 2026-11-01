@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -16,30 +18,27 @@ import (
 // embedded font program: a used glyph the program does not define violates
 // 6.3.5-1, and a defined-but-used glyph missing from the descriptor's CharSet
 // violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
-// string stands in as the glyph set when the program is unparseable.
+// string stands in as the glyph set when the program is unparseable. A level
+// whose subsets may omit the CharSet checks the program alone when the CharSet
+// is absent.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
-	charSetVal, ok := desc.Entries.Lookup("CharSet")
-	if !ok {
+	var charSet map[string]bool
+	if charSetVal, ok := desc.Entries.Lookup("CharSet"); ok {
+		raw, isString := pdf.StringBytes(charSetVal)
+		if !isString {
+			return
+		}
+		charSetStr := string(raw)
+		if charSetStr == "" {
+			ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, "Type 1 subset font descriptor has an empty CharSet")
+			return
+		}
+		charSet = map[string]bool{".notdef": true}
+		for _, part := range fontprog.SplitCharSetNames(charSetStr) {
+			charSet[part] = true
+		}
+	} else if !ctx.subsetSetsOptional() {
 		return // CharSet absence is caught by a separate check
-	}
-	var charSetStr string
-	switch cs := charSetVal.(type) {
-	case pdf.PDFString:
-		charSetStr = cs.Value
-	case pdf.PDFHexString:
-		charSetStr = string(pdf.DecodePDFHexStringBytes(cs.Value))
-	default:
-		return
-	}
-
-	if charSetStr == "" {
-		ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, "Type 1 subset font descriptor has an empty CharSet")
-		return
-	}
-
-	charSet := map[string]bool{".notdef": true}
-	for _, part := range fontprog.SplitCharSetNames(charSetStr) {
-		charSet[part] = true
 	}
 
 	// The program's own glyph set is the coverage ground truth; CharSet is
@@ -57,6 +56,9 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		for _, n := range programNames {
 			glyphSet[n] = true
 		}
+	}
+	if glyphSet == nil {
+		return // Without a CharSet or a readable program, nothing can be checked.
 	}
 
 	glyphNames, ok := type1SubsetGlyphNames(v, desc, ctx)
@@ -76,7 +78,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d maps to glyph /%s which is not defined in the embedded font subset", cc, glyph))
 			return false
 		}
-		if haveProgram && !charSet[glyph] {
+		if haveProgram && charSet != nil && !charSet[glyph] {
 			ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, fmt.Sprintf("CharSet does not list used glyph /%s defined in the font subset", glyph))
 			return false
 		}
@@ -241,11 +243,10 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 	}
 	csCount := int(binary.BigEndian.Uint16(data[td.CSOffset : td.CSOffset+2]))
 
-	var used map[int]bool
-	var knownUsage bool
-	if desc, ok := obj.(pdf.PDFDict); ok {
-		used, knownUsage = ctx.usedCIDsFor(desc)
-	}
+	// With known usage, the CIDs checked are those shown, including those
+	// that rely on the default width DW. Otherwise they are the CIDs the W
+	// array lists.
+	cidList, _ := cidsToCheck(obj, w, ctx)
 
 	// CID-keyed CFFs remap glyph IDs to CIDs via the Charset table (GID and
 	// CID differ); non-CID-keyed CFFs use the GID directly as the CID.
@@ -261,27 +262,19 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 		// A bare/near-empty CharString (e.g. a single "endchar" byte, no
 		// hsbw/width) is functionally undefined despite the charset entry.
 		lens := fontprog.ParseCFFCharStringLengths(data, td.CSOffset)
-		for _, pair := range fontprog.ParseCIDWidths(w) {
-			cid := pair[0]
-			if knownUsage && !used[cid] {
-				continue
-			}
+		for _, cid := range cidList {
 			gid, ok := gidOfCID[cid]
 			if !ok || (lens != nil && gid < len(lens) && lens[gid] <= 1) {
-				ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced in font W array is not defined in CFF charset", cid))
+				ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced for rendering is not defined in CFF charset", cid))
 				return
 			}
 		}
 		return
 	}
 
-	for _, pair := range fontprog.ParseCIDWidths(w) {
-		cid := pair[0]
-		if knownUsage && !used[cid] {
-			continue
-		}
+	for _, cid := range cidList {
 		if cid >= csCount {
-			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced in font W array is not defined in CFF CharStrings (count=%d)", cid, csCount))
+			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced for rendering is not defined in CFF CharStrings (count=%d)", cid, csCount))
 			return
 		}
 	}
@@ -383,12 +376,8 @@ func cidsRenderedBy(obj pdf.PDFDict, ctx *ValidationContext) (cids []int, known 
 	if !known {
 		return nil, false
 	}
-	cids = make([]int, 0, len(used))
-	for cid := range used {
-		cids = append(cids, cid)
-	}
-	sort.Ints(cids) // the first mismatch is reported, so the order must be stable
-	return cids, true
+	// The first mismatch is reported, so the order must be stable.
+	return slices.Sorted(maps.Keys(used)), true
 }
 
 // cidsToCheck returns the CIDs a coverage/metrics check should examine for the
@@ -398,12 +387,7 @@ func cidsRenderedBy(obj pdf.PDFDict, ctx *ValidationContext) (cids []int, known 
 func cidsToCheck(obj pdf.PDFValue, w pdf.PDFArray, ctx *ValidationContext) (cids []int, knownUsage bool) {
 	if desc, ok := obj.(pdf.PDFDict); ok {
 		if used, known := ctx.usedCIDsFor(desc); known {
-			cids = make([]int, 0, len(used))
-			for cid := range used {
-				cids = append(cids, cid)
-			}
-			sort.Ints(cids)
-			return cids, true
+			return slices.Sorted(maps.Keys(used)), true
 		}
 	}
 	for _, pair := range fontprog.ParseCIDWidths(w) {
@@ -630,6 +614,14 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		return r.Fallback(cc)
 	}
 
+	// With known usage, every shown code is checked, including those with a
+	// zero width. Otherwise only codes with a nonzero width are checked, as a
+	// zero width often marks a code the font leaves unused.
+	var shown map[int]bool
+	knownUsage := false
+	if fontDict, ok := obj.(pdf.PDFDict); ok {
+		shown, knownUsage = ctx.usedCodesFor(fontDict)
+	}
 	for i, w := range widths {
 		var pdfWidth int
 		switch wv := w.(type) {
@@ -640,10 +632,11 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		default:
 			continue
 		}
-		if pdfWidth == 0 {
+		cc := firstChar + i
+		if knownUsage && !shown[cc] || !knownUsage && pdfWidth == 0 {
 			continue
 		}
-		gid, known := codeToGID(firstChar + i)
+		gid, known := codeToGID(cc)
 		if !known {
 			continue
 		}
@@ -653,7 +646,7 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		}
 		if math.Abs(fontWidth-float64(pdfWidth)) > 1 {
 			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %s",
-				firstChar+i, pdfWidth, formatWidth(fontWidth)))
+				cc, pdfWidth, formatWidth(fontWidth)))
 			return
 		}
 	}
@@ -703,27 +696,23 @@ func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *V
 	}
 }
 
-// trueTypeCmapSubtables returns the number of cmap subtables in an embedded
-// TrueType font, and whether it could be determined.
-func trueTypeCmapSubtables(ctx *ValidationContext, desc pdf.PDFDict) (int, bool) {
+// trueTypeCmaps returns the cmap table summary of an embedded TrueType font,
+// and whether it could be read.
+func trueTypeCmaps(ctx *ValidationContext, desc pdf.PDFDict) (fontprog.CmapSummary, bool) {
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok {
-		return 0, false
+		return fontprog.CmapSummary{}, false
 	}
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
-		return 0, false
+		return fontprog.CmapSummary{}, false
 	}
 	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
-		return 0, false
+		return fontprog.CmapSummary{}, false
 	}
-	cmap, ok := tables["cmap"]
-	if !ok || len(cmap) < 4 {
-		return 0, false
-	}
-	return int(binary.BigEndian.Uint16(cmap[2:4])), true
+	return fontprog.SummarizeCmap(tables)
 }
 
 // type1ProgramFor memoizes ExtractType1Program per decoded font program for

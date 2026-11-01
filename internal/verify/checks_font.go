@@ -8,11 +8,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// predefinedCMaps are the CMap names that need not be embedded (6.3.3.3).
-var predefinedCMaps = map[string]bool{
-	"Identity-H": true, "Identity-V": true,
-}
-
 // HasEmbeddedProgram reports whether a font descriptor embeds a font program via
 // any of the given FontFile keys.
 func HasEmbeddedProgram(desc pdf.PDFDict, keys ...string) bool {
@@ -120,7 +115,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 			haveWidths := fcOK && lcOK && wOK
 
 			if subset {
-				if desc.Entries != nil && desc.Entries.Get("CharSet") == nil {
+				if desc.Entries != nil && desc.Entries.Get("CharSet") == nil && !ctx.subsetSetsOptional() {
 					ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, v, "Type 1 subset font descriptor lacks CharSet")
 				} else if !renderingMode3 && haveWidths {
 					ValidateType1SubsetCoverage(v, v, desc, int(firstChar), int(lastChar), widths, ctx)
@@ -136,11 +131,24 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 		}
 
 	case "CIDFontType0", "CIDFontType2":
-		if subtype.Value == "CIDFontType2" && v.Entries.Get("CIDToGIDMap") == nil && !renderingMode3 {
-			ctx.Report(pdf.Checks.Font.CIDToGIDMapMissing, v, "CIDFontType2 lacks CIDToGIDMap")
+		// PDF/A-1 exempts a font used only in rendering mode 3, PDF/A-2 one
+		// with no embedded program.
+		cidToGIDExempt := renderingMode3
+		if ctx.part2() {
+			cidToGIDExempt = !containsFontFile
+		}
+		if subtype.Value == "CIDFontType2" && !cidToGIDExempt {
+			switch c2g := v.Entries.Get("CIDToGIDMap"); {
+			case c2g == nil:
+				ctx.Report(pdf.Checks.Font.CIDToGIDMapMissing, v, "CIDFontType2 lacks CIDToGIDMap")
+			case !ValidCIDToGIDMap(c2g):
+				ctx.Report(pdf.Checks.Font.CIDToGIDMapMissing, v, "CIDFontType2 CIDToGIDMap is neither a stream nor Identity")
+			}
 		}
 		if subset && desc.Entries != nil && desc.Entries.Get("CIDSet") == nil {
-			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
+			if !ctx.subsetSetsOptional() {
+				ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
+			}
 		} else if subset && !renderingMode3 {
 			switch subtype.Value {
 			case "CIDFontType0":
@@ -153,18 +161,25 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 				}
 			}
 		}
-		if w, ok2 := v.Entries.Get("W").(pdf.PDFArray); ok2 && !renderingMode3 {
+		// A missing W array leaves w empty, so every CID takes the default
+		// width; the subset checks still cover the CIDs shown.
+		if w, _ := v.Entries.Get("W").(pdf.PDFArray); !renderingMode3 {
+			// A code cut short by the end of a string selects no glyph.
+			partial := subset && containsFontFile && ctx.showsPartialCode(v)
+			if partial {
+				ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, v, "a shown string ends in the middle of a two-byte character code")
+			}
 			switch subtype.Value {
 			case "CIDFontType2":
 				if ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
-					if subset {
+					if subset && !partial {
 						ValidateCIDTrueTypeSubset(v, ff, w, ctx)
 					}
 					validateCIDTrueTypeMetrics(v, ff, w, ctx)
 				}
 			case "CIDFontType0":
 				if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
-					if subset {
+					if subset && !partial {
 						ValidateCIDCFFSubset(v, ff, w, ctx)
 					}
 					validateCIDCFFMetrics(v, v, ff, w, ctx)
@@ -177,6 +192,10 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 
 	case "Type0":
 		validateType0Font(v, ctx)
+	}
+
+	if ctx.part2() {
+		validateNotdefReferences(v, subtype.Value, desc, ctx)
 	}
 }
 
@@ -252,13 +271,20 @@ func Type3GlyphWidth(data []byte) float64 {
 	return result
 }
 
-// validateTrueTypeEncoding checks symbolic/non-symbolic TrueType encodings (6.3.7).
+// validateTrueTypeEncoding checks symbolic/non-symbolic TrueType encodings
+// and cmap tables (6.3.7, 6.2.11.6).
 func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationContext) {
 	flags := 0
 	if f, ok := desc.Entries.Get("Flags").(pdf.PDFInteger); ok {
 		flags = int(f)
 	}
 	symbolic := flags&4 != 0
+	// Only the symbolic rules and those of PDF/A-2 read the cmap table.
+	var cmaps fontprog.CmapSummary
+	haveCmaps := false
+	if symbolic || ctx.part2() {
+		cmaps, haveCmaps = trueTypeCmaps(ctx, desc)
+	}
 
 	enc := v.Entries.Get("Encoding")
 	if symbolic {
@@ -267,10 +293,16 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 			ctx.Report(pdf.Checks.Font.SymbolicTrueTypeEncoding, v, "symbolic TrueType font shall not specify Encoding")
 		}
 		// 6.3.7: a symbolic TrueType cmap shall contain exactly one subtable.
-		if n, ok := trueTypeCmapSubtables(ctx, desc); ok && n != 1 {
-			ctx.Report(pdf.Checks.Font.SymbolicTrueTypeCmap, v, fmt.Sprintf("symbolic TrueType cmap has %d subtables, expected 1", n))
+		// PDF/A-2 also allows several when one is the (3,0) subtable.
+		if haveCmaps && cmaps.Count != 1 && !(ctx.symbolCmapAmongOthers() && cmaps.Symbol) {
+			ctx.Report(pdf.Checks.Font.SymbolicTrueTypeCmap, v, fmt.Sprintf("symbolic TrueType cmap has %d subtables, expected 1", cmaps.Count))
 		}
 		return
+	}
+
+	// 6.2.11.6: a non-symbolic program needs a cmap subtable other than (3,0).
+	if ctx.part2() && haveCmaps && (cmaps.Count == 0 || cmaps.Symbol && cmaps.Count == 1) {
+		ctx.Report(pdf.Checks.Font.NonSymbolicTrueTypeCmap, v, "non-symbolic TrueType cmap has no subtable other than (3,0)")
 	}
 
 	// Non-symbolic TrueType: Encoding shall be MacRomanEncoding or
@@ -281,10 +313,48 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 	if ctx.SkipUnusedSimpleFonts && !ctx.simpleFontShown(v) {
 		return
 	}
+	if ctx.part2() {
+		if msg := part2TrueTypeEncodingProblem(enc, cmaps, haveCmaps, desc); msg != "" {
+			ctx.Report(pdf.Checks.Font.TrueTypeEncoding, v, msg)
+		}
+		return
+	}
 	name, ok := enc.(pdf.PDFName)
 	if !ok || (name.Value != "MacRomanEncoding" && name.Value != "WinAnsiEncoding") {
 		ctx.Report(pdf.Checks.Font.TrueTypeEncoding, v, "non-symbolic TrueType font shall use MacRoman or WinAnsi encoding")
 	}
+}
+
+// part2TrueTypeEncodingProblem returns a description of how a non-symbolic
+// TrueType font's Encoding breaks 6.2.11.6, or "" if it does not. The Encoding,
+// or its BaseEncoding, must be MacRomanEncoding or WinAnsiEncoding. Differences
+// may name only Adobe Glyph List glyphs, and only when the program has a (3,1)
+// cmap subtable, as veraPDF reads the rule.
+func part2TrueTypeEncodingProblem(enc pdf.PDFValue, cmaps fontprog.CmapSummary, haveCmaps bool, desc pdf.PDFDict) string {
+	base := enc
+	dict, isDict := enc.(pdf.PDFDict)
+	if isDict {
+		base = dict.Entries.Get("BaseEncoding")
+	}
+	if name, ok := base.(pdf.PDFName); !ok || (name.Value != "MacRomanEncoding" && name.Value != "WinAnsiEncoding") {
+		return "non-symbolic TrueType font shall use MacRoman or WinAnsi encoding"
+	}
+	if !isDict || dict.Entries.Get("Differences") == nil || !HasEmbeddedProgram(desc, "FontFile2") {
+		return ""
+	}
+	if !haveCmaps || !cmaps.Unicode {
+		return "non-symbolic TrueType font with Differences has no (3,1) cmap subtable"
+	}
+	bad := ""
+	fontprog.EachDifference(dict, func(_ int, name string) {
+		if bad == "" && !fontprog.InAdobeGlyphList(name) {
+			bad = name
+		}
+	})
+	if bad != "" {
+		return fmt.Sprintf("Differences glyph name /%s is not in the Adobe Glyph List", bad)
+	}
+	return ""
 }
 
 // IdentityCIDToGIDMap reports whether a CIDFontType2's CIDToGIDMap maps each CID
@@ -305,22 +375,39 @@ func DescendantCIDFont(v pdf.PDFDict) pdf.PDFDict {
 	return pdf.PDFDict{}
 }
 
-// validateType0Font checks composite font CMap embedding (6.3.3.3) and
-// CIDSystemInfo consistency (6.3.3.1).
+// ValidCIDToGIDMap reports whether a CIDToGIDMap value is one that ISO 32000-1
+// allows: a stream or the name Identity.
+func ValidCIDToGIDMap(c2g pdf.PDFValue) bool {
+	if d, ok := c2g.(pdf.PDFDict); ok {
+		return d.IsStream()
+	}
+	return c2g == pdf.PDFName{Value: "Identity"}
+}
+
+// validateType0Font checks composite font CMap embedding (6.3.3.3,
+// 6.2.11.3.3) and CIDSystemInfo consistency (6.3.3.1, 6.2.11.3.1).
 func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 	enc := v.Entries.Get("Encoding")
 
 	// 6.3.3.3: a CMap shall be one of the predefined CMaps or embedded.
-	if name, ok := enc.(pdf.PDFName); ok && !predefinedCMaps[name.Value] {
+	if name, ok := enc.(pdf.PDFName); ok && !ctx.predefinedCMap(name.Value) {
 		ctx.Report(pdf.Checks.Font.CMapNotEmbedded, v, fmt.Sprintf("CMap /%s is neither predefined nor embedded", name.Value))
 	}
-	// 6.3.3.3: an embedded CMap's WMode shall be consistent.
-	if cmap, ok := enc.(pdf.PDFDict); ok {
+	cmap, cmapOK := enc.(pdf.PDFDict)
+	if cmapOK {
+		// 6.3.3.3: an embedded CMap's WMode shall be consistent.
 		validateCMapWMode(v, cmap, ctx)
+		// 6.2.11.3.3: an embedded CMap may use only predefined CMaps.
+		if ctx.Spec != nil && ctx.Spec.UseCMapPredefined {
+			if used := cmap.Entries.Get("UseCMap"); used != nil {
+				if name := CMapName(used); !ctx.predefinedCMap(name) {
+					ctx.Report(pdf.Checks.Font.UseCMapNotPredefined, v, fmt.Sprintf("CMap uses CMap /%s, which is not predefined", name))
+				}
+			}
+		}
 	}
 
 	// 6.3.3.1: an embedded CMap's CIDSystemInfo shall match the CIDFont's.
-	cmap, cmapOK := enc.(pdf.PDFDict)
 	cid := DescendantCIDFont(v)
 	if cmapOK && cid.Entries != nil {
 		cmapCSI, _ := cmap.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
@@ -328,9 +415,21 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 		if cmapCSI.Entries != nil && cidCSI.Entries != nil {
 			if !SameCIDSystemInfo(cmapCSI, cidCSI) {
 				ctx.Report(pdf.Checks.Font.CIDSystemInfoMismatch, v, "CMap and CIDFont CIDSystemInfo are incompatible")
+			} else if ctx.part2() && !SupplementCovered(cmapCSI, cidCSI) {
+				ctx.Report(pdf.Checks.Font.CIDSystemInfoMismatch, v, "CIDFont CIDSystemInfo Supplement exceeds the CMap's")
 			}
 		}
 	}
+}
+
+// CMapName returns the name of a CMap given by name or as a stream with a
+// CMapName entry, or "".
+func CMapName(cmap pdf.PDFValue) string {
+	if d, ok := cmap.(pdf.PDFDict); ok {
+		cmap = d.Entries.Get("CMapName")
+	}
+	name, _ := cmap.(pdf.PDFName)
+	return name.Value
 }
 
 // SameCIDSystemInfo reports whether two CIDSystemInfo dictionaries share Registry
@@ -338,6 +437,14 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 func SameCIDSystemInfo(a, b pdf.PDFDict) bool {
 	return cidInfoField(a, "Registry") == cidInfoField(b, "Registry") &&
 		cidInfoField(a, "Ordering") == cidInfoField(b, "Ordering")
+}
+
+// SupplementCovered reports whether a CMap's CIDSystemInfo has a Supplement at
+// least the CIDFont's, as PDF/A-2 requires; both must be integers.
+func SupplementCovered(cmapCSI, cidCSI pdf.PDFDict) bool {
+	cmapSupp, ok1 := cmapCSI.Entries.Get("Supplement").(pdf.PDFInteger)
+	cidSupp, ok2 := cidCSI.Entries.Get("Supplement").(pdf.PDFInteger)
+	return ok1 && ok2 && cidSupp <= cmapSupp
 }
 
 func cidInfoField(d pdf.PDFDict, key string) string {

@@ -323,7 +323,8 @@ func verifyPdfAParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pd
 	}
 	ctx.PageIndex = pageIndex
 	if !schemaOnly {
-		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
+		reachable, invisibleOnly, usedCodes, usedCIDs, partialCodes, complete := ComputeContentUsage(graph, ctx)
+		ctx.partialCodeFonts = partialCodes
 		// An object degraded to null makes the usage sets a subset of the
 		// truth the same way an undecodable content stream does.
 		complete = complete && !d.HasDegradedObjects()
@@ -984,11 +985,15 @@ func isContainer(val pdf.PDFValue) bool {
 //
 // complete is false when any content stream failed to decode, meaning the
 // sets are a subset of the truth. Since every one of them drives a check
-// *suppression*, callers must discard them all in that case.
+// *suppression*, callers must discard them all in that case. partialCodes
+// names the composite fonts for which a shown string ends in the middle of a
+// two-byte code. It drives reports rather than suppressions, so it is
+// returned even when complete is false.
 func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	reachable map[uintptr]bool,
 	invisibleOnly map[uintptr]bool,
 	usedCodes, usedCIDs map[uintptr]map[int]bool,
+	partialCodes map[uintptr]bool,
 	complete bool,
 ) {
 	complete = true
@@ -1048,7 +1053,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			invisibleOnly[ptr] = true
 		}
 	}
-	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, complete
+	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, fu.partialCodes, complete
 }
 
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
@@ -1146,6 +1151,7 @@ type fontUsage struct {
 	invisible       map[uintptr]bool
 	usedCodes       map[uintptr]map[int]bool
 	usedCIDs        map[uintptr]map[int]bool
+	partialCodes    map[uintptr]bool
 	scannedPatterns map[uintptr]bool
 	scannedForms    map[formScan]bool
 }
@@ -1157,6 +1163,7 @@ func newFontUsage() *fontUsage {
 		invisible:       map[uintptr]bool{},
 		usedCodes:       map[uintptr]map[int]bool{},
 		usedCIDs:        map[uintptr]map[int]bool{},
+		partialCodes:    map[uintptr]bool{},
 		scannedPatterns: map[uintptr]bool{},
 		scannedForms:    map[formScan]bool{},
 	}
@@ -1245,10 +1252,14 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set = map[int]bool{}
 					fu.usedCIDs[st.compositeFontPtr] = set
 				}
-				shown := pdf.ShownStringBytes(op, operands)
-				for i := 0; i+1 < len(shown); i += 2 {
-					set[int(shown[i])<<8|int(shown[i+1])] = true
-				}
+				pdf.EachShownString(op, operands, func(shown []byte) {
+					for i := 0; i+1 < len(shown); i += 2 {
+						set[int(shown[i])<<8|int(shown[i+1])] = true
+					}
+					if len(shown)%2 != 0 {
+						fu.partialCodes[st.compositeFontPtr] = true
+					}
+				})
 			}
 		case "scn", "SCN":
 			// A tiling pattern set as fill/stroke colour runs its own content

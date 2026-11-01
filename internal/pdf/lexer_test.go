@@ -245,7 +245,7 @@ func TestValidateObjectStart(t *testing.T) {
 		wantNum  int
 	}{
 		{"well-formed", "1 0 obj\n", 0, 1},
-		{"leading whitespace", " 1 0 obj\n", 1, 1},
+		{"leading whitespace", " 1 0 obj\n", 0, 1},
 		{"invalid object number", "X 0 obj\n", 1, -1},
 		{"invalid generation number", "1 X obj\n", 1, -1},
 		{"missing obj keyword", "1 0 foo\n", 1, -1},
@@ -255,7 +255,7 @@ func TestValidateObjectStart(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			l := NewLexerBytes([]byte(tc.data), 0)
-			num, errs := l.validateObjectStart()
+			num, _, errs := l.validateObjectStart()
 			if len(errs) != tc.wantErrs {
 				t.Errorf("validateObjectStart(%q) = %v, want %d errors", tc.data, errs, tc.wantErrs)
 			}
@@ -368,11 +368,11 @@ func TestPeekByteAtEOF(t *testing.T) {
 // before endobj, each reported without stopping the parse.
 func TestObjectFramingSpacing(t *testing.T) {
 	l := NewLexerBytes([]byte("1  0 obj\n"), 0)
-	if num, errs := l.validateObjectStart(); num != 1 || len(errs) != 1 {
+	if num, _, errs := l.validateObjectStart(); num != 1 || len(errs) != 1 {
 		t.Errorf("double space after object number: num=%d errs=%v", num, errs)
 	}
 	l = NewLexerBytes([]byte("1 0  obj\n"), 0)
-	if num, errs := l.validateObjectStart(); num != 1 || len(errs) != 1 {
+	if num, _, errs := l.validateObjectStart(); num != 1 || len(errs) != 1 {
 		t.Errorf("double space after generation: num=%d errs=%v", num, errs)
 	}
 	l = NewLexerBytes([]byte("endobj\n"), 0)

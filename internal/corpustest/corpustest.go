@@ -87,7 +87,7 @@ var (
 		Default: pdf.PDFA2B,
 		Flavour: "2b",
 		Naming:  VeraPDFNames,
-		Clauses: []string{"6.1", "6.2.2", "6.2.3", "6.2.4", "6.2.5", "6.2.6", "6.2.8", "6.2.9", "6.2.10"},
+		Clauses: []string{"6.1", "6.2.2", "6.2.3", "6.2.4", "6.2.5", "6.2.6", "6.2.8", "6.2.9", "6.2.10", "6.2.11"},
 		Reclassified: map[string]string{
 			// The rendering intent of an image dictionary is checked under
 			// 6.2.6, not 6.2.8.

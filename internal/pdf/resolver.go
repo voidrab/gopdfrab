@@ -189,8 +189,8 @@ func (d *Reader) readObjectAt(offset int64, objNum int, bootstrap bool) (_ PDFVa
 		}
 	}()
 
-	headerNum, headerErrs := l.validateObjectStart()
-	if len(headerErrs) == 0 && !d.precededByEOL(offset) {
+	headerNum, skipped, headerErrs := l.validateObjectStart()
+	if len(headerErrs) == 0 && !d.precededByEOL(offset+skipped) {
 		headerErrs = append(headerErrs, errors.New("object number not preceded by an EOL marker"))
 	}
 	if bootstrap {

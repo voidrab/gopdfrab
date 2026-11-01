@@ -586,27 +586,43 @@ func NumericOperands(operands []PDFValue) []float64 {
 // text-showing operator passes to the font.
 func ShownStringBytes(op string, operands []PDFValue) []byte {
 	var out []byte
-	appendOperand := func(v PDFValue) {
+	eachShownOperand(op, operands, func(v PDFValue) {
 		switch s := v.(type) {
 		case PDFString:
 			out = append(out, s.Value...)
 		case PDFHexString:
 			out = append(out, DecodePDFHexStringBytes(s.Value)...)
 		}
-	}
-	switch op {
-	case "TJ":
-		if len(operands) > 0 {
-			if arr, ok := operands[len(operands)-1].(PDFArray); ok {
-				for _, item := range arr {
-					appendOperand(item)
-				}
-			}
-		}
-	default: // Tj, ', "
-		if len(operands) > 0 {
-			appendOperand(operands[len(operands)-1])
-		}
-	}
+	})
 	return out
+}
+
+// EachShownString calls fn with the bytes of each string a text-showing
+// operator shows, in order. The strings of a TJ array come one at a time,
+// since a character code never spans two of them.
+func EachShownString(op string, operands []PDFValue, fn func([]byte)) {
+	eachShownOperand(op, operands, func(v PDFValue) {
+		if b, ok := StringBytes(v); ok {
+			fn(b)
+		}
+	})
+}
+
+// eachShownOperand calls fn with each operand of a text-showing operator
+// that may be a string it shows: each element of a TJ array, or the last
+// operand of Tj, ' and ".
+func eachShownOperand(op string, operands []PDFValue, fn func(PDFValue)) {
+	if len(operands) == 0 {
+		return
+	}
+	last := operands[len(operands)-1]
+	if op != "TJ" {
+		fn(last)
+		return
+	}
+	if arr, ok := last.(PDFArray); ok {
+		for _, item := range arr {
+			fn(item)
+		}
+	}
 }

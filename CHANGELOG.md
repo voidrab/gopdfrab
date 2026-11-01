@@ -46,6 +46,10 @@ Everything under `internal/` may change in any release without notice.
   `JPXCIEJab` and `JPXBitDepth`, and
   `Checks.Transparency.TransparencyWithoutBlendingSpace` and
   `DeviceBlendingColourSpace`.
+- Three more PDF/A-2-only checks, for fonts: `Checks.Font.UseCMapNotPredefined`,
+  `NonSymbolicTrueTypeCmap` and `NotdefGlyphReference`. Converting to PDF/A-2b
+  merges a CMap that an embedded CMap uses into it, and takes the codes that
+  select the .notdef glyph out of the text, leaving their advance in place.
 
 ### Fixed
 
@@ -55,6 +59,24 @@ Everything under `internal/` may change in any release without notice.
 - Verify reports a `stream` keyword followed by a lone carriage return, which
   the rule on stream framing does not allow: the EOL must be CRLF or a single
   LF. It also reports an indirect object whose number does not start a line.
+- Verify no longer reports white space between an object's cross-reference
+  offset and its header as an object framing violation. The header only has
+  to start a line, as veraPDF reads the rule.
+- Verify checks every CID a subset CIDFontType0 font shows against its
+  program, not only those its W array lists, checks a CIDFontType2 font with
+  no W array too, and reports a shown string that ends in the middle of a
+  two-byte code as a missing glyph.
+- Verify reports a CIDToGIDMap that is neither a stream nor Identity, and
+  convert replaces it with Identity.
+- Verify checks the width of every shown code of a TrueType font, including
+  one whose Widths entry is 0, and convert corrects such entries.
+- Convert corrects the JP2 image header of JPEG 2000 data whose number of
+  components or bit depth disagrees with its codestream, which PDF/A-2
+  reads from the header, and removes a bits-per-component box that
+  components of one depth do not need. The image data is not changed.
+- Convert repairs a font descriptor's Style dictionary whose Panose is not
+  12 bytes: a bare 10-byte classification gets its family class, and any
+  other value removes the Style dictionary.
 - An inline image's dictionary and string parameters, such as the `/DP`
   decode parameters of a CCITT image, are read as values. They used to be
   spilled into the parameter list, so that verify misread them and a convert

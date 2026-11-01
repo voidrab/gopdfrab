@@ -156,9 +156,7 @@ func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[
 			verify.ValidateSimpleTrueTypeSubset(d, ff, int(firstChar), int(lastChar), widths, vctx)
 		}
 	case "Type1", "MMType1":
-		if desc.Entries.Get("CharSet") != nil {
-			verify.ValidateType1SubsetCoverage(d, d, desc, int(firstChar), int(lastChar), widths, vctx)
-		}
+		verify.ValidateType1SubsetCoverage(d, d, desc, int(firstChar), int(lastChar), widths, vctx)
 	}
 	return hasSubstitutionIssue(vctx)
 }
@@ -808,7 +806,7 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	}
 
 	usageCtx := verify.NewContext(f.doc)
-	_, _, usedCodes, usedCIDs, _ := verify.ComputeContentUsage(*trailer, usageCtx)
+	_, _, usedCodes, usedCIDs, _, _ := verify.ComputeContentUsage(*trailer, usageCtx)
 	sharedDescs := map[uintptr]bool{}
 	for ptr, n := range descCounts {
 		if n > 1 {
@@ -845,12 +843,20 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	return changed, nil
 }
 
-// trueTypeEncodingFixer remediates the 6.3.7 TrueType encoding checks.
-type trueTypeEncodingFixer struct{ doc *pdf.Reader }
+// trueTypeEncodingFixer remediates the TrueType encoding checks of 6.3.7 and
+// 6.2.11.6. A non-symbolic font whose embedded program has a cmap table holding
+// only the Microsoft Symbol (3,0) subtable is made symbolic, since only a
+// symbolic font may rely on that subtable. Its codes then select glyphs through
+// the subtable, as a reader falls back to when no other applies.
+type trueTypeEncodingFixer struct {
+	doc  *pdf.Reader
+	spec *pdfa.Spec
+}
 
 func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case pdf.Checks.Font.TrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeCmap:
+	case pdf.Checks.Font.TrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeCmap,
+		pdf.Checks.Font.NonSymbolicTrueTypeCmap:
 		return true
 	}
 	return false
@@ -858,12 +864,13 @@ func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {
 
 func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
+	symbolOnly := reportedChecks(issues)[pdf.Checks.Font.NonSymbolicTrueTypeCmap]
 	var usedCodes map[uintptr]map[int]bool
 	usageComputed := false
 	usage := func() map[uintptr]map[int]bool {
 		if !usageComputed {
 			usageComputed = true
-			_, _, usedCodes, _, _ = verify.ComputeContentUsage(*trailer, verify.NewContext(f.doc))
+			_, _, usedCodes, _, _, _ = verify.ComputeContentUsage(*trailer, verify.NewContext(f.doc))
 		}
 		return usedCodes
 	}
@@ -882,12 +889,25 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 		if f, ok := desc.Entries.Get("Flags").(pdf.PDFInteger); ok {
 			flags = int(f)
 		}
+		// The program is read once, and only for a rule that looks at it.
+		var program trueTypeProgram
+		if flags&4 != 0 || symbolOnly {
+			program = readTrueTypeProgram(desc)
+		}
+		if flags&4 == 0 && symbolOnly && program.ok && program.cmaps.Count == 1 && program.cmaps.Symbol {
+			flags = flags&^32 | 4
+			desc.Entries.Set("Flags", pdf.PDFInteger(flags))
+			changed = true
+		}
 		if flags&4 != 0 { // symbolic
 			if d.Entries.Get("Encoding") != nil {
 				d.Entries.Del("Encoding")
 				changed = true
 			}
-			if trimSymbolicCmap(desc) {
+			// PDF/A-2 allows several cmap subtables when one is (3,0), which
+			// a symbolic font's codes select glyphs through, so the cmap is
+			// kept as it is.
+			if trimSymbolicCmap(desc, program, f.spec != nil && f.spec.SymbolCmapAmongOthers) {
 				changed = true
 			}
 			return
@@ -916,24 +936,45 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	return changed, nil
 }
 
-// trimSymbolicCmap reduces desc's embedded FontFile2's cmap to a single
-// subtable in place, leaving glyph data untouched.
-func trimSymbolicCmap(desc pdf.PDFDict) bool {
+// trueTypeProgram is a font descriptor's embedded FontFile2, decoded, with
+// the summary of its cmap table. ok is false when there is no readable one.
+type trueTypeProgram struct {
+	stream pdf.PDFDict
+	data   []byte
+	cmaps  fontprog.CmapSummary
+	ok     bool
+}
+
+// readTrueTypeProgram decodes and parses desc's FontFile2 once.
+func readTrueTypeProgram(desc pdf.PDFDict) trueTypeProgram {
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok || !ff.IsStream() {
-		return false
+		return trueTypeProgram{}
 	}
 	data, err := pdf.DecodeStream(ff)
 	if err != nil {
+		return trueTypeProgram{}
+	}
+	tables, ok := fontprog.ParseSfnt(data)
+	if !ok {
+		return trueTypeProgram{}
+	}
+	cmaps, ok := fontprog.SummarizeCmap(tables)
+	return trueTypeProgram{stream: ff, data: data, cmaps: cmaps, ok: ok}
+}
+
+// trimSymbolicCmap reduces the cmap of program, desc's embedded FontFile2,
+// to a single subtable in place, leaving glyph data untouched. With
+// keepSymbol, a cmap that has a (3,0) subtable is left as it is.
+func trimSymbolicCmap(desc pdf.PDFDict, program trueTypeProgram, keepSymbol bool) bool {
+	if !program.ok || program.cmaps.Count == 1 || keepSymbol && program.cmaps.Symbol {
 		return false
 	}
-	if n, ok := fontprog.CmapSubtableCount(data); !ok || n == 1 {
-		return false
-	}
-	trimmed, err := fontedit.TrimTrueTypeCmapToSingleSubtable(data)
+	trimmed, err := fontedit.TrimTrueTypeCmapToSingleSubtable(program.data)
 	if err != nil {
 		return false
 	}
+	ff := program.stream
 	writer.SetStreamFlate(&ff, trimmed)
 	desc.Entries.Set("FontFile2", ff)
 	return true

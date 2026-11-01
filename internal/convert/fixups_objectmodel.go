@@ -206,12 +206,14 @@ func mustBeClearMask(typeName, key string) int64 {
 	return mask
 }
 
-// constraintFixer remediates the object model's ConstraintViolated check where a
-// conformance-neutral repair exists: reserved flag bits are cleared (readers must ignore
-// them), a DecodeParms array is resized to its Filter coupling, surplus FontFile* variants
-// are pruned to the descriptor's preferred one, and own-key numeric bounds (Length1 >= 0)
-// are clamped. Cross-key semantic couplings (image-mask consistency, must-be-set bits,
-// structure-attribute key sets) have no neutral repair and stay residuals.
+// constraintFixer remediates the object model's ConstraintViolated check where
+// a conformance-neutral repair exists: reserved flag bits are cleared (readers
+// must ignore them), a DecodeParms array is resized to its Filter coupling,
+// surplus FontFile* variants are pruned to the descriptor's preferred one,
+// own-key numeric bounds (Length1 >= 0) are clamped, and a font descriptor's
+// Style gets a 12-byte Panose or is removed (see fixPanose). Cross-key semantic
+// couplings (image-mask consistency, must-be-set bits, structure-attribute key
+// sets) have no neutral repair and stay residuals.
 type constraintFixer struct{}
 
 func (constraintFixer) Applies(c pdf.Check) bool {
@@ -239,8 +241,38 @@ func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 				changed = true
 			}
 		}
+		if fixPanose(d) {
+			changed = true
+		}
 	})
 	return changed, nil
+}
+
+// fixPanose repairs the Style dictionary of font descriptor d whose Panose is
+// not the 12 bytes ISO 32000-1 9.8.3.2 requires: a 2-byte family class
+// followed by the 10-byte PANOSE classification. A bare 10-byte classification
+// gets the family class 0, which means no classification. Any other value
+// cannot be read, so the Style dictionary, which only guides font substitution,
+// is removed. The Style dictionary is direct, so no finding names an object to
+// repair, and the whole-graph walk applies this fix.
+func fixPanose(d pdf.PDFDict) bool {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "FontDescriptor"}) {
+		return false
+	}
+	style, ok := d.Entries.Get("Style").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	panose, _ := pdf.StringBytes(style.Entries.Get("Panose"))
+	switch len(panose) {
+	case 12:
+		return false
+	case 10:
+		style.Entries.Set("Panose", pdf.PDFString{Value: "\x00\x00" + string(panose)})
+	default:
+		d.Entries.Del("Style")
+	}
+	return true
 }
 
 // pruneEmptyPageTreeNodes drops page tree nodes with no kids from the tree. The

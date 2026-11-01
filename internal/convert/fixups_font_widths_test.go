@@ -311,8 +311,8 @@ func TestFixSimpleTrueTypeWidths(t *testing.T) {
 	if !fixFontMetricsDict(d) {
 		t.Fatal("fixFontMetricsDict = false, want true")
 	}
-	if got := widthsOf2(d); got[0] != 667 || got[1] != 0 {
-		t.Errorf("Widths = %v, want A corrected to 667 and the zero kept", got)
+	if got := widthsOf2(d); got[0] != 667 || got[1] != 667 {
+		t.Errorf("Widths = %v, want A corrected to 667 and B's zero filled in", got)
 	}
 	if fixFontMetricsDict(d) {
 		t.Error("second pass changed the fixed font")
