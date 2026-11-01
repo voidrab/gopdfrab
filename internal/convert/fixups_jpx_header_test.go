@@ -10,7 +10,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// jp2Box returns a box of the given type and contents.
+// jp2BoxBytes returns a box of the given kind and contents.
 func jp2BoxBytes(kind string, body []byte) []byte {
 	out := binary.BigEndian.AppendUint32(nil, uint32(8+len(body)))
 	return append(append(out, kind...), body...)
@@ -27,8 +27,8 @@ func ihdrBox(nc int, bpc byte) []byte {
 	return jp2BoxBytes("ihdr", body)
 }
 
-// codestream returns a codestream start with a SIZ marker for components
-// with the given Ssiz bytes.
+// codestream returns the start of a codestream, with a SIZ marker for
+// components with the given Ssiz bytes.
 func codestream(ssiz ...byte) []byte {
 	cs := []byte{0xFF, 0x4F, 0xFF, 0x51}
 	cs = binary.BigEndian.AppendUint16(cs, uint16(38+3*len(ssiz)))
@@ -52,7 +52,8 @@ func jp2File(header, cs []byte) []byte {
 var colrBox = jp2BoxBytes("colr", []byte{1, 0, 0, 0, 0, 0, 16})
 
 func TestCorrectJP2Header(t *testing.T) {
-	// Five components declared over three: corrected, the colour box kept.
+	// A header declaring five components for a codestream of three is
+	// corrected, and its colour specification box is kept.
 	fixed, ok := correctJP2Header(jp2File(append(ihdrBox(5, 7), colrBox...), codestream(7, 7, 7)))
 	if !ok {
 		t.Fatal("correctJP2Header did not correct a header with too many components")
@@ -62,7 +63,8 @@ func TestCorrectJP2Header(t *testing.T) {
 		t.Errorf("corrected header = %+v", h)
 	}
 
-	// Depth 41 with a bpcc box over one 8-bit depth: corrected, bpcc gone.
+	// A header of depth 41 with a bpcc box, for a codestream of 8-bit
+	// components, is corrected, and the bpcc box is removed.
 	fixed, ok = correctJP2Header(jp2File(append(ihdrBox(3, 40), jp2BoxBytes("bpcc", []byte{7, 7, 7})...), codestream(7, 7, 7)))
 	if !ok {
 		t.Fatal("correctJP2Header did not correct a header with a bad depth")
@@ -94,8 +96,8 @@ func TestCorrectJP2Header(t *testing.T) {
 		}
 	}
 
-	// A box of length 0 runs to the end, and a second header or codestream
-	// box is not the one read.
+	// A box with length 0 extends to the end of the file, and only the first
+	// header and codestream boxes are read.
 	data := jp2File(ihdrBox(5, 7), codestream(7, 7, 7))
 	data = append(data, jp2BoxBytes("jp2h", ihdrBox(1, 7))...)
 	data = append(data, 0, 0, 0, 0, 'j', 'p', '2', 'c', 0xFF)

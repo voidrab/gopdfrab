@@ -43,8 +43,8 @@ func (jpxHeaderFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) 
 		if !ok {
 			return false
 		}
-		// The filters before the codec have been applied, so the data is
-		// stored with the JPXDecode filter alone.
+		// The reader yields the data after the filters that precede the
+		// codec, so JPXDecode is the only filter the stream keeps.
 		d.SetStream(fixed)
 		d.Entries.Set("Filter", pdf.PDFName{Value: "JPXDecode"})
 		d.Entries.Del("DecodeParms")
@@ -63,9 +63,10 @@ type jp2Box struct {
 	start, body, end int // the box, its contents and its end, as offsets
 }
 
-// jp2Boxes returns the boxes of data in order, and false when one is
-// malformed or uses a length form other than the 32-bit one, which a header
-// to be rewritten never needs.
+// jp2Boxes returns the boxes in data, in order, with their offsets shifted by
+// base. It returns false when a box is malformed or uses the extended length
+// form (length field 1). A length field of 0 extends the box to the end of
+// data.
 func jp2Boxes(data []byte, base int) ([]jp2Box, bool) {
 	var boxes []jp2Box
 	for off := 0; off < len(data); {
@@ -85,10 +86,10 @@ func jp2Boxes(data []byte, base int) ([]jp2Box, bool) {
 	return boxes, true
 }
 
-// correctJP2Header returns data, a JP2 file, with its image header box made to
-// agree with its codestream, and false when the codestream's components are
-// themselves outside the rules, when the header already agrees, or when the
-// file cannot be read.
+// correctJP2Header returns the JP2 file data with its image header box made to
+// agree with its codestream. It returns false when the file cannot be read or
+// lacks a header or codestream box, when the codestream's components are
+// outside the rules, and when the header already agrees.
 func correctJP2Header(data []byte) ([]byte, bool) {
 	top, ok := jp2Boxes(data, 0)
 	if !ok {
@@ -155,8 +156,9 @@ func correctJP2Header(data []byte) ([]byte, bool) {
 // codestreamComponents returns the number of components and their shared
 // Ssiz byte, which is the bit depth less one, from the SIZ marker of a JPEG
 // 2000 codestream. ok is false when the marker cannot be read, when the
-// components differ in depth, or when they are signed: veraPDF reads a signed
-// depth as negative, which no image header can make conform.
+// components differ in depth, when the depth is outside 1 to 38 bits, or when
+// the components are signed. veraPDF reads a signed depth as negative, which
+// no image header can make conform.
 func codestreamComponents(cs []byte) (components int, ssiz byte, ok bool) {
 	// SOC, then SIZ: Lsiz, Rsiz, eight 32-bit sizes and offsets, Csiz, and
 	// Ssiz, XRsiz and YRsiz for each component.
