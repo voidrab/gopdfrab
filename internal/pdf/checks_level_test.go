@@ -187,6 +187,13 @@ var stableCheckIDs = map[string]int{
 	"HalftoneType":                     175,
 	"HalftoneName":                     176,
 	"HalftoneTransferFunction":         177,
+	"TransparencyWithoutBlendingSpace": 178,
+	"DeviceBlendingColourSpace":        179,
+	"JPXColourChannels":                180,
+	"JPXColourSpecs":                   181,
+	"JPXColourMethod":                  182,
+	"JPXCIEJab":                        183,
+	"JPXBitDepth":                      184,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {

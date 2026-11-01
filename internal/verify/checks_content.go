@@ -247,8 +247,8 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 			}
 		case "Intent":
 			if name, ok := val.(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
-				// Part 1 numbers it with the content stream's intents
-				// (6.2.9), Part 2 with the image dictionaries' (6.2.6).
+				// Part 1 reports it as a content stream rendering intent
+				// (6.2.9), and Part 2 as an image rendering intent (6.2.6).
 				c := pdf.Checks.Colour.RenderingIntent
 				if ctx.part2() {
 					c = pdf.Checks.Image.ImageRenderingIntent
@@ -306,19 +306,8 @@ func scanAnnotAppearances(page pdf.PDFDict, ctx *ValidationContext) {
 // scanAPEntry scans one /AP entry: either a single stream or a subdictionary
 // of appearance states (Btn widget).
 func scanAPEntry(n pdf.PDFValue, ctx *ValidationContext) {
-	switch v := n.(type) {
-	case pdf.PDFDict:
-		if v.IsStream() {
-			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
-			scanContentDict(v, apRes, ctx)
-		} else {
-			// Subdictionary of appearance states.
-			for _, sv := range v.Entries.All() {
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
-					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
-					scanContentDict(sd, apRes, ctx)
-				}
-			}
-		}
+	for _, s := range pdf.AppearanceStreams(n) {
+		apRes, _ := s.Entries.Get("Resources").(pdf.PDFDict)
+		scanContentDict(s, apRes, ctx)
 	}
 }

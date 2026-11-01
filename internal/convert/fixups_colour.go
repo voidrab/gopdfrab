@@ -92,28 +92,11 @@ func (separationAlternateFixer) Applies(c pdf.Check) bool {
 }
 
 func (f separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	hasIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
-	covered := map[string]bool{"rgb": rgbCovered, "cmyk": cmykCovered, "gray": hasIntent}
+	covered := coveredModels(*trailer, f.spec.OutputIntentSubtype)
 
 	// One shared space per model, so the writer emits a single ICC stream
 	// however many colourants the document defines.
-	shared := map[string]pdf.PDFArray{}
-	spaceFor := func(model string) pdf.PDFArray {
-		if cs, ok := shared[model]; ok {
-			return cs
-		}
-		var cs pdf.PDFArray
-		switch model {
-		case "rgb":
-			cs = iccBasedColourSpace(3, srgbICCProfile)
-		case "cmyk":
-			cs = iccBasedColourSpace(4, cmykICCProfile)
-		default: // "gray": verify.DeviceColourModel only ever returns rgb, cmyk, gray or ""
-			cs = iccBasedColourSpace(1, grayICCProfile)
-		}
-		shared[model] = cs
-		return cs
-	}
+	spaces := iccSpaces{}
 
 	changed := false
 	visit := func(v pdf.PDFValue) {
@@ -129,7 +112,7 @@ func (f separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (b
 		if model == "" || covered[model] {
 			return
 		}
-		arr[2] = spaceFor(model)
+		arr[2] = spaces.forModel(model)
 		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {

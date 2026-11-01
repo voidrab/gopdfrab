@@ -110,33 +110,54 @@ func DecodeStreamFull(dict PDFDict, opts DecodeOptions) (DecodedStream, error) {
 	if !dict.IsStream() {
 		return DecodedStream{}, ErrNotAStream
 	}
-	names := FilterNames(dict.Entries.Get("Filter"))
+	steps, err := filterChain(dict)
+	if err != nil {
+		return DecodedStream{}, err
+	}
 	data := dict.Stream()
+	for _, s := range steps {
+		if s.info.Image {
+			return DecodedStream{Data: data, Image: &s.info, ImageParms: s.parms}, nil
+		}
+		if data, err = s.decode(data, opts); err != nil {
+			return DecodedStream{}, err
+		}
+	}
+	return DecodedStream{Data: data}, nil
+}
+
+// filterStep is one filter of a stream's chain, with its decode parameters.
+type filterStep struct {
+	info  FilterInfo
+	parms PDFDict
+}
+
+// filterChain returns the steps of dict's /Filter chain, in order, each with
+// its decode parameters. Every filter must be one PDF defines, and an image
+// codec, which consumes the stream, must be the last.
+func filterChain(dict PDFDict) ([]filterStep, error) {
+	names := FilterNames(dict.Entries.Get("Filter"))
+	steps := make([]filterStep, len(names))
 	for i, name := range names {
 		info, ok := LookupFilter(name)
 		if !ok {
-			return DecodedStream{}, fmt.Errorf("%w %q", ErrUnsupportedFilter, name)
+			return nil, fmt.Errorf("%w %q", ErrUnsupportedFilter, name)
 		}
-		parms := FilterDecodeParms(dict, i, len(names))
-		if info.Image {
-			// An image codec consumes the stream: nothing may follow it.
-			if i != len(names)-1 {
-				return DecodedStream{}, fmt.Errorf("%w: %s must be the last filter", ErrUnsupportedFilter, info.Name)
-			}
-			return DecodedStream{Data: data, Image: &info, ImageParms: parms}, nil
+		if info.Image && i != len(names)-1 {
+			return nil, fmt.Errorf("%w: %s must be the last filter", ErrUnsupportedFilter, info.Name)
 		}
-		out, err := applyFilter(info, data, parms)
-		if err != nil {
-			return DecodedStream{}, err
-		}
-		if info.Predictor {
-			if out, err = UndoStreamPredictor(out, parms, opts); err != nil {
-				return DecodedStream{}, err
-			}
-		}
-		data = out
+		steps[i] = filterStep{info: info, parms: FilterDecodeParms(dict, i, len(names))}
 	}
-	return DecodedStream{Data: data}, nil
+	return steps, nil
+}
+
+// decode undoes a filter that is not an image codec, and its predictor.
+func (s filterStep) decode(data []byte, opts DecodeOptions) ([]byte, error) {
+	out, err := applyFilter(s.info, data, s.parms)
+	if err == nil && s.info.Predictor {
+		out, err = UndoStreamPredictor(out, s.parms, opts)
+	}
+	return out, err
 }
 
 // applyFilter decodes one non-image filter.

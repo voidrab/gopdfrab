@@ -231,6 +231,12 @@ type imageChecks struct {
 	// 6.2.7 PostScript XObjects
 	FormPostScript    Check
 	PostScriptXObject Check
+	// Rules of ISO 19005-2 only: 6.2.8.3 JPEG2000.
+	JPXColourChannels Check
+	JPXColourSpecs    Check
+	JPXColourMethod   Check
+	JPXCIEJab         Check
+	JPXBitDepth       Check
 }
 
 type transparencyChecks struct {
@@ -250,6 +256,9 @@ type transparencyChecks struct {
 	HalftoneType             Check
 	HalftoneName             Check
 	HalftoneTransferFunction Check
+	// Rules of ISO 19005-2 only: 6.2.10 Transparency.
+	TransparencyWithoutBlendingSpace Check
+	DeviceBlendingColourSpace        Check
 }
 
 type fontChecks struct {
@@ -847,6 +856,21 @@ func init() {
 				"PostScriptXObject",
 				"PostScript XObjects (/Subtype /PS) are not permitted in PDF/A-1",
 				"6.2.7", 2),
+			JPXColourChannels: newPart2Check(180,
+				"JPXColourChannels",
+				"JPEG 2000 image data must have 1, 3 or 4 colour channels"),
+			JPXColourSpecs: newPart2Check(181,
+				"JPXColourSpecs",
+				"JPEG 2000 image data without a ColorSpace entry must have one colour specification, or exactly one with APPROX 1"),
+			JPXColourMethod: newPart2Check(182,
+				"JPXColourMethod",
+				"The colour specification method of JPEG 2000 image data without a ColorSpace entry must be 1, 2 or 3"),
+			JPXCIEJab: newPart2Check(183,
+				"JPXCIEJab",
+				"JPEG 2000 image data without a ColorSpace entry must not use the enumerated colour space CIEJab"),
+			JPXBitDepth: newPart2Check(184,
+				"JPXBitDepth",
+				"JPEG 2000 image data must have one bit depth, from 1 to 38, for all its colour channels"),
 		},
 
 		Transparency: transparencyChecks{
@@ -898,6 +922,12 @@ func init() {
 			HalftoneTransferFunction: newPart2Check(177,
 				"HalftoneTransferFunction",
 				"A halftone must have a TransferFunction only for a non-primary colorant, as ISO 32000-1 requires"),
+			TransparencyWithoutBlendingSpace: newPart2Check(178,
+				"TransparencyWithoutBlendingSpace",
+				"A page that contains transparency must have a Group with a CS entry when the file has no PDF/A output intent"),
+			DeviceBlendingColourSpace: newPart2Check(179,
+				"DeviceBlendingColourSpace",
+				"A transparency group's blending colour space must not be an uncovered device colour space"),
 		},
 
 		Font: fontChecks{

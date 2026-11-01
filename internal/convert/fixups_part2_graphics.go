@@ -43,7 +43,7 @@ func (f inheritedResourcesFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bo
 		for _, item := range annots {
 			annot, _ := item.(pdf.PDFDict)
 			ap, _ := annot.Entries.Get("AP").(pdf.PDFDict)
-			for _, s := range appearanceStreams(ap.Entries.Get("N")) {
+			for _, s := range pdf.AppearanceStreams(ap.Entries.Get("N")) {
 				// An appearance stream is checked like a form drawn on
 				// the page, so it inherits from the page's resources.
 				if f.adopt(s, res, visited) {
@@ -53,25 +53,6 @@ func (f inheritedResourcesFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bo
 		}
 	}
 	return changed, nil
-}
-
-// appearanceStreams returns the streams of an appearance (AP) entry: the entry
-// itself, or each stream of its subdictionary of appearance states.
-func appearanceStreams(n pdf.PDFValue) []pdf.PDFDict {
-	d, ok := n.(pdf.PDFDict)
-	if !ok {
-		return nil
-	}
-	if d.IsStream() {
-		return []pdf.PDFDict{d}
-	}
-	var out []pdf.PDFDict
-	for _, v := range d.Entries.All() {
-		if s, ok := v.(pdf.PDFDict); ok && s.IsStream() {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // followChildren adopts, for each form XObject, tiling pattern and Type 3

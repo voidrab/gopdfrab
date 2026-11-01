@@ -43,6 +43,9 @@ type ValidationContext struct {
 	// uncoveredDeviceColour is set once a device colour space no output
 	// intent covers has been reported.
 	uncoveredDeviceColour bool
+	// transparency is the 6.2.10 transparency analysis, kept for the whole
+	// document so content that several pages draw is scanned once.
+	transparency *transparencyScan
 
 	// ReachableXObjectPtrs is the set of Entries-map pointers of Form XObjects
 	// that are actually invoked (via Do) from page or other reachable content
@@ -233,19 +236,25 @@ func (ctx *ValidationContext) reportUndecodable(dict pdf.PDFDict, err error) {
 //
 // Operands are valid only for the duration of the call; see ScanStreamFunc.
 func (ctx *ValidationContext) scanStream(dict pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
-	if ctx.reader == nil {
-		data, err := pdf.DecodeStream(dict)
-		if err != nil {
-			ctx.reportUndecodable(dict, err)
-			return err
-		}
-		pdf.NewContentScanner(data).Scan(fn)
-		return nil
-	}
-	if err := ctx.reader.ScanStreamFunc(dict, fn); err != nil {
+	err := scanContent(ctx.reader, dict, fn)
+	if err != nil {
 		ctx.reportUndecodable(dict, err)
+	}
+	return err
+}
+
+// scanContent calls fn with the operators of dict's content stream, through
+// d's cache when d is not nil. It returns the error from reading the stream,
+// if any.
+func scanContent(d *pdf.Reader, dict pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
+	if d != nil {
+		return d.ScanStreamFunc(dict, fn)
+	}
+	data, err := pdf.DecodeStream(dict)
+	if err != nil {
 		return err
 	}
+	pdf.NewContentScanner(data).Scan(fn)
 	return nil
 }
 

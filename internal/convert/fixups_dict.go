@@ -511,21 +511,20 @@ func (f imageMetadataFixer) fixInlineImage(op string, operands []pdf.PDFValue, c
 
 // --- 6.2.4 sample depth ---
 
-// imageSampleDepthFixer remediates ImageBitsPerComponent: PDF/A-1 allows 1, 2,
-// 4 or 8 bits per component, and 16-bit images turn up in real documents.
-// The samples are decoded and written back at 8 bits, which is the depth the
-// standard allows and the one a viewer shows anyway; the alternative -- leaving
-// it -- ends with the page rasterized around it.
+// imageSampleDepthFixer remediates ImageBitsPerComponent. PDF/A-1 allows 1, 2,
+// 4 or 8 bits per component, and PDF/A-2 also 16. The fixer rewrites an image
+// at any other depth that it can decode. The samples are written back at 8
+// bits, a depth both parts allow.
 //
 // It also clears the object model's matching finding on the same key, since the
 // enumeration it fails is the same rule.
-type imageSampleDepthFixer struct{}
+type imageSampleDepthFixer struct{ spec *pdfa.Spec }
 
 func (imageSampleDepthFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Image.ImageBitsPerComponent
 }
 
-func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
@@ -534,11 +533,11 @@ func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 		if mask, _ := d.Entries.Get("ImageMask").(pdf.PDFBoolean); bool(mask) {
 			return false // an image mask is 6.2.4-6's business, always 1 bit
 		}
-		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc {
-		case 1, 2, 4, 8:
-			return false
-		case 0:
+		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); {
+		case bpc == 0:
 			return false // absent: nothing to repair
+		case f.spec.BitsPerComponentAllowed(int(bpc)):
+			return false
 		}
 		canvas, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
