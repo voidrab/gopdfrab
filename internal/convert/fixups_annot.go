@@ -39,8 +39,8 @@ func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed 
 			d.Entries.Set("Annots", slices.DeleteFunc(slices.Clone(annots), f.drop))
 			*changed = true
 		}
-		// An annotation reached before its page, or through no page at all,
-		// is cleared here.
+		// A disallowed annotation reached before its page, or through no page
+		// at all, is cleared here.
 		if f.disallowed(d) {
 			f.remove(d)
 			*changed = true
@@ -48,8 +48,8 @@ func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed 
 	}, true
 }
 
-// drop reports whether an /Annots entry is to be removed: an emptied
-// dictionary, or a disallowed annotation, which it clears.
+// drop reports whether the Annots element e is to be removed. A disallowed
+// annotation is cleared first, so that it is then empty and removed as well.
 func (f disallowedAnnotFixer) drop(e pdf.PDFValue) bool {
 	d, ok := e.(pdf.PDFDict)
 	if !ok {

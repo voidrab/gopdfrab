@@ -334,7 +334,8 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 		}
 	}
 
-	// Under PDF/A-2 the flags are checked only when F is present.
+	// Under PDF/A-2 the flag bits are checked only when F is present. A missing
+	// F is reported unless FlagsRequired exempts the annotation.
 	if f, hasF := AnnotFlags(v); hasF || !ctx.part2() {
 		checkAnnotFlags(v, f, ctx)
 	} else if FlagsRequired(v) {
@@ -361,10 +362,11 @@ type AppearanceFault struct {
 	Message string
 }
 
-// AppearanceFaults returns the appearance rules annotation d breaks under
-// spec (6.5.3 and 6.9, under PDF/A-2 6.3.3): an annotation other than a Popup
-// or Link one needs an appearance dictionary, which may hold only N, an
-// appearance stream, or for a Btn widget a subdictionary of them.
+// AppearanceFaults returns the appearance rules that annotation d breaks under
+// spec: 6.5.3 and 6.9, or 6.3.3 under PDF/A-2. Apart from a zero-area
+// annotation that spec exempts, an annotation other than a Popup or Link one
+// needs an appearance dictionary whose only entry is N. N is an appearance
+// stream, or for a Btn widget a subdictionary of appearance streams.
 func AppearanceFaults(d pdf.PDFDict, spec *pdfa.Spec) []AppearanceFault {
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	ft := resolveInheritedFT(d)
@@ -373,8 +375,8 @@ func AppearanceFaults(d pdf.PDFDict, spec *pdfa.Spec) []AppearanceFault {
 		if subtype.Value == "Popup" || subtype.Value == "Link" || spec.ZeroAreaAnnotsExempt && ZeroSizeRect(d) {
 			return nil
 		}
-		// A form field widget without an appearance breaks 6.9, not 6.5.3.
-		// PDF/A-2 has the one rule, 6.3.3, for every annotation.
+		// Before PDF/A-2, a form field widget without an appearance breaks 6.9
+		// rather than 6.5.3. Under PDF/A-2, 6.3.3 applies to every annotation.
 		if ft != nil && spec.Part < 2 {
 			return []AppearanceFault{{pdf.Checks.Form.WidgetMissingAppearance, "form field widget annotation lacks an appearance dictionary (AP)"}}
 		}
@@ -416,8 +418,8 @@ func AppearanceFaults(d pdf.PDFDict, spec *pdfa.Spec) []AppearanceFault {
 	return faults
 }
 
-// IsButtonField reports whether d is a Btn form field, its FT inherited
-// through the Parent chain.
+// IsButtonField reports whether d is a Btn form field, with FT resolved
+// through the Parent chain as resolveInheritedFT does.
 func IsButtonField(d pdf.PDFDict) bool {
 	return resolveInheritedFT(d) == pdf.PDFName{Value: "Btn"}
 }

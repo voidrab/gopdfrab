@@ -173,9 +173,10 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 	return changed, true, nil
 }
 
-// maskFromCond collects the bits of key that cond requires clear or set, as
-// op is CondBitsClear or CondBitsSet, from its conjunctive structure only (an
-// Or or Not subtree could make the repair wrong, so it contributes nothing).
+// maskFromCond returns the bits of key that cond requires clear when op is
+// CondBitsClear, or set when op is CondBitsSet. Only conjunctive (And)
+// subtrees are searched: an Or or Not subtree could make the repair wrong, so
+// it contributes nothing.
 func maskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 	var mask int64
 	switch c.Op {
@@ -191,8 +192,9 @@ func maskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 	return mask
 }
 
-// typeMask collects the bits an Arlington type's SpecialCase requires clear
-// or set on key, as op says. Zero means no such rule.
+// typeMask returns the bits of key that the SpecialCase rules of typeName
+// require clear or set, as op selects. It returns zero when there is no such
+// rule.
 func typeMask(typeName, key string, op arlington.CondOp) int64 {
 	ot, ok := arlington.Type(typeName)
 	if !ok {

@@ -264,7 +264,7 @@ var a2b = Spec{
 		"KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H",
 		"UniKS-UTF16-V"),
 	UseCMapPredefined: true,
-	// 6.3.3.
+	// 6.3.3: zero-area annotations need no appearance dictionary.
 	ZeroAreaAnnotsExempt: true,
 	// 6.2.11.4.2 and 6.2.11.6.
 	SubsetSetsOptional:    true,

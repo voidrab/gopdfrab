@@ -24,8 +24,8 @@ import (
 
 // appearanceFixer remediates WidgetMissingAppearance, MissingAppearance,
 // AppearanceMissingN, AppearanceExtraEntries and AppearanceNNotStream,
-// on the annotations verify.AppearanceFaults finds at fault. fontSrc is
-// the run-scoped appearance font, set from the fixerRun.
+// for the annotations that verify.AppearanceFaults reports. fontSrc is the
+// run-scoped appearance font, set from the fixerRun.
 type appearanceFixer struct {
 	fontSrc *appearanceFontSource
 	spec    *pdfa.Spec
@@ -95,10 +95,10 @@ func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appear
 }
 
 // rebuiltAppearanceDict returns a conformant replacement for d's /AP: a
-// dictionary containing only N. An already-valid N value (per
-// verify.AppearanceFaults) is kept as-is -- e.g. when the
-// only violation was an extra /D or /R entry -- rather than discarding a
-// perfectly good appearance just to strip the other keys.
+// dictionary containing only N. An N value that verify.AppearanceFaults does
+// not flag is kept as-is, for example when the only violation is an extra /D
+// or /R entry, rather than discarding a valid appearance to strip the other
+// keys.
 func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource) pdf.PDFDict {
 	isBtn := verify.IsButtonField(d)
 	var newN pdf.PDFValue
