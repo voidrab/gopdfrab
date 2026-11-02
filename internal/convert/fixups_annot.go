@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"slices"
+
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -33,34 +35,30 @@ func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed 
 	return func(d pdf.PDFDict) {
 		// The page is visited before or after its annotations, so it removes
 		// and clears them itself.
-		if annots, ok := d.Entries.Get("Annots").(pdf.PDFArray); ok {
-			var kept pdf.PDFArray
-			for i, e := range annots {
-				ad, isDict := e.(pdf.PDFDict)
-				switch {
-				case isDict && f.disallowed(ad):
-					f.remove(ad)
-				case isDict && ad.Entries.Len() == 0:
-				default:
-					if kept != nil {
-						kept = append(kept, e)
-					}
-					continue
-				}
-				if kept == nil {
-					kept = append(make(pdf.PDFArray, 0, len(annots)-1), annots[:i]...)
-				}
-				*changed = true
-			}
-			if kept != nil {
-				d.Entries.Set("Annots", kept)
-			}
+		if annots, ok := d.Entries.Get("Annots").(pdf.PDFArray); ok && slices.ContainsFunc(annots, f.drop) {
+			d.Entries.Set("Annots", slices.DeleteFunc(slices.Clone(annots), f.drop))
+			*changed = true
 		}
+		// An annotation reached before its page, or through no page at all,
+		// is cleared here.
 		if f.disallowed(d) {
 			f.remove(d)
 			*changed = true
 		}
 	}, true
+}
+
+// drop reports whether an /Annots entry is to be removed: an emptied
+// dictionary, or a disallowed annotation, which it clears.
+func (f disallowedAnnotFixer) drop(e pdf.PDFValue) bool {
+	d, ok := e.(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	if f.disallowed(d) {
+		f.remove(d)
+	}
+	return d.Entries.Len() == 0
 }
 
 // disallowed reports whether d is an annotation of a subtype the level does

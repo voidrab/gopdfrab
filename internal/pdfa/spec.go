@@ -41,6 +41,9 @@ type Spec struct {
 	// may have several cmap subtables when one is the Microsoft Symbol (3,0)
 	// one, rather than exactly one.
 	SymbolCmapAmongOthers bool
+	// ZeroAreaAnnotsExempt says whether an annotation whose Rect covers no
+	// area needs no appearance dictionary.
+	ZeroAreaAnnotsExempt bool
 	// SubsetSetsOptional says whether a subset font's descriptor may omit its
 	// CharSet or CIDSet, which must still be complete when present.
 	SubsetSetsOptional bool
@@ -261,6 +264,8 @@ var a2b = Spec{
 		"KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H",
 		"UniKS-UTF16-V"),
 	UseCMapPredefined: true,
+	// 6.3.3.
+	ZeroAreaAnnotsExempt: true,
 	// 6.2.11.4.2 and 6.2.11.6.
 	SubsetSetsOptional:    true,
 	SymbolCmapAmongOthers: true,

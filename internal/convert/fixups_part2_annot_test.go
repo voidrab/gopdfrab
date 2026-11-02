@@ -19,9 +19,9 @@ func TestDisallowedAnnotFixerRemovesFromAnnots(t *testing.T) {
 		wantLost  int
 		wantClear bool
 	}{
-		{"Movie under 1b", "1b", "Movie", 1, 1, true},
-		{"Sound under 2b", "2b", "Sound", 1, 1, true},
-		{"Polygon under 2b", "2b", "Polygon", 2, 0, false},
+		{"Movie under 1b", "1b", "Movie", 2, 1, true},
+		{"Sound under 2b", "2b", "Sound", 2, 1, true},
+		{"Polygon under 2b", "2b", "Polygon", 3, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := a1bSpec
@@ -30,7 +30,8 @@ func TestDisallowedAnnotFixerRemovesFromAnnots(t *testing.T) {
 			}
 			text := kv("Type", nm("Annot"), "Subtype", nm("Text"))
 			other := kv("Type", nm("Annot"), "Subtype", nm(tc.subtype))
-			page := kv("Type", nm("Page"), "Annots", pdf.PDFArray{text, other, pdf.NewPDFDict()})
+			// A null entry, which is no annotation, stays.
+			page := kv("Type", nm("Page"), "Annots", pdf.PDFArray{text, other, pdf.NewPDFDict(), nil})
 			trailer := trailerWith("Page", page)
 			var lost []pdf.PDFError
 			changed, err := disallowedAnnotFixer{spec: spec, lost: &lost}.Fix(&trailer, nil)
@@ -103,16 +104,16 @@ func TestAnnotationFlagsFixerPart2(t *testing.T) {
 // the bits the model requires set, and that no other flag word does.
 func TestConstraintFixerSetsTrapNetFlags(t *testing.T) {
 	for _, tc := range []struct {
-		typeName, key string
-		value, want   int
+		typeName, subtype, key string
+		value, want            int
 	}{
 		// Print and ReadOnly, with Invisible cleared.
-		{"AnnotTrapNetwork", "F", 1 | 4, 4 | 64},
+		{"AnnotTrapNetwork", "TrapNet", "F", 1 | 4, 4 | 64},
 		// Bit 17 makes a button a push button; it is never set.
-		{"FieldBtnPush", "Ff", 0, 0},
+		{"FieldBtnPush", "Widget", "Ff", 0, 0},
 	} {
 		t.Run(tc.typeName, func(t *testing.T) {
-			d := kv(tc.key, pdf.PDFInteger(tc.value))
+			d := kv("Subtype", nm(tc.subtype), tc.key, pdf.PDFInteger(tc.value))
 			d.SetRef(pdf.PDFRef{ObjNum: 4})
 			trailer := kv("D", d)
 			ref := pdf.PDFRef{ObjNum: 4}

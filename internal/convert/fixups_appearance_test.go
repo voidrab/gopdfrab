@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // TestAppearanceFixerAppliesExclusively checks the Fixer/Applies contract
@@ -104,8 +105,8 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 		t.Fatalf("AP/N Resources has no /Font /F0")
 	}
 
-	if annotationNeedsAppearanceFix(widget, false) {
-		t.Fatalf("annotationNeedsAppearanceFix still true after Fix")
+	if len(verify.AppearanceFaults(widget, a1bSpec)) != 0 {
+		t.Fatalf("AppearanceFaults not empty after Fix")
 	}
 	changed, err = fixer.Fix(&trailer, nil)
 	if err != nil {

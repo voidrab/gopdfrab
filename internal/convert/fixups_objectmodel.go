@@ -173,21 +173,10 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 	return changed, true, nil
 }
 
-// clearMaskFromCond collects the bits cond requires clear on key, from its conjunctive
-// structure only (an Or/Not subtree could make clearing wrong, so it contributes nothing).
-func clearMaskFromCond(c *arlington.Cond, key string) int64 {
-	return bitMaskFromCond(c, key, arlington.CondBitsClear)
-}
-
-// setMaskFromCond is clearMaskFromCond for the bits cond requires set.
-func setMaskFromCond(c *arlington.Cond, key string) int64 {
-	return bitMaskFromCond(c, key, arlington.CondBitsSet)
-}
-
-// bitMaskFromCond returns the mask of key's bits that cond requires under op,
-// which is CondBitsClear or CondBitsSet. Only conjunctive (And) subtrees are
-// searched; an Or or Not subtree contributes nothing.
-func bitMaskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
+// maskFromCond collects the bits of key that cond requires clear or set, as
+// op is CondBitsClear or CondBitsSet, from its conjunctive structure only (an
+// Or or Not subtree could make the repair wrong, so it contributes nothing).
+func maskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 	var mask int64
 	switch c.Op {
 	case op:
@@ -196,24 +185,15 @@ func bitMaskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 		}
 	case arlington.CondAnd:
 		for i := range c.Kids {
-			mask |= bitMaskFromCond(&c.Kids[i], key, op)
+			mask |= maskFromCond(&c.Kids[i], key, op)
 		}
 	}
 	return mask
 }
 
-// mustBeClearMask collects the bits an Arlington type's SpecialCase requires clear on the
-// given key. Zero means no clearable rule.
-func mustBeClearMask(typeName, key string) int64 {
-	return mustBeMask(typeName, key, arlington.CondBitsClear)
-}
-
-// mustBeSetMask is mustBeClearMask for the bits required set.
-func mustBeSetMask(typeName, key string) int64 {
-	return mustBeMask(typeName, key, arlington.CondBitsSet)
-}
-
-func mustBeMask(typeName, key string, op arlington.CondOp) int64 {
+// typeMask collects the bits an Arlington type's SpecialCase requires clear
+// or set on key, as op says. Zero means no such rule.
+func typeMask(typeName, key string, op arlington.CondOp) int64 {
 	ot, ok := arlington.Type(typeName)
 	if !ok {
 		return 0
@@ -221,7 +201,7 @@ func mustBeMask(typeName, key string, op arlington.CondOp) int64 {
 	var mask int64
 	for _, kd := range ot.Keys {
 		if kd.Name == key && kd.SpecialCase != nil {
-			mask |= bitMaskFromCond(kd.SpecialCase, key, op)
+			mask |= maskFromCond(kd.SpecialCase, key, op)
 		}
 	}
 	return mask
@@ -247,15 +227,15 @@ func (constraintFixer) Applies(c pdf.Check) bool {
 // dictionary, including direct objects, which no finding can target. For each
 // word it gives the bits that must be clear and, for a trap network
 // annotation, the bits that must be set.
-var flagWordRules = map[string]struct {
+var flagWordRules = []struct {
 	discKey, discVal, flagKey string
 	clear, set                int64
 }{
-	"FontDescriptor": {"Type", "FontDescriptor", "Flags", mustBeClearMask("FontDescriptorType1", "Flags"), 0},
-	"FieldTx":        {"FT", "Tx", "Ff", mustBeClearMask("FieldTx", "Ff"), 0},
-	"FieldCh":        {"FT", "Ch", "Ff", mustBeClearMask("FieldCh", "Ff"), 0},
-	"AnnotTrapNetwork": {"Subtype", "TrapNet", "F",
-		mustBeClearMask("AnnotTrapNetwork", "F"), mustBeSetMask("AnnotTrapNetwork", "F")},
+	{"Type", "FontDescriptor", "Flags", typeMask("FontDescriptorType1", "Flags", arlington.CondBitsClear), 0},
+	{"FT", "Tx", "Ff", typeMask("FieldTx", "Ff", arlington.CondBitsClear), 0},
+	{"FT", "Ch", "Ff", typeMask("FieldCh", "Ff", arlington.CondBitsClear), 0},
+	{"Subtype", "TrapNet", "F", typeMask("AnnotTrapNetwork", "F", arlington.CondBitsClear),
+		typeMask("AnnotTrapNetwork", "F", arlington.CondBitsSet)},
 }
 
 func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
@@ -392,17 +372,10 @@ func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, b
 }
 
 // repairConstraint applies the neutral repair for key's violated SpecialCase on d.
-// Required flag bits are set only on an annotation's F, where they are the
-// bits ISO 32000-1 prescribes for the subtype (Print and ReadOnly on a TrapNet
-// annotation); elsewhere they discriminate the type or grant permissions.
 func repairConstraint(d pdf.PDFDict, typeName, key string, kd *arlington.KeyDef) bool {
-	if v, ok := d.Entries.Get(key).(pdf.PDFInteger); ok {
-		want := int64(v) &^ clearMaskFromCond(kd.SpecialCase, key)
-		if key == "F" && strings.HasPrefix(typeName, "Annot") {
-			want |= setMaskFromCond(kd.SpecialCase, key)
-		}
-		if want != int64(v) {
-			d.Entries.Set(key, pdf.PDFInteger(want))
+	if mask := maskFromCond(kd.SpecialCase, key, arlington.CondBitsClear); mask != 0 {
+		if v, ok := d.Entries.Get(key).(pdf.PDFInteger); ok && int64(v)&mask != 0 {
+			d.Entries.Set(key, v&^pdf.PDFInteger(mask))
 			return true
 		}
 	}
