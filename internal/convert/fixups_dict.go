@@ -315,17 +315,19 @@ func extGStateDictVisitor(changed *bool, spec *pdfa.Spec, reported map[pdf.Check
 
 // annotationFlagsFixer remediates the annotation flag-bit and opacity
 // checks, mirroring the relevant part of validateAnnotation in
-// checks_dict.go. Each flag bit and the constant opacity (/CA) is repaired
-// only when its own check was reported. It deliberately does not touch
-// DisallowedSubtype, ColourWithoutIntent, or the appearance-stream checks
-// (resource synthesis or harder per the converter plan).
+// checks_dict.go. Each flag bit, a missing F key and the constant opacity
+// (/CA) are repaired only when their own check was reported. It deliberately
+// does not touch DisallowedSubtype, ColourWithoutIntent, or the
+// appearance-stream checks (resource synthesis or harder per the converter
+// plan).
 type annotationFlagsFixer struct{}
 
 func (annotationFlagsFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Annotation.PrintFlagNotSet, pdf.Checks.Annotation.HiddenFlagSet,
 		pdf.Checks.Annotation.InvisibleFlagSet, pdf.Checks.Annotation.NoViewFlagSet,
-		pdf.Checks.Annotation.OpacityNotOne:
+		pdf.Checks.Annotation.OpacityNotOne, pdf.Checks.Annotation.AnnotationFlagsMissing,
+		pdf.Checks.Annotation.ToggleNoViewFlagSet:
 		return true
 	}
 	return false
@@ -351,17 +353,23 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, chang
 	if reported[an.NoViewFlagSet] {
 		unset |= verify.AnnotFlagNoView
 	}
+	if reported[an.ToggleNoViewFlagSet] {
+		unset |= verify.AnnotFlagToggleNoView
+	}
+	addMissing := reported[an.AnnotationFlagsMissing]
 	opacity := reported[an.OpacityNotOne]
 	return func(d pdf.PDFDict) {
 		if !verify.IsAnnotationDict(d) {
 			return
 		}
 
-		flags := 0
-		if f, ok := d.Entries.Get("F").(pdf.PDFInteger); ok {
-			flags = int(f)
+		f, hasF := d.Entries.Get("F").(pdf.PDFInteger)
+		flags := int(f)
+		want := (flags | set) &^ unset
+		if !hasF && addMissing && d.Entries.Get("Subtype") != (pdf.PDFName{Value: "Popup"}) {
+			want = verify.AnnotFlagPrint
 		}
-		if want := (flags | set) &^ unset; want != flags {
+		if want != flags {
 			d.Entries.Set("F", pdf.PDFInteger(want))
 			*changed = true
 		}

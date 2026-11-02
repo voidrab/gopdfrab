@@ -9,6 +9,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -86,7 +87,7 @@ func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appear
 	if !spec.AnnotationSubtypes.Has(subtype.Value) {
 		return false
 	}
-	if !annotationNeedsAppearanceFix(d) {
+	if !annotationNeedsAppearanceFix(d, spec.Part >= 2) {
 		return false
 	}
 	d.Entries.Set("AP", rebuiltAppearanceDict(trailer, d, fontSrc))
@@ -97,11 +98,11 @@ func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appear
 // Fixer's checks, exactly mirroring validateAnnotation's /AP block
 // (checks_dict.go) so the Fixer only ever touches what that check would
 // actually flag.
-func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
+func annotationNeedsAppearanceFix(d pdf.PDFDict, part2 bool) bool {
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	ap, hasAP := d.Entries.Get("AP").(pdf.PDFDict)
 	if !hasAP {
-		return subtype.Value != "Popup" && subtype.Value != "Link"
+		return subtype.Value != "Popup" && subtype.Value != "Link" && !(part2 && verify.ZeroSizeRect(d))
 	}
 
 	n, hasN := ap.Entries.Lookup("N")
@@ -119,7 +120,7 @@ func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
 		return true
 	}
 	if isBtnField(d) {
-		return nd.IsStream()
+		return !verify.ButtonAppearances(nd)
 	}
 	return !nd.IsStream()
 }
@@ -153,7 +154,7 @@ func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appeara
 		if n, ok := ap.Entries.Lookup("N"); ok {
 			if nd, ok := n.(pdf.PDFDict); ok {
 				switch {
-				case isBtn && !nd.IsStream():
+				case isBtn && verify.ButtonAppearances(nd):
 					newN = nd
 				case !isBtn && nd.IsStream():
 					newN = nd

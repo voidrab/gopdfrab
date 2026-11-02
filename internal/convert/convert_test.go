@@ -537,7 +537,7 @@ func TestConvertIsDeterministic(t *testing.T) {
 // corpustest.VeraPDF2B.Clauses.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
-	pdf.A2B: 229,
+	pdf.A2B: 285,
 }
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to

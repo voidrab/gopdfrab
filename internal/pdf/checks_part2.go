@@ -155,4 +155,18 @@ var part2Clauses = map[string]clauseRef{
 	"SymbolicTrueTypeCmap":     {"6.2.11.6", 4, "Symbolic TrueType fonts must have exactly one cmap subtable, or a Microsoft Symbol (3,0) one"},
 	// 6.2.11.8 Use of .notdef glyph.
 	"NotdefGlyphReference": {"6.2.11.8", 1, ""},
+	// 6.3.1 Annotation types.
+	"DisallowedSubtype": {"6.3.1", 1, "Only annotation types ISO 32000-1 defines may be used, other than 3D, Sound, Screen and Movie"},
+	// 6.3.2 Annotation dictionaries.
+	"AnnotationFlagsMissing": {"6.3.2", 1, ""},
+	"PrintFlagNotSet":        {"6.3.2", 2, "An annotation's F key, when present, must have the Print flag set"},
+	"HiddenFlagSet":          {"6.3.2", 2, ""},
+	"InvisibleFlagSet":       {"6.3.2", 2, ""},
+	"NoViewFlagSet":          {"6.3.2", 2, ""},
+	"ToggleNoViewFlagSet":    {"6.3.2", 2, ""},
+	// 6.3.3 Annotation appearances.
+	"MissingAppearance":      {"6.3.3", 1, "Annotations other than Popup and Link ones, and those whose Rect has no width and height, must have an appearance dictionary"},
+	"AppearanceMissingN":     {"6.3.3", 2, ""},
+	"AppearanceExtraEntries": {"6.3.3", 2, ""},
+	"AppearanceNNotStream":   {"6.3.3", 0, ""},
 }

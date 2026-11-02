@@ -265,11 +265,46 @@ func resolveInheritedFT(v pdf.PDFDict) pdf.PDFValue {
 
 // Annotation flag bits (PDF 32000 12.5.3).
 const (
-	AnnotFlagInvisible = 1 << 0
-	AnnotFlagHidden    = 1 << 1
-	AnnotFlagPrint     = 1 << 2
-	AnnotFlagNoView    = 1 << 5
+	AnnotFlagInvisible    = 1 << 0
+	AnnotFlagHidden       = 1 << 1
+	AnnotFlagPrint        = 1 << 2
+	AnnotFlagNoView       = 1 << 5
+	AnnotFlagToggleNoView = 1 << 8
 )
+
+// ZeroSizeRect reports whether d's Rect has two equal corners, so the
+// annotation covers no area. Under PDF/A-2 such an annotation needs no
+// appearance (ISO 19005-2 6.3.3).
+func ZeroSizeRect(d pdf.PDFDict) bool {
+	rect, ok := d.Entries.Get("Rect").(pdf.PDFArray)
+	if !ok || len(rect) < 4 {
+		return false
+	}
+	var v [4]float64
+	for i := range v {
+		f, num := pdf.PDFNumberToFloat(rect[i])
+		if !num {
+			return false
+		}
+		v[i] = f
+	}
+	return v[0] == v[2] && v[1] == v[3]
+}
+
+// ButtonAppearances reports whether n, the normal appearance of a Btn
+// widget, is an appearance subdictionary holding at least one appearance
+// stream, rather than a stream or a subdictionary of none.
+func ButtonAppearances(n pdf.PDFDict) bool {
+	if n.IsStream() {
+		return false
+	}
+	for _, v := range n.Entries.All() {
+		if s, ok := v.(pdf.PDFDict); ok && s.IsStream() {
+			return true
+		}
+	}
+	return false
+}
 
 // IsAnnotationDict reports whether d is an annotation dictionary. /Type is
 // optional on one (ISO 32000-1 12.5.2), and a viewer reaches an annotation
@@ -286,7 +321,8 @@ func IsAnnotationDict(d pdf.PDFDict) bool {
 }
 
 // validateAnnotation checks annotation types (6.5.2) and annotation
-// dictionaries (6.5.3).
+// dictionaries (6.5.3), under PDF/A-2 annotation types (6.3.1), dictionaries
+// (6.3.2) and appearances (6.3.3).
 func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	if !IsAnnotationDict(v) {
 		return
@@ -294,26 +330,21 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 
 	subtype, _ := v.Entries.Get("Subtype").(pdf.PDFName)
 
+	// Under PDF/A-2 the rest of a disallowed annotation is checked too, as
+	// veraPDF does.
 	if !ctx.Spec.AnnotationSubtypes.Has(subtype.Value) {
 		ctx.Report(pdf.Checks.Annotation.DisallowedSubtype, v, fmt.Sprintf("annotation subtype /%s not allowed", subtype.Value))
-		return
+		if !ctx.part2() {
+			return
+		}
 	}
 
-	flags := 0
-	if f, ok := v.Entries.Get("F").(pdf.PDFInteger); ok {
-		flags = int(f)
-	}
-	if flags&AnnotFlagPrint == 0 {
-		ctx.Report(pdf.Checks.Annotation.PrintFlagNotSet, v, "annotation Print flag shall be set")
-	}
-	if flags&AnnotFlagHidden != 0 {
-		ctx.Report(pdf.Checks.Annotation.HiddenFlagSet, v, "annotation Hidden flag shall be clear")
-	}
-	if flags&AnnotFlagInvisible != 0 {
-		ctx.Report(pdf.Checks.Annotation.InvisibleFlagSet, v, "annotation Invisible flag shall be clear")
-	}
-	if flags&AnnotFlagNoView != 0 {
-		ctx.Report(pdf.Checks.Annotation.NoViewFlagSet, v, "annotation NoView flag shall be clear")
+	// Under PDF/A-2 the flags are checked only when F is present, and only a
+	// Popup annotation may omit it.
+	if f, hasF := v.Entries.Get("F").(pdf.PDFInteger); hasF || !ctx.part2() {
+		checkAnnotFlags(v, int(f), ctx)
+	} else if subtype.Value != "Popup" {
+		ctx.Report(pdf.Checks.Annotation.AnnotationFlagsMissing, v, "annotation dictionary has no F key")
 	}
 
 	if ca, ok := v.Entries.Lookup("CA"); ok {
@@ -331,9 +362,10 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	isFormField := resolveInheritedFT(v) != nil
 	switch {
 	case !hasAP:
-		if subtype.Value != "Popup" && subtype.Value != "Link" {
-			if isFormField {
-				// Missing AP on a form-field widget is a 6.9 violation, not 6.5.3.
+		if subtype.Value != "Popup" && subtype.Value != "Link" && !(ctx.part2() && ZeroSizeRect(v)) {
+			if isFormField && !ctx.part2() {
+				// Missing AP on a form-field widget is a 6.9 violation, not
+				// 6.5.3. PDF/A-2 has the one rule for every annotation.
 				ctx.Report(pdf.Checks.Form.WidgetMissingAppearance, v, "form field widget annotation lacks an appearance dictionary (AP)")
 			} else {
 				ctx.Report(pdf.Checks.Annotation.MissingAppearance, v, "annotation lacks a normal (N) appearance stream")
@@ -361,14 +393,35 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 			if nd, ok := n.(pdf.PDFDict); !ok {
 				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream or subdictionary")
 			} else if isBtn {
-				// Btn widget N shall be a state-name-to-stream subdictionary, not direct.
-				if nd.IsStream() {
-					ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "Btn widget appearance N shall be a subdictionary, not a direct stream")
+				// A Btn widget's N shall be a subdictionary mapping its
+				// states to appearance streams, and name at least one.
+				if !ButtonAppearances(nd) {
+					ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "Btn widget appearance N shall be a subdictionary of appearance streams")
 				}
 			} else if !nd.IsStream() {
 				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream")
 			}
 		}
+	}
+}
+
+// checkAnnotFlags reports each of the flag bits in flags that the level
+// requires set or clear.
+func checkAnnotFlags(v pdf.PDFDict, flags int, ctx *ValidationContext) {
+	if flags&AnnotFlagPrint == 0 {
+		ctx.Report(pdf.Checks.Annotation.PrintFlagNotSet, v, "annotation Print flag shall be set")
+	}
+	if flags&AnnotFlagHidden != 0 {
+		ctx.Report(pdf.Checks.Annotation.HiddenFlagSet, v, "annotation Hidden flag shall be clear")
+	}
+	if flags&AnnotFlagInvisible != 0 {
+		ctx.Report(pdf.Checks.Annotation.InvisibleFlagSet, v, "annotation Invisible flag shall be clear")
+	}
+	if flags&AnnotFlagNoView != 0 {
+		ctx.Report(pdf.Checks.Annotation.NoViewFlagSet, v, "annotation NoView flag shall be clear")
+	}
+	if flags&AnnotFlagToggleNoView != 0 && ctx.part2() {
+		ctx.Report(pdf.Checks.Annotation.ToggleNoViewFlagSet, v, "annotation ToggleNoView flag shall be clear")
 	}
 }
 

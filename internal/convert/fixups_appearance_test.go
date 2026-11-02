@@ -104,7 +104,7 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 		t.Fatalf("AP/N Resources has no /Font /F0")
 	}
 
-	if annotationNeedsAppearanceFix(widget) {
+	if annotationNeedsAppearanceFix(widget, false) {
 		t.Fatalf("annotationNeedsAppearanceFix still true after Fix")
 	}
 	changed, err = fixer.Fix(&trailer, nil)
@@ -543,8 +543,10 @@ func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 // entry is bad.
 func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	annot := widgetWith("Btn", nil)
+	on := pdf.NewPDFDict()
+	on.SetStream([]byte("q Q"))
 	states := pdf.NewPDFDict()
-	states.Entries.Set("On", pdf.NewPDFDict())
+	states.Entries.Set("On", on)
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", states)
 	ap.Entries.Set("D", pdf.NewPDFDict())

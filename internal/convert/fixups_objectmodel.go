@@ -176,15 +176,26 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 // clearMaskFromCond collects the bits cond requires clear on key, from its conjunctive
 // structure only (an Or/Not subtree could make clearing wrong, so it contributes nothing).
 func clearMaskFromCond(c *arlington.Cond, key string) int64 {
+	return bitMaskFromCond(c, key, arlington.CondBitsClear)
+}
+
+// setMaskFromCond is clearMaskFromCond for the bits cond requires set.
+func setMaskFromCond(c *arlington.Cond, key string) int64 {
+	return bitMaskFromCond(c, key, arlington.CondBitsSet)
+}
+
+// bitMaskFromCond collects the bits of key that the op leaves of cond's
+// conjunctive structure test.
+func bitMaskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 	var mask int64
 	switch c.Op {
-	case arlington.CondBitsClear:
+	case op:
 		if c.Key == key {
 			mask |= (1<<uint(c.BitHi) - 1) &^ (1<<uint(c.BitLo-1) - 1)
 		}
 	case arlington.CondAnd:
 		for i := range c.Kids {
-			mask |= clearMaskFromCond(&c.Kids[i], key)
+			mask |= bitMaskFromCond(&c.Kids[i], key, op)
 		}
 	}
 	return mask
@@ -361,10 +372,17 @@ func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, b
 }
 
 // repairConstraint applies the neutral repair for key's violated SpecialCase on d.
+// Required flag bits are set only on an annotation's F, where they are the
+// bits ISO 32000-1 prescribes for the subtype (Print and ReadOnly on a TrapNet
+// annotation); elsewhere they discriminate the type or grant permissions.
 func repairConstraint(d pdf.PDFDict, typeName, key string, kd *arlington.KeyDef) bool {
-	if mask := clearMaskFromCond(kd.SpecialCase, key); mask != 0 {
-		if v, ok := d.Entries.Get(key).(pdf.PDFInteger); ok && int64(v)&mask != 0 {
-			d.Entries.Set(key, v&^pdf.PDFInteger(mask))
+	if v, ok := d.Entries.Get(key).(pdf.PDFInteger); ok {
+		want := int64(v) &^ clearMaskFromCond(kd.SpecialCase, key)
+		if key == "F" && strings.HasPrefix(typeName, "Annot") {
+			want |= setMaskFromCond(kd.SpecialCase, key)
+		}
+		if want != int64(v) {
+			d.Entries.Set(key, pdf.PDFInteger(want))
 			return true
 		}
 	}
@@ -469,8 +487,8 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 
 // missingRequiredKeyFixer remediates the object model's MissingRequiredKey check for keys
 // with exactly one legal value: a single-entry enum (e.g. /Type on most types) or a pinned
-// value whose condition definitely holds on the dict. Anything else has no synthesizable
-// value and stays a residual. It is targeted only: without the walk's type
+// value whose condition definitely holds on the dict, or the value requiredDefaults
+// gives the key. Anything else has no synthesizable value and stays a residual. It is targeted only: without the walk's type
 // propagation a whole-graph pass cannot know which schema each dict was
 // validated under.
 type missingRequiredKeyFixer struct{}
@@ -501,6 +519,9 @@ func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 			continue // repaired by an earlier pass; stale finding
 		}
 		val, ok := synthesizedValue(kd, d)
+		if !ok {
+			val, ok = requiredDefaults[[2]string{detail.TypeName, detail.Key}]
+		}
 		if !ok {
 			continue
 		}
@@ -650,6 +671,16 @@ func namedKeyDef(typeName, key string) *arlington.KeyDef {
 		}
 	}
 	return nil
+}
+
+// requiredDefaults are the values given to required keys whose value the
+// schema does not determine but which no reader acts on. A trap network
+// annotation names its appearance state, though its normal appearance is a
+// single stream, and its appearance form names the process colour model it
+// was trapped for, which only a trapping application reads.
+var requiredDefaults = map[[2]string]pdf.PDFValue{
+	{"AnnotTrapNetwork", "AS"}:    pdf.PDFName{Value: "Off"},
+	{"XObjectFormTrapNet", "PCM"}: pdf.PDFName{Value: "DeviceCMYK"},
 }
 
 // synthesizedValue returns the single value the schema permits for kd on d, if one exists:

@@ -314,6 +314,9 @@ type annotationChecks struct {
 	AppearanceExtraEntries Check
 	AppearanceNNotStream   Check
 	ColourWithoutIntent    Check
+	// Rules of PDF/A-2 alone: the F key itself and the ToggleNoView flag.
+	AnnotationFlagsMissing Check
+	ToggleNoViewFlagSet    Check
 }
 
 type actionChecks struct {
@@ -1103,6 +1106,12 @@ func init() {
 				"ColourWithoutIntent",
 				"Annotation colour arrays must only use device colour models covered by an OutputIntent",
 				"6.5.3", 10),
+			AnnotationFlagsMissing: newPart2Check(188,
+				"AnnotationFlagsMissing",
+				"Annotations other than Popup ones must contain an F key"),
+			ToggleNoViewFlagSet: newPart2Check(189,
+				"ToggleNoViewFlagSet",
+				"Annotations must not have the ToggleNoView flag set"),
 		},
 
 		Action: actionChecks{
