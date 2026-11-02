@@ -97,6 +97,10 @@ Everything under `internal/` may change in any release without notice.
 - Convert gives a trap network annotation the Print and ReadOnly flags,
   the appearance state and the process colour model its form requires,
   instead of rasterizing the page.
+- Convert removes, or gives an appearance to, an annotation that has no
+  `/Type`, which verify reports as one when it has `/Subtype` and `/Rect`,
+  and reads a real-valued annotation F as its integer, keeping its other
+  flags.
 
 ## [1.3.0] - 2026-10-31
 

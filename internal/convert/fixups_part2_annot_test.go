@@ -200,3 +200,70 @@ func TestAppearanceFixerPart2(t *testing.T) {
 		})
 	}
 }
+
+// TestAnnotFixersTakeUntypedAnnotations verifies that the subtype and
+// appearance fixers repair an annotation without /Type, which the verifier
+// reports as one when it has /Subtype and /Rect.
+func TestAnnotFixersTakeUntypedAnnotations(t *testing.T) {
+	rect := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)}
+	sound := kv("Subtype", nm("Sound"), "Rect", rect)
+	page := kv("Type", nm("Page"), "Annots", pdf.PDFArray{sound})
+	trailer := trailerWith("Page", page)
+	if changed, err := (disallowedAnnotFixer{spec: a2bSpec}).Fix(&trailer, nil); err != nil || !changed {
+		t.Fatalf("disallowedAnnotFixer.Fix = %v, %v; want changed", changed, err)
+	}
+	if got := page.Entries.Get("Annots").(pdf.PDFArray); len(got) != 0 {
+		t.Errorf("Annots = %v, want the untyped Sound annotation removed", got)
+	}
+
+	widget := kv("Subtype", nm("Widget"), "FT", nm("Tx"), "Rect", rect)
+	trailer = trailerWith("Widget", widget)
+	if changed, err := (appearanceFixer{spec: a2bSpec}).Fix(&trailer, nil); err != nil || !changed {
+		t.Fatalf("appearanceFixer.Fix = %v, %v; want changed", changed, err)
+	}
+	if _, ok := widget.Entries.Get("AP").(pdf.PDFDict); !ok {
+		t.Error("untyped widget got no appearance")
+	}
+}
+
+// TestDisallowedAnnotFixerKeepsCleanAnnots verifies that /Annots is left as
+// it is when nothing in it is removed.
+func TestDisallowedAnnotFixerKeepsCleanAnnots(t *testing.T) {
+	annots := pdf.PDFArray{kv("Type", nm("Annot"), "Subtype", nm("Text"))}
+	page := kv("Type", nm("Page"), "Annots", annots)
+	trailer := trailerWith("Page", page)
+	if changed, err := (disallowedAnnotFixer{spec: a2bSpec}).Fix(&trailer, nil); err != nil || changed {
+		t.Fatalf("Fix = %v, %v; want no change", changed, err)
+	}
+	if got := page.Entries.Get("Annots").(pdf.PDFArray); len(got) != 1 || &got[0] != &annots[0] {
+		t.Errorf("Annots replaced: %v", got)
+	}
+}
+
+// TestAnnotationFlagsFixerRealF verifies that a real F is read as its
+// integer, so its other bits survive a repair.
+func TestAnnotationFlagsFixerRealF(t *testing.T) {
+	annot := kv("Type", nm("Annot"), "Subtype", nm("Text"),
+		"F", pdf.PDFReal(verify.AnnotFlagPrint|verify.AnnotFlagToggleNoView|128))
+	trailer := trailerWith("Annot", annot)
+	an := pdf.Checks.Annotation
+	if _, err := (annotationFlagsFixer{}).Fix(&trailer, issuesOf(an.AnnotationFlagsMissing, an.ToggleNoViewFlagSet)); err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if got := annot.Entries.Get("F"); got != pdf.PDFInteger(verify.AnnotFlagPrint|128) {
+		t.Errorf("F = %v, want Print and Locked", got)
+	}
+}
+
+// TestConstraintFixerSetsDirectTrapNetFlags verifies that the whole-graph
+// pass repairs a trap network annotation no finding can target.
+func TestConstraintFixerSetsDirectTrapNetFlags(t *testing.T) {
+	annot := kv("Type", nm("Annot"), "Subtype", nm("TrapNet"), "F", pdf.PDFInteger(1|4))
+	trailer := trailerWith("Annot", annot)
+	if changed, err := (constraintFixer{}).Fix(&trailer, nil); err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want changed", changed, err)
+	}
+	if got := annot.Entries.Get("F"); got != pdf.PDFInteger(4|64) {
+		t.Errorf("F = %v, want Print and ReadOnly", got)
+	}
+}

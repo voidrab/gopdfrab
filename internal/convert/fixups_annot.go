@@ -3,6 +3,7 @@ package convert
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // --- 6.5.2 Annotation subtypes ---
@@ -33,20 +34,25 @@ func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed 
 		// The page is visited before or after its annotations, so it removes
 		// and clears them itself.
 		if annots, ok := d.Entries.Get("Annots").(pdf.PDFArray); ok {
-			kept := annots[:0:0]
-			for _, e := range annots {
+			var kept pdf.PDFArray
+			for i, e := range annots {
 				ad, isDict := e.(pdf.PDFDict)
 				switch {
 				case isDict && f.disallowed(ad):
 					f.remove(ad)
 				case isDict && ad.Entries.Len() == 0:
 				default:
-					kept = append(kept, e)
+					if kept != nil {
+						kept = append(kept, e)
+					}
 					continue
+				}
+				if kept == nil {
+					kept = append(make(pdf.PDFArray, 0, len(annots)-1), annots[:i]...)
 				}
 				*changed = true
 			}
-			if len(kept) != len(annots) {
+			if kept != nil {
 				d.Entries.Set("Annots", kept)
 			}
 		}
@@ -60,7 +66,7 @@ func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed 
 // disallowed reports whether d is an annotation of a subtype the level does
 // not permit.
 func (f disallowedAnnotFixer) disallowed(d pdf.PDFDict) bool {
-	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
+	if !verify.IsAnnotationDict(d) {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)

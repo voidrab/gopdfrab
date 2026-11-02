@@ -272,6 +272,13 @@ const (
 	AnnotFlagToggleNoView = 1 << 8
 )
 
+// AnnotFlags returns the flags of annotation d and whether its F entry is a
+// number. A real F is read as the integer it truncates to, as veraPDF does.
+func AnnotFlags(d pdf.PDFDict) (int, bool) {
+	f, ok := pdf.PDFNumberToFloat(d.Entries.Get("F"))
+	return int(f), ok
+}
+
 // ZeroSizeRect reports whether d's Rect has two equal corners, so the
 // annotation covers no area. Under PDF/A-2 such an annotation needs no
 // appearance (ISO 19005-2 6.3.3).
@@ -341,7 +348,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 
 	// Under PDF/A-2 the flags are checked only when F is present, and only a
 	// Popup annotation may omit it.
-	if f, hasF := v.Entries.Get("F").(pdf.PDFInteger); hasF || !ctx.part2() {
+	if f, hasF := AnnotFlags(v); hasF || !ctx.part2() {
 		checkAnnotFlags(v, int(f), ctx)
 	} else if subtype.Value != "Popup" {
 		ctx.Report(pdf.Checks.Annotation.AnnotationFlagsMissing, v, "annotation dictionary has no F key")

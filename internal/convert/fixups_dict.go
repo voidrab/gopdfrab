@@ -363,8 +363,7 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, chang
 			return
 		}
 
-		f, hasF := d.Entries.Get("F").(pdf.PDFInteger)
-		flags := int(f)
+		flags, hasF := verify.AnnotFlags(d)
 		want := (flags | set) &^ unset
 		if !hasF && addMissing && d.Entries.Get("Subtype") != (pdf.PDFName{Value: "Popup"}) {
 			want = verify.AnnotFlagPrint

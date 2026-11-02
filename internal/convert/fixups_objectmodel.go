@@ -205,6 +205,15 @@ func bitMaskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 // mustBeClearMask collects the bits an Arlington type's SpecialCase requires clear on the
 // given key. Zero means no clearable rule.
 func mustBeClearMask(typeName, key string) int64 {
+	return mustBeMask(typeName, key, arlington.CondBitsClear)
+}
+
+// mustBeSetMask is mustBeClearMask for the bits required set.
+func mustBeSetMask(typeName, key string) int64 {
+	return mustBeMask(typeName, key, arlington.CondBitsSet)
+}
+
+func mustBeMask(typeName, key string, op arlington.CondOp) int64 {
 	ot, ok := arlington.Type(typeName)
 	if !ok {
 		return 0
@@ -212,7 +221,7 @@ func mustBeClearMask(typeName, key string) int64 {
 	var mask int64
 	for _, kd := range ot.Keys {
 		if kd.Name == key && kd.SpecialCase != nil {
-			mask |= clearMaskFromCond(kd.SpecialCase, key)
+			mask |= bitMaskFromCond(kd.SpecialCase, key, op)
 		}
 	}
 	return mask
@@ -223,34 +232,43 @@ func mustBeClearMask(typeName, key string) int64 {
 // must ignore them), a DecodeParms array is resized to its Filter coupling,
 // surplus FontFile* variants are pruned to the descriptor's preferred one,
 // own-key numeric bounds (Length1 >= 0) are clamped, and a font descriptor's
-// Style gets a 12-byte Panose or is removed (see fixPanose). Cross-key semantic
-// couplings (image-mask consistency, must-be-set bits, structure-attribute key
-// sets) have no neutral repair and stay residuals.
+// Style gets a 12-byte Panose or is removed (see fixPanose). Bits that must be
+// set are set only on an annotation's F, where they are the flags ISO 32000-1
+// prescribes for the subtype. Cross-key semantic couplings (image-mask
+// consistency, structure-attribute key sets) and other must-be-set bits have
+// no neutral repair and stay residuals.
 type constraintFixer struct{}
 
 func (constraintFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.ConstraintViolated
 }
 
-var reservedFlagBits = map[string]struct {
+// flagWordRules are the flag words the whole-graph pass repairs, so that a
+// direct object, which no finding can target, is repaired too: the bits each
+// must have clear, and for a trap network annotation the bits it must have set.
+var flagWordRules = map[string]struct {
 	discKey, discVal, flagKey string
-	clear                     int64
+	clear, set                int64
 }{
-	"FontDescriptor": {"Type", "FontDescriptor", "Flags", mustBeClearMask("FontDescriptorType1", "Flags")},
-	"FieldTx":        {"FT", "Tx", "Ff", mustBeClearMask("FieldTx", "Ff")},
-	"FieldCh":        {"FT", "Ch", "Ff", mustBeClearMask("FieldCh", "Ff")},
+	"FontDescriptor": {"Type", "FontDescriptor", "Flags", mustBeClearMask("FontDescriptorType1", "Flags"), 0},
+	"FieldTx":        {"FT", "Tx", "Ff", mustBeClearMask("FieldTx", "Ff"), 0},
+	"FieldCh":        {"FT", "Ch", "Ff", mustBeClearMask("FieldCh", "Ff"), 0},
+	"AnnotTrapNetwork": {"Subtype", "TrapNet", "F",
+		mustBeClearMask("AnnotTrapNetwork", "F"), mustBeSetMask("AnnotTrapNetwork", "F")},
 }
 
 func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := pruneEmptyPageTreeNodes(*trailer)
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		for _, r := range reservedFlagBits {
+		for _, r := range flagWordRules {
 			if t, ok := d.Entries.Get(r.discKey).(pdf.PDFName); !ok || t.Value != r.discVal {
 				continue
 			}
-			if v, ok := d.Entries.Get(r.flagKey).(pdf.PDFInteger); ok && int64(v)&r.clear != 0 {
-				d.Entries.Set(r.flagKey, v&^pdf.PDFInteger(r.clear))
-				changed = true
+			if v, ok := d.Entries.Get(r.flagKey).(pdf.PDFInteger); ok {
+				if want := v&^pdf.PDFInteger(r.clear) | pdf.PDFInteger(r.set); want != v {
+					d.Entries.Set(r.flagKey, want)
+					changed = true
+				}
 			}
 		}
 		if fixPanose(d) {

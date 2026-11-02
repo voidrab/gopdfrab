@@ -50,6 +50,8 @@ func TestPart2AnnotationFlags(t *testing.T) {
 		{"conforming", annotWith("Text"), a2bSpec, nil},
 		{"no F", annotWith("Text", "F", nil), a2bSpec, []pdf.Check{an.AnnotationFlagsMissing}},
 		{"no F on a popup", annotWith("Popup", "F", nil), a2bSpec, nil},
+		{"real F", annotWith("Text", "F", pdf.PDFReal(AnnotFlagPrint)), a2bSpec, nil},
+		{"F not a number", annotWith("Text", "F", name("Print")), a2bSpec, []pdf.Check{an.AnnotationFlagsMissing}},
 		{"no F under Part 1", annotWith("Text", "F", nil), a1bSpec, []pdf.Check{an.PrintFlagNotSet}},
 		{"ToggleNoView", annotWith("Text", "F", pdf.PDFInteger(AnnotFlagPrint|AnnotFlagToggleNoView)), a2bSpec,
 			[]pdf.Check{an.ToggleNoViewFlagSet}},

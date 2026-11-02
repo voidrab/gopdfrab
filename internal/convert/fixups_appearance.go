@@ -80,7 +80,7 @@ func (f appearanceFixer) appearanceFont() *appearanceFontSource {
 // of this Fixer's checks; it re-checks the predicate so a stale or
 // already-fixed target is a no-op.
 func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource, spec *pdfa.Spec) bool {
-	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
+	if !verify.IsAnnotationDict(d) {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
