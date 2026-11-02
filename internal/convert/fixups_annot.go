@@ -8,14 +8,13 @@ import (
 // --- 6.5.2 Annotation subtypes ---
 
 // disallowedAnnotFixer remediates Checks.Annotation.DisallowedSubtype by
-// removing any annotation whose /Subtype the level does not permit from its
+// removing each annotation whose /Subtype the level does not permit from its
 // page's /Annots, mirroring validateAnnotation in checks_dict.go. The
-// dictionary is also emptied (clearDict), as actionFixer does for forbidden
-// action dictionaries, so that a reference from elsewhere, such as a popup's
-// /Parent, reaches nothing a check reads. An emptied dictionary left in
-// /Annots is still an annotation to a reader, one with no subtype, so it is
-// dropped from the array too. The annotation is content the output no longer
-// holds, so each one removed is reported to lost, when non-nil.
+// dictionary is also emptied (clearDict), so that a reference from elsewhere,
+// such as a popup's /Parent, reaches nothing a check reads. An emptied
+// dictionary left in /Annots would still be read as an annotation with no
+// subtype, so it is dropped from the array as well. Each removal is reported
+// to lost, when non-nil.
 type disallowedAnnotFixer struct {
 	spec *pdfa.Spec
 	lost *[]pdf.PDFError

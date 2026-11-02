@@ -7,8 +7,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
-// annotWith returns an annotation dictionary of the subtype with a printable
-// F, a 10 by 10 Rect and an appearance stream, followed by the pairs.
+// annotWith returns an annotation dictionary of the given subtype with a
+// printable F, a 10 by 10 Rect and an appearance stream. Each pair in pairs
+// sets a key to its value, or deletes the key when the value is nil.
 func annotWith(subtype string, pairs ...any) pdf.PDFDict {
 	n := pdf.NewPDFDict()
 	n.SetStream([]byte("q Q"))

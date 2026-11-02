@@ -365,7 +365,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 		if subtype.Value != "Popup" && subtype.Value != "Link" && !(ctx.part2() && ZeroSizeRect(v)) {
 			if isFormField && !ctx.part2() {
 				// Missing AP on a form-field widget is a 6.9 violation, not
-				// 6.5.3. PDF/A-2 has the one rule for every annotation.
+				// 6.5.3. Under PDF/A-2, 6.3.3 applies to every annotation.
 				ctx.Report(pdf.Checks.Form.WidgetMissingAppearance, v, "form field widget annotation lacks an appearance dictionary (AP)")
 			} else {
 				ctx.Report(pdf.Checks.Annotation.MissingAppearance, v, "annotation lacks a normal (N) appearance stream")

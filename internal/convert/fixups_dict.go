@@ -318,8 +318,8 @@ func extGStateDictVisitor(changed *bool, spec *pdfa.Spec, reported map[pdf.Check
 // checks_dict.go. Each flag bit, a missing F key and the constant opacity
 // (/CA) are repaired only when their own check was reported. It deliberately
 // does not touch DisallowedSubtype, ColourWithoutIntent, or the
-// appearance-stream checks (resource synthesis or harder per the converter
-// plan).
+// appearance-stream checks, which need resource synthesis or more than a
+// neutral repair.
 type annotationFlagsFixer struct{}
 
 func (annotationFlagsFixer) Applies(c pdf.Check) bool {

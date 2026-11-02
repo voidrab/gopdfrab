@@ -314,7 +314,8 @@ type annotationChecks struct {
 	AppearanceExtraEntries Check
 	AppearanceNNotStream   Check
 	ColourWithoutIntent    Check
-	// Rules of PDF/A-2 alone: the F key itself and the ToggleNoView flag.
+	// Checked under PDF/A-2 only (ISO 19005-2 6.3.2): the F key itself and the
+	// ToggleNoView flag.
 	AnnotationFlagsMissing Check
 	ToggleNoViewFlagSet    Check
 }

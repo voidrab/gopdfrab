@@ -184,8 +184,9 @@ func setMaskFromCond(c *arlington.Cond, key string) int64 {
 	return bitMaskFromCond(c, key, arlington.CondBitsSet)
 }
 
-// bitMaskFromCond collects the bits of key that the op leaves of cond's
-// conjunctive structure test.
+// bitMaskFromCond returns the mask of key's bits that cond requires under op,
+// which is CondBitsClear or CondBitsSet. Only conjunctive (And) subtrees are
+// searched; an Or or Not subtree contributes nothing.
 func bitMaskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 	var mask int64
 	switch c.Op {
@@ -485,10 +486,11 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 	return changed
 }
 
-// missingRequiredKeyFixer remediates the object model's MissingRequiredKey check for keys
-// with exactly one legal value: a single-entry enum (e.g. /Type on most types) or a pinned
-// value whose condition definitely holds on the dict, or the value requiredDefaults
-// gives the key. Anything else has no synthesizable value and stays a residual. It is targeted only: without the walk's type
+// missingRequiredKeyFixer remediates the object model's MissingRequiredKey
+// check for keys with exactly one legal value: a single-entry enum (e.g. /Type
+// on most types), a pinned value whose condition definitely holds on the dict,
+// or the value given by requiredDefaults. Anything else has no synthesizable
+// value and stays a residual. It is targeted only: without the walk's type
 // propagation a whole-graph pass cannot know which schema each dict was
 // validated under.
 type missingRequiredKeyFixer struct{}
@@ -673,11 +675,11 @@ func namedKeyDef(typeName, key string) *arlington.KeyDef {
 	return nil
 }
 
-// requiredDefaults are the values given to required keys whose value the
-// schema does not determine but which no reader acts on. A trap network
-// annotation names its appearance state, though its normal appearance is a
-// single stream, and its appearance form names the process colour model it
-// was trapped for, which only a trapping application reads.
+// requiredDefaults gives values for required keys that the schema leaves open
+// and that no ordinary reader consults. A trap network annotation's AS names an
+// appearance state, although its normal appearance is a single stream. The PCM
+// of a trap network form names the process colour model it was trapped for,
+// which only a trapping application reads.
 var requiredDefaults = map[[2]string]pdf.PDFValue{
 	{"AnnotTrapNetwork", "AS"}:    pdf.PDFName{Value: "Off"},
 	{"XObjectFormTrapNet", "PCM"}: pdf.PDFName{Value: "DeviceCMYK"},
