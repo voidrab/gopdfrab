@@ -243,9 +243,10 @@ func (constraintFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.ConstraintViolated
 }
 
-// flagWordRules are the flag words the whole-graph pass repairs, so that a
-// direct object, which no finding can target, is repaired too: the bits each
-// must have clear, and for a trap network annotation the bits it must have set.
+// flagWordRules lists the flag words that constraintFixer repairs in every
+// dictionary, including direct objects, which no finding can target. For each
+// word it gives the bits that must be clear and, for a trap network
+// annotation, the bits that must be set.
 var flagWordRules = map[string]struct {
 	discKey, discVal, flagKey string
 	clear, set                int64

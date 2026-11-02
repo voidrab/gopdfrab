@@ -201,9 +201,9 @@ func TestAppearanceFixerPart2(t *testing.T) {
 	}
 }
 
-// TestAnnotFixersTakeUntypedAnnotations verifies that the subtype and
-// appearance fixers repair an annotation without /Type, which the verifier
-// reports as one when it has /Subtype and /Rect.
+// TestAnnotFixersTakeUntypedAnnotations verifies that the disallowed-subtype
+// and appearance fixers repair an annotation with no Type entry, which the
+// verifier treats as an annotation when it has Subtype and Rect.
 func TestAnnotFixersTakeUntypedAnnotations(t *testing.T) {
 	rect := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)}
 	sound := kv("Subtype", nm("Sound"), "Rect", rect)
@@ -226,8 +226,8 @@ func TestAnnotFixersTakeUntypedAnnotations(t *testing.T) {
 	}
 }
 
-// TestDisallowedAnnotFixerKeepsCleanAnnots verifies that /Annots is left as
-// it is when nothing in it is removed.
+// TestDisallowedAnnotFixerKeepsCleanAnnots verifies that the Annots array is
+// left as it is when nothing in it is removed.
 func TestDisallowedAnnotFixerKeepsCleanAnnots(t *testing.T) {
 	annots := pdf.PDFArray{kv("Type", nm("Annot"), "Subtype", nm("Text"))}
 	page := kv("Type", nm("Page"), "Annots", annots)
