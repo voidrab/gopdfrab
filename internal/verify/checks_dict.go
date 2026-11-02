@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // HasAnyKey reports whether dict v contains any of the given keys.
@@ -265,11 +266,40 @@ func resolveInheritedFT(v pdf.PDFDict) pdf.PDFValue {
 
 // Annotation flag bits (PDF 32000 12.5.3).
 const (
-	AnnotFlagInvisible = 1 << 0
-	AnnotFlagHidden    = 1 << 1
-	AnnotFlagPrint     = 1 << 2
-	AnnotFlagNoView    = 1 << 5
+	AnnotFlagInvisible    = 1 << 0
+	AnnotFlagHidden       = 1 << 1
+	AnnotFlagPrint        = 1 << 2
+	AnnotFlagNoView       = 1 << 5
+	AnnotFlagToggleNoView = 1 << 8
 )
+
+// AnnotFlags returns the flags of annotation d and whether its F entry is a
+// number. A real F is read as the integer it truncates to, as veraPDF does.
+func AnnotFlags(d pdf.PDFDict) (int, bool) {
+	f, ok := pdf.PDFNumberToFloat(d.Entries.Get("F"))
+	return int(f), ok
+}
+
+// FlagsRequired reports whether annotation d must have an F key under
+// PDF/A-2: every annotation but a Popup one must (ISO 19005-2 6.3.2).
+func FlagsRequired(d pdf.PDFDict) bool {
+	return d.Entries.Get("Subtype") != pdf.PDFName{Value: "Popup"}
+}
+
+// ZeroSizeRect reports whether d's Rect has two equal corners, so the
+// annotation covers no area. Under PDF/A-2 such an annotation needs no
+// appearance (ISO 19005-2 6.3.3).
+func ZeroSizeRect(d pdf.PDFDict) bool {
+	v, err := pdf.FloatArray(d.Entries.Get("Rect"))
+	return err == nil && len(v) == 4 && v[0] == v[2] && v[1] == v[3]
+}
+
+// ButtonAppearances reports whether n, the normal appearance of a Btn
+// widget, is an appearance subdictionary holding at least one appearance
+// stream, rather than a stream or a subdictionary of none.
+func ButtonAppearances(n pdf.PDFDict) bool {
+	return !n.IsStream() && len(pdf.AppearanceStreams(n)) > 0
+}
 
 // IsAnnotationDict reports whether d is an annotation dictionary. /Type is
 // optional on one (ISO 32000-1 12.5.2), and a viewer reaches an annotation
@@ -286,7 +316,8 @@ func IsAnnotationDict(d pdf.PDFDict) bool {
 }
 
 // validateAnnotation checks annotation types (6.5.2) and annotation
-// dictionaries (6.5.3).
+// dictionaries (6.5.3), under PDF/A-2 annotation types (6.3.1), dictionaries
+// (6.3.2) and appearances (6.3.3).
 func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	if !IsAnnotationDict(v) {
 		return
@@ -294,15 +325,108 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 
 	subtype, _ := v.Entries.Get("Subtype").(pdf.PDFName)
 
+	// Under PDF/A-2 the rest of a disallowed annotation is checked too, as
+	// veraPDF does.
 	if !ctx.Spec.AnnotationSubtypes.Has(subtype.Value) {
 		ctx.Report(pdf.Checks.Annotation.DisallowedSubtype, v, fmt.Sprintf("annotation subtype /%s not allowed", subtype.Value))
-		return
+		if !ctx.part2() {
+			return
+		}
 	}
 
-	flags := 0
-	if f, ok := v.Entries.Get("F").(pdf.PDFInteger); ok {
-		flags = int(f)
+	// Under PDF/A-2 the flag bits are checked only when F is present. A missing
+	// F is reported unless FlagsRequired exempts the annotation.
+	if f, hasF := AnnotFlags(v); hasF || !ctx.part2() {
+		checkAnnotFlags(v, f, ctx)
+	} else if FlagsRequired(v) {
+		ctx.Report(pdf.Checks.Annotation.AnnotationFlagsMissing, v, "annotation dictionary has no F key")
 	}
+
+	if ca, ok := v.Entries.Lookup("CA"); ok {
+		if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
+			ctx.Report(pdf.Checks.Annotation.OpacityNotOne, v, "annotation opacity (CA) shall be 1.0")
+		}
+	}
+
+	checkAnnotColour(v, v.Entries.Get("C"), ctx)
+	checkAnnotColour(v, v.Entries.Get("IC"), ctx)
+
+	for _, f := range AppearanceFaults(v, ctx.Spec) {
+		ctx.Report(f.Check, v, f.Message)
+	}
+}
+
+// AppearanceFault is one appearance rule an annotation breaks.
+type AppearanceFault struct {
+	Check   pdf.Check
+	Message string
+}
+
+// AppearanceFaults returns the appearance rules that annotation d breaks under
+// spec: 6.5.3 and 6.9, or 6.3.3 under PDF/A-2. Apart from a zero-area
+// annotation that spec exempts, an annotation other than a Popup or Link one
+// needs an appearance dictionary whose only entry is N. N is an appearance
+// stream, or for a Btn widget a subdictionary of appearance streams.
+func AppearanceFaults(d pdf.PDFDict, spec *pdfa.Spec) []AppearanceFault {
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	ft := resolveInheritedFT(d)
+	ap, hasAP := d.Entries.Get("AP").(pdf.PDFDict)
+	if !hasAP {
+		if subtype.Value == "Popup" || subtype.Value == "Link" || spec.ZeroAreaAnnotsExempt && ZeroSizeRect(d) {
+			return nil
+		}
+		// Before PDF/A-2, a form field widget without an appearance breaks 6.9
+		// rather than 6.5.3. Under PDF/A-2, 6.3.3 applies to every annotation.
+		if ft != nil && spec.Part < 2 {
+			return []AppearanceFault{{pdf.Checks.Form.WidgetMissingAppearance, "form field widget annotation lacks an appearance dictionary (AP)"}}
+		}
+		return []AppearanceFault{{pdf.Checks.Annotation.MissingAppearance, "annotation lacks a normal (N) appearance stream"}}
+	}
+
+	var faults []AppearanceFault
+	n, hasN := ap.Entries.Lookup("N")
+	if !hasN {
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceMissingN, "appearance dictionary has no N entry"})
+	}
+	var extras []string
+	for k := range ap.Entries.All() {
+		if k != "N" {
+			extras = append(extras, k)
+		}
+	}
+	if len(extras) > 0 {
+		// Name the lexicographically first extra entry, so that the message
+		// does not depend on the order of the entries.
+		sort.Strings(extras)
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceExtraEntries,
+			fmt.Sprintf("appearance dictionary has entry other than N: %s", extras[0])})
+	}
+	if !hasN {
+		return faults
+	}
+	nd, ok := n.(pdf.PDFDict)
+	switch {
+	case !ok:
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceNNotStream, "appearance N value is not a stream or subdictionary"})
+	case ft == pdf.PDFName{Value: "Btn"}:
+		if !ButtonAppearances(nd) {
+			faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceNNotStream, "Btn widget appearance N shall be a subdictionary of appearance streams"})
+		}
+	case !nd.IsStream():
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceNNotStream, "appearance N value is not a stream"})
+	}
+	return faults
+}
+
+// IsButtonField reports whether d is a Btn form field, with FT resolved
+// through the Parent chain as resolveInheritedFT does.
+func IsButtonField(d pdf.PDFDict) bool {
+	return resolveInheritedFT(d) == pdf.PDFName{Value: "Btn"}
+}
+
+// checkAnnotFlags reports each of the flag bits in flags that the level
+// requires set or clear.
+func checkAnnotFlags(v pdf.PDFDict, flags int, ctx *ValidationContext) {
 	if flags&AnnotFlagPrint == 0 {
 		ctx.Report(pdf.Checks.Annotation.PrintFlagNotSet, v, "annotation Print flag shall be set")
 	}
@@ -315,60 +439,8 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	if flags&AnnotFlagNoView != 0 {
 		ctx.Report(pdf.Checks.Annotation.NoViewFlagSet, v, "annotation NoView flag shall be clear")
 	}
-
-	if ca, ok := v.Entries.Lookup("CA"); ok {
-		if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
-			ctx.Report(pdf.Checks.Annotation.OpacityNotOne, v, "annotation opacity (CA) shall be 1.0")
-		}
-	}
-
-	checkAnnotColour(v, v.Entries.Get("C"), ctx)
-	checkAnnotColour(v, v.Entries.Get("IC"), ctx)
-
-	// 6.5.3: appearance dictionary, where present, shall contain only N, an
-	// appearance stream. Non-Popup/Link annotations require an appearance.
-	ap, hasAP := v.Entries.Get("AP").(pdf.PDFDict)
-	isFormField := resolveInheritedFT(v) != nil
-	switch {
-	case !hasAP:
-		if subtype.Value != "Popup" && subtype.Value != "Link" {
-			if isFormField {
-				// Missing AP on a form-field widget is a 6.9 violation, not 6.5.3.
-				ctx.Report(pdf.Checks.Form.WidgetMissingAppearance, v, "form field widget annotation lacks an appearance dictionary (AP)")
-			} else {
-				ctx.Report(pdf.Checks.Annotation.MissingAppearance, v, "annotation lacks a normal (N) appearance stream")
-			}
-		}
-	default:
-		n, hasN := ap.Entries.Lookup("N")
-		if !hasN {
-			ctx.Report(pdf.Checks.Annotation.AppearanceMissingN, v, "appearance dictionary has no N entry")
-		}
-		var extras []string
-		for k := range ap.Entries.All() {
-			if k != "N" {
-				extras = append(extras, k)
-			}
-		}
-		if len(extras) > 0 {
-			// Report the lexicographically first extra entry so the message does
-			// not depend on map iteration order.
-			sort.Strings(extras)
-			ctx.Report(pdf.Checks.Annotation.AppearanceExtraEntries, v, fmt.Sprintf("appearance dictionary has entry other than N: %s", extras[0]))
-		}
-		if hasN {
-			isBtn := resolveInheritedFT(v) == (pdf.PDFName{Value: "Btn"})
-			if nd, ok := n.(pdf.PDFDict); !ok {
-				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream or subdictionary")
-			} else if isBtn {
-				// Btn widget N shall be a state-name-to-stream subdictionary, not direct.
-				if nd.IsStream() {
-					ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "Btn widget appearance N shall be a subdictionary, not a direct stream")
-				}
-			} else if !nd.IsStream() {
-				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream")
-			}
-		}
+	if flags&AnnotFlagToggleNoView != 0 && ctx.part2() {
+		ctx.Report(pdf.Checks.Annotation.ToggleNoViewFlagSet, v, "annotation ToggleNoView flag shall be clear")
 	}
 }
 

@@ -197,6 +197,8 @@ var stableCheckIDs = map[string]int{
 	"UseCMapNotPredefined":             185,
 	"NonSymbolicTrueTypeCmap":          186,
 	"NotdefGlyphReference":             187,
+	"AnnotationFlagsMissing":           188,
+	"ToggleNoViewFlagSet":              189,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {

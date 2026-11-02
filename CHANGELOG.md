@@ -50,6 +50,10 @@ Everything under `internal/` may change in any release without notice.
   `NonSymbolicTrueTypeCmap` and `NotdefGlyphReference`. Converting to PDF/A-2b
   merges a CMap that an embedded CMap uses into it, and takes the codes that
   select the .notdef glyph out of the text, leaving their advance in place.
+- Two more PDF/A-2-only checks, for annotations:
+  `Checks.Annotation.AnnotationFlagsMissing` and `ToggleNoViewFlagSet`.
+  Converting to PDF/A-2b gives an annotation without an F key the Print flag
+  and clears ToggleNoView.
 
 ### Fixed
 
@@ -84,6 +88,19 @@ Everything under `internal/` may change in any release without notice.
 - Convert covers device colour that a Type 3 font's glyph procedures set when
   the font has resources of its own. It used to leave that colour uncovered,
   and the page then fell back to rasterization.
+- Convert removes an annotation of a disallowed type from its page's
+  `/Annots`. It used to leave an empty dictionary there, which veraPDF reads
+  as an annotation with no type, so the output still failed.
+- Verify requires a button widget's normal appearance to name at least one
+  appearance stream, as veraPDF does, and convert builds one when it does
+  not.
+- Convert gives a trap network annotation the Print and ReadOnly flags,
+  the appearance state and the process colour model its form requires,
+  instead of rasterizing the page.
+- Convert removes, or gives an appearance to, an annotation that has no
+  `/Type`, which verify reports as one when it has `/Subtype` and `/Rect`,
+  and reads a real-valued annotation F as its integer, keeping its other
+  flags.
 
 ## [1.3.0] - 2026-10-31
 

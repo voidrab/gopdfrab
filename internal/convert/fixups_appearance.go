@@ -9,6 +9,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -23,8 +24,8 @@ import (
 
 // appearanceFixer remediates WidgetMissingAppearance, MissingAppearance,
 // AppearanceMissingN, AppearanceExtraEntries and AppearanceNNotStream,
-// mirroring the /AP block of validateAnnotation (checks_dict.go). fontSrc is
-// the run-scoped appearance font, set from the fixerRun.
+// for the annotations that verify.AppearanceFaults reports. fontSrc is the
+// run-scoped appearance font, set from the fixerRun.
 type appearanceFixer struct {
 	fontSrc *appearanceFontSource
 	spec    *pdfa.Spec
@@ -79,81 +80,34 @@ func (f appearanceFixer) appearanceFont() *appearanceFontSource {
 // of this Fixer's checks; it re-checks the predicate so a stale or
 // already-fixed target is a no-op.
 func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource, spec *pdfa.Spec) bool {
-	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
+	if !verify.IsAnnotationDict(d) {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	if !spec.AnnotationSubtypes.Has(subtype.Value) {
 		return false
 	}
-	if !annotationNeedsAppearanceFix(d) {
+	if len(verify.AppearanceFaults(d, spec)) == 0 {
 		return false
 	}
 	d.Entries.Set("AP", rebuiltAppearanceDict(trailer, d, fontSrc))
 	return true
 }
 
-// annotationNeedsAppearanceFix reports whether d violates one of this
-// Fixer's checks, exactly mirroring validateAnnotation's /AP block
-// (checks_dict.go) so the Fixer only ever touches what that check would
-// actually flag.
-func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
-	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
-	ap, hasAP := d.Entries.Get("AP").(pdf.PDFDict)
-	if !hasAP {
-		return subtype.Value != "Popup" && subtype.Value != "Link"
-	}
-
-	n, hasN := ap.Entries.Lookup("N")
-	if !hasN {
-		return true
-	}
-	for k := range ap.Entries.All() {
-		if k != "N" {
-			return true
-		}
-	}
-
-	nd, ok := n.(pdf.PDFDict)
-	if !ok {
-		return true
-	}
-	if isBtnField(d) {
-		return nd.IsStream()
-	}
-	return !nd.IsStream()
-}
-
-// isBtnField reports whether d is a Btn form field, resolving FT through
-// the Parent chain if not set directly on the widget.
-func isBtnField(d pdf.PDFDict) bool {
-	for depth := 0; depth < 20; depth++ {
-		if ft, ok := d.Entries.Get("FT").(pdf.PDFName); ok {
-			return ft.Value == "Btn"
-		}
-		parent, ok := d.Entries.Get("Parent").(pdf.PDFDict)
-		if !ok {
-			return false
-		}
-		d = parent
-	}
-	return false
-}
-
 // rebuiltAppearanceDict returns a conformant replacement for d's /AP: a
-// dictionary containing only N. An already-valid N value (per
-// annotationNeedsAppearanceFix's shape rule) is kept as-is -- e.g. when the
-// only violation was an extra /D or /R entry -- rather than discarding a
-// perfectly good appearance just to strip the other keys.
+// dictionary containing only N. An N value that verify.AppearanceFaults does
+// not flag is kept as-is, for example when the only violation is an extra /D
+// or /R entry, rather than discarding a valid appearance to strip the other
+// keys.
 func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource) pdf.PDFDict {
-	isBtn := isBtnField(d)
+	isBtn := verify.IsButtonField(d)
 	var newN pdf.PDFValue
 
 	if ap, ok := d.Entries.Get("AP").(pdf.PDFDict); ok {
 		if n, ok := ap.Entries.Lookup("N"); ok {
 			if nd, ok := n.(pdf.PDFDict); ok {
 				switch {
-				case isBtn && !nd.IsStream():
+				case isBtn && verify.ButtonAppearances(nd):
 					newN = nd
 				case !isBtn && nd.IsStream():
 					newN = nd
