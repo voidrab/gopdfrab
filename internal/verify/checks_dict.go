@@ -31,11 +31,12 @@ var ActionTypes = map[string]bool{
 }
 
 // ActionOwnerKey returns the entry of d whose value is an action dictionary,
-// or "" when d owns no action. The key alone does not settle it: /A on a
-// structure element is an attribute dictionary and /Next on an outline item is
-// a sibling, so only the /A of an annotation or an outline item, the
-// catalogue's /OpenAction and an action's /Next count. /Next holds one action
-// or an array of them. Exported for the fixer.
+// or "" when d owns no action. The key name alone does not settle it: the
+// action entry (/A) of a structure element is an attribute dictionary, and the
+// next entry (/Next) of an outline item is a sibling. Only the action entry of
+// an annotation or outline item, the open-action entry (/OpenAction) of the
+// catalog, and the next entry of an action count. The next entry holds one
+// action or an array of them. Exported for the fixer.
 func ActionOwnerKey(d pdf.PDFDict) string {
 	switch {
 	case IsAnnotationDict(d), isOutlineItem(d):

@@ -670,8 +670,8 @@ func TestActionFixerKeepsAnnotationAAUnderPart2(t *testing.T) {
 }
 
 // TestActionFixerUnlinksDeadActions verifies that a forbidden action is taken
-// off an outline item and off the /Next entry of another action, whether
-// /Next holds one action or an array of them.
+// off an outline item and off the Next entry (/Next) of another action,
+// whether that entry holds one action or an array of them.
 func TestActionFixerUnlinksDeadActions(t *testing.T) {
 	launch := func() pdf.PDFDict { return kv("S", name("Launch")) }
 	goTo := kv("S", name("GoTo"))
