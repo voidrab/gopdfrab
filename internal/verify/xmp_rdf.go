@@ -12,7 +12,8 @@ import (
 // nsXML is the namespace the xml prefix is bound to.
 const nsXML = "http://www.w3.org/XML/1998/namespace"
 
-// nsDCDeprecated is the Dublin Core namespace of early XMP, read as nsDC.
+// nsDCDeprecated is the older Dublin Core namespace URI, which addChild maps
+// to nsDC.
 const nsDCDeprecated = "http://purl.org/dc/1.1/"
 
 // errBadRDF reports XMP whose RDF is outside the subset XMP allows.
@@ -404,7 +405,7 @@ func (p *rdfParser) resourcePropertyElement(parent *xmpNode, el *xmlElem) error 
 	if err != nil {
 		return err
 	}
-	// propertyElement sends an element with any other attribute elsewhere.
+	// el has no attribute but xml:lang, so any attribute is an xml:lang one.
 	n.hasLang = len(el.attrs) > 0
 	found := false
 	for _, k := range el.kids {

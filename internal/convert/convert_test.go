@@ -533,7 +533,7 @@ func TestConvertIsDeterministic(t *testing.T) {
 // handler (empty user password) before conversion, so its RC4 streams are
 // re-encoded as content and the output is conformant.
 //
-// The PDF/A-2b floor is 609, every fail fixture of its corpus.
+// The PDF/A-2b floor is 609, the number of PDF/A-2b fail fixtures.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
 	pdf.A2B: 609,

@@ -92,10 +92,10 @@ var (
 			"veraPDF test suite 6-2-10-t04-fail-i.pdf": "6.2.4.3",
 			// The AA entry is a widget's, which veraPDF checks under 6.4.1.
 			"veraPDF test suite 6-5-2-t01-fail-a.pdf": "6.4.1",
-			// The property of the first file has no extension schema, and
-			// the value type of the second defines no fields, which makes
-			// it Text and the structure its property holds the wrong type.
-			// veraPDF checks both under 6.6.2.3.1.
+			// The first file's property has no extension schema. The second
+			// file's value type defines no fields, which makes it Text, so
+			// the structure its property holds has the wrong type. Both are
+			// checked under 6.6.2.3.1.
 			"veraPDF test suite 6-6-2-3-2-t01-fail-a.pdf": "6.6.2.3.1",
 			"veraPDF test suite 6-6-2-3-3-t03-fail-b.pdf": "6.6.2.3.1",
 		},
