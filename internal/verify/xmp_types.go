@@ -124,8 +124,8 @@ var xmpPart2StructTypes = map[string]xmpStructType{
 		"frameSize": "real", "frameOverlappingPercentage": "real", "quality": "text"}},
 }
 
-// newXMPPart2TypeSet returns the types of ISO 19005-2 and -3 before any extension
-// schema adds its own.
+// newXMPPart2TypeSet returns the types of ISO 19005-2 and -3 before any
+// extension schema adds its own.
 func newXMPPart2TypeSet() *xmpTypeSet {
 	ts := &xmpTypeSet{simple: map[string]*regexp.Regexp{}, structs: map[string]xmpStructType{}}
 	for k, v := range xmpBasicSimpleTypes {

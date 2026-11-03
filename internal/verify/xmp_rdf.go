@@ -128,7 +128,8 @@ func parseXMLDocument(data []byte) (*xmlElem, error) {
 		data = data[i:]
 	}
 	dec := xml.NewDecoder(bytes.NewReader(data))
-	// data is UTF-8 already; an encoding declaration names what it was.
+	// data is already UTF-8, so an encoding declaration only names the
+	// original encoding and is not applied.
 	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	doc := &xmlElem{}
 	stack := []*xmlElem{doc}
@@ -203,8 +204,8 @@ func xmlnsPrefix(name xml.Name) (string, bool) {
 	return "", false
 }
 
-// resolveXMLPrefix returns the namespace prefix is bound to in the innermost
-// of scopes that binds it. An unbound empty prefix means no namespace.
+// resolveXMLPrefix returns the namespace bound to prefix in the innermost of
+// scopes that binds it. An unbound empty prefix means no namespace.
 func resolveXMLPrefix(scopes []map[string]string, prefix string) (string, error) {
 	for i := len(scopes) - 1; i >= 0; i-- {
 		if uri, ok := scopes[i][prefix]; ok {

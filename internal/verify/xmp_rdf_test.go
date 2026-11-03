@@ -243,8 +243,8 @@ func TestParseXMPPacketOldTermProperty(t *testing.T) {
 	}
 }
 
-// TestParseXMPPacketEncodingDeclaration verifies that a declaration naming
-// the encoding a packet had before it was decoded to UTF-8 is accepted.
+// TestParseXMPPacketEncodingDeclaration verifies that an XML declaration
+// naming UTF-16 is accepted in a packet whose bytes are already UTF-8.
 func TestParseXMPPacketEncodingDeclaration(t *testing.T) {
 	pkt := mustParseXMP(t, `<?xml version="1.0" encoding="UTF-16"?>`+desc(`<dc:format>a/b</dc:format>`))
 	if len(pkt.props) != 1 {
