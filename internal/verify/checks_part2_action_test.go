@@ -55,45 +55,56 @@ func TestActionOwnerKey(t *testing.T) {
 	}
 }
 
-// TestValidateActionsNextArrayWithoutS verifies that an action in a /Next
-// array with no /S is reported, as a single one is.
-func TestValidateActionsNextArrayWithoutS(t *testing.T) {
-	owner := kv("S", name("GoTo"), "Next", pdf.PDFArray{kv("S", name("URI")), kv()})
-	ctx := &ValidationContext{Spec: a2bSpec}
-	validateActions(owner, ctx)
-	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
-		t.Errorf("errs = %v, want ForbiddenActionType", ctx.errs)
+// TestValidateActionsOwnedActions verifies which dictionaries an owner names
+// that are reported as actions of no known type, and that a structure element
+// is no action whatever its /S.
+func TestValidateActionsOwnedActions(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		d    pdf.PDFDict
+		want bool
+	}{
+		{"/Next array member without /S",
+			kv("S", name("GoTo"), "Next", pdf.PDFArray{kv("S", name("URI")), kv()}), true},
+		{"AA trigger without /S",
+			kv("Type", name("Annot"), "Subtype", name("Text"), "AA", kv("E", kv())), true},
+		{"/OpenAction destination",
+			kv("Type", name("Catalog"), "OpenAction", pdf.PDFArray{kv("Type", name("Page")), name("Fit")}), false},
+		{"structure element of type /Sound",
+			kv("Type", name("StructElem"), "S", name("Sound")), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{Spec: a2bSpec}
+			validateActions(tc.d, ctx)
+			if got := hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType); got != tc.want || !tc.want && len(ctx.errs) != 0 {
+				t.Errorf("errs = %v, want ForbiddenActionType %v", ctx.errs, tc.want)
+			}
+		})
 	}
 }
 
-// TestValidateActionsStructElemNamedLikeAction verifies that a structure
-// element whose /S names a forbidden action type is not reported as an action.
-func TestValidateActionsStructElemNamedLikeAction(t *testing.T) {
-	ctx := &ValidationContext{Spec: a2bSpec}
-	validateActions(kv("Type", name("StructElem"), "S", name("Sound")), ctx)
-	if len(ctx.errs) != 0 {
-		t.Errorf("errs = %v, want none", ctx.errs)
-	}
-}
-
-// TestValidateActionsTriggerWithoutS verifies that a trigger of an AA entry
-// naming a dictionary with no /S is reported.
-func TestValidateActionsTriggerWithoutS(t *testing.T) {
-	annot := kv("Type", name("Annot"), "Subtype", name("Text"), "AA", kv("E", kv()))
-	ctx := &ValidationContext{Spec: a2bSpec}
-	validateActions(annot, ctx)
-	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
-		t.Errorf("errs = %v, want ForbiddenActionType", ctx.errs)
-	}
-}
-
-// TestValidateActionsOpenActionDestination verifies that an /OpenAction
-// naming a destination array is no action of unknown type.
-func TestValidateActionsOpenActionDestination(t *testing.T) {
-	catalog := kv("Type", name("Catalog"), "OpenAction", pdf.PDFArray{kv("Type", name("Page")), name("Fit")})
-	ctx := &ValidationContext{Spec: a1bSpec}
-	validateActions(catalog, ctx)
-	if len(ctx.errs) != 0 {
-		t.Errorf("errs = %v, want none", ctx.errs)
+// TestActionEntries verifies that ActionEntries yields the owner entry and
+// then each AA trigger, and stops when the caller does.
+func TestActionEntries(t *testing.T) {
+	aa := kv("E", kv(), "X", kv())
+	d := kv("S", name("GoTo"), "AA", aa)
+	for stopAfter, want := range []string{"Next", "E", "X"} {
+		var got []string
+		for owner, key := range ActionEntries(d) {
+			wantOwner := aa
+			if key == "Next" {
+				wantOwner = d
+			}
+			if pdf.ValuePointer(owner.Entries) != pdf.ValuePointer(wantOwner.Entries) {
+				t.Errorf("%s yielded with the wrong owner", key)
+			}
+			got = append(got, key)
+			if len(got) == stopAfter+1 {
+				break
+			}
+		}
+		if len(got) != stopAfter+1 || got[stopAfter] != want {
+			t.Errorf("stopping after %d: got %v, want it to end with %s", stopAfter+1, got, want)
+		}
 	}
 }

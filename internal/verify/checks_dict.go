@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"iter"
 	"math"
 	"sort"
 
@@ -21,8 +22,8 @@ func HasAnyKey(v pdf.PDFDict, keys ...string) bool {
 
 // --- 6.6 Actions ---
 
-// ActionTypes is the set of /S values that identify an action dictionary.
-var ActionTypes = map[string]bool{
+// actionTypes is the set of /S values that identify an action dictionary.
+var actionTypes = map[string]bool{
 	"GoTo": true, "GoToR": true, "GoToE": true, "Launch": true, "Thread": true,
 	"URI": true, "Sound": true, "Movie": true, "Hide": true, "Named": true,
 	"SubmitForm": true, "ResetForm": true, "ImportData": true, "JavaScript": true,
@@ -58,7 +59,7 @@ func IsActionDict(d pdf.PDFDict) bool {
 		return false
 	}
 	s, ok := d.Entries.Get("S").(pdf.PDFName)
-	return ok && ActionTypes[s.Value]
+	return ok && actionTypes[s.Value]
 }
 
 // ActionList returns the actions that v, the value of an owner's entry key,
@@ -98,34 +99,59 @@ func reportUntypedActions(owner pdf.PDFDict, owned pdf.PDFValue, key string, ctx
 	}
 }
 
+// ActionEntries yields each entry of d that names an action, as the
+// dictionary holding it and its key: the entry ActionOwnerKey returns, and
+// each trigger of an AA entry. The trigger keys are read up front, so the
+// caller may change the AA dictionary. Exported for the fixer.
+func ActionEntries(d pdf.PDFDict) iter.Seq2[pdf.PDFDict, string] {
+	return func(yield func(pdf.PDFDict, string) bool) {
+		if key := ActionOwnerKey(d); key != "" && !yield(d, key) {
+			return
+		}
+		if aa, ok := d.Entries.Get("AA").(pdf.PDFDict); ok {
+			for _, trigger := range aa.Entries.Keys() {
+				if !yield(aa, trigger) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// ActionViolation returns the check an action dictionary d breaks, a
+// forbidden type or a disallowed named action, or the zero Check when d is
+// no action or a permitted one. Exported for the fixer.
+func ActionViolation(d pdf.PDFDict, spec *pdfa.Spec) pdf.Check {
+	if !IsActionDict(d) {
+		return pdf.Check{}
+	}
+	s := d.Entries.Get("S").(pdf.PDFName)
+	if spec.ForbiddenActions.Has(s.Value) {
+		return pdf.Checks.Action.ForbiddenActionType
+	}
+	if s.Value == "Named" {
+		if n, ok := d.Entries.Get("N").(pdf.PDFName); !ok || !spec.NamedActions.Has(n.Value) {
+			return pdf.Checks.Action.DisallowedNamedAction
+		}
+	}
+	return pdf.Check{}
+}
+
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
 func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 	// /S is required in an action dictionary (ISO 32000-1 Table 193), so a
 	// target without one names an action of no known type, which 6.6.1 does not
 	// permit either.
-	if key := ActionOwnerKey(v); key != "" {
-		reportUntypedActions(v, v.Entries.Get(key), key, ctx)
-	}
-	// Each trigger of an AA entry names an action.
-	if aa, ok := v.Entries.Get("AA").(pdf.PDFDict); ok {
-		for trigger, t := range aa.Entries.All() {
-			reportUntypedActions(v, t, trigger, ctx)
-		}
+	for owner, key := range ActionEntries(v) {
+		reportUntypedActions(v, owner.Entries.Get(key), key, ctx)
 	}
 
-	if !IsActionDict(v) {
-		return
-	}
-	s := v.Entries.Get("S").(pdf.PDFName)
-	if ctx.Spec.ForbiddenActions.Has(s.Value) {
-		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v, fmt.Sprintf("forbidden action type /%s", s.Value))
-		return
-	}
-	if s.Value == "Named" {
-		n, ok := v.Entries.Get("N").(pdf.PDFName)
-		if !ok || !ctx.Spec.NamedActions.Has(n.Value) {
-			ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
-		}
+	switch ActionViolation(v, ctx.Spec) {
+	case pdf.Checks.Action.ForbiddenActionType:
+		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v,
+			fmt.Sprintf("forbidden action type /%s", v.Entries.Get("S").(pdf.PDFName).Value))
+	case pdf.Checks.Action.DisallowedNamedAction:
+		ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
 	}
 }
 
@@ -135,11 +161,11 @@ func AdditionalActionsBarred(d pdf.PDFDict, spec *pdfa.Spec) bool {
 	if d.Entries.Get("AA") == nil {
 		return false
 	}
-	if !spec.CatalogAndPageAAOnly {
+	if spec.AABarredTypes.Len() == 0 {
 		return true
 	}
 	t, _ := d.Entries.Get("Type").(pdf.PDFName)
-	return t.Value == "Catalog" || t.Value == "Page"
+	return spec.AABarredTypes.Has(t.Value)
 }
 
 // validateAdditionalActions flags presence of an additional-actions dictionary (6.6.2).

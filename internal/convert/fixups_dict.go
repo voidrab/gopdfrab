@@ -148,10 +148,6 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 	// cleared maps each action this pass emptied to the /Next it had, so an
 	// owner visited after it can still splice the rest of the chain in.
 	cleared := map[uintptr]pdf.PDFValue{}
-	badNamed := func(d pdf.PDFDict) bool {
-		n, ok := d.Entries.Get("N").(pdf.PDFName)
-		return !ok || !f.spec.NamedActions.Has(n.Value)
-	}
 	// dead reports whether v is an action this pass removes. /S is required
 	// in an action dictionary (ISO 32000-1 Table 193), so a dictionary
 	// without one is an action of unknown type; clearing an action in place
@@ -161,17 +157,11 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 		if !ok {
 			return false
 		}
-		if _, ok := cleared[pdf.ValuePointer(d.Entries)]; ok {
-			return true
+		if _, hasS := d.Entries.Get("S").(pdf.PDFName); !hasS {
+			_, emptied := cleared[pdf.ValuePointer(d.Entries)]
+			return emptied || forbidden
 		}
-		s, ok := d.Entries.Get("S").(pdf.PDFName)
-		switch {
-		case !ok || f.spec.ForbiddenActions.Has(s.Value):
-			return forbidden
-		case s.Value == "Named":
-			return named && badNamed(d)
-		}
-		return false
+		return reported[verify.ActionViolation(d, f.spec)]
 	}
 	// live returns what replaces v in its owner's entry: v itself, or, for a
 	// dead action, the live actions its /Next chain leads to.
@@ -238,26 +228,13 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 			*changed = true
 		}
 
-		if key := verify.ActionOwnerKey(d); key != "" {
-			unlink(d, key)
-		}
-		// An AA entry the level permits, such as an annotation's under
-		// PDF/A-2, owns an action under each trigger.
-		if aa, ok := d.Entries.Get("AA").(pdf.PDFDict); ok {
-			for _, trigger := range aa.Entries.Keys() {
-				unlink(aa, trigger)
-			}
-		}
-
-		if !verify.IsActionDict(d) {
+		if !forbidden && !named {
 			return
 		}
-		switch s := d.Entries.Get("S").(pdf.PDFName); {
-		case f.spec.ForbiddenActions.Has(s.Value):
-			if forbidden {
-				empty(d)
-			}
-		case s.Value == "Named" && named && badNamed(d):
+		for owner, key := range verify.ActionEntries(d) {
+			unlink(owner, key)
+		}
+		if reported[verify.ActionViolation(d, f.spec)] {
 			empty(d)
 		}
 	}, true
