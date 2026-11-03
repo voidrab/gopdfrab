@@ -33,16 +33,32 @@ var ActionTypes = map[string]bool{
 // ActionOwnerKey returns the entry of d whose value is an action dictionary,
 // or "" when d owns no action. The key alone does not settle it: /A on a
 // structure element is an attribute dictionary and /Next on an outline item is
-// a sibling, so only an annotation's /A and the catalogue's /OpenAction count.
-// Exported for the fixer.
+// a sibling, so only the /A of an annotation or an outline item, the
+// catalogue's /OpenAction and an action's /Next count. /Next holds one action
+// or an array of them. Exported for the fixer.
 func ActionOwnerKey(d pdf.PDFDict) string {
 	switch {
-	case IsAnnotationDict(d):
+	case IsAnnotationDict(d), isOutlineItem(d):
 		return "A"
 	case d.Entries.Get("Type") == (pdf.PDFName{Value: "Catalog"}):
 		return "OpenAction"
+	case isActionDict(d):
+		return "Next"
 	}
 	return ""
+}
+
+// isActionDict reports whether d is an action dictionary of a known type.
+func isActionDict(d pdf.PDFDict) bool {
+	s, ok := d.Entries.Get("S").(pdf.PDFName)
+	return ok && ActionTypes[s.Value]
+}
+
+// isOutlineItem reports whether d is an outline item, which has both a Title
+// and a Parent entry (ISO 32000-1 Table 153). A document information
+// dictionary has a Title but no Parent.
+func isOutlineItem(d pdf.PDFDict) bool {
+	return d.Entries.Get("Title") != nil && d.Entries.Get("Parent") != nil
 }
 
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
@@ -75,9 +91,22 @@ func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
+// AdditionalActionsBarred reports whether d holds an AA entry the level does
+// not permit. Exported for the fixer.
+func AdditionalActionsBarred(d pdf.PDFDict, spec *pdfa.Spec) bool {
+	if d.Entries.Get("AA") == nil {
+		return false
+	}
+	if !spec.CatalogAndPageAAOnly {
+		return true
+	}
+	t, _ := d.Entries.Get("Type").(pdf.PDFName)
+	return t.Value == "Catalog" || t.Value == "Page"
+}
+
 // validateAdditionalActions flags presence of an additional-actions dictionary (6.6.2).
 func validateAdditionalActions(v pdf.PDFDict, ctx *ValidationContext) {
-	if v.Entries.Get("AA") != nil {
+	if AdditionalActionsBarred(v, ctx.Spec) {
 		ctx.Report(pdf.Checks.Action.AdditionalActions, v, "additional-actions (AA) dictionary not allowed")
 	}
 }

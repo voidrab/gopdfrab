@@ -176,4 +176,9 @@ var part2Clauses = map[string]clauseRef{
 	// 6.4.2 XFA forms.
 	"XFA":            {"6.4.2", 1, ""},
 	"NeedsRendering": {"6.4.2", 2, ""},
+	// 6.5.1 Actions, general.
+	"ForbiddenActionType":   {"6.5.1", 1, "Only the GoTo, GoToR, GoToE, Thread, URI, Named and SubmitForm actions are permitted"},
+	"DisallowedNamedAction": {"6.5.1", 2, ""},
+	// 6.5.2 Trigger events.
+	"AdditionalActions": {"6.5.2", 0, "The document catalog and page dictionaries must not contain an AA entry"},
 }

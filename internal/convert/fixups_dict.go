@@ -2,6 +2,7 @@ package convert
 
 import (
 	"math"
+	"slices"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
@@ -168,7 +169,7 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 	// even when the forbidden types were not reported.
 	cleared := map[uintptr]bool{}
 	return func(d pdf.PDFDict) {
-		if _, ok := d.Entries.Lookup("AA"); ok && additional {
+		if additional && verify.AdditionalActionsBarred(d, f.spec) {
 			d.Entries.Del("AA")
 			*changed = true
 		}
@@ -184,9 +185,24 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 		// Take a dead action off whatever points at it. Emptying the action
 		// dictionary is not enough on its own: the owner still names it.
 		if key := verify.ActionOwnerKey(d); key != "" {
-			if v, ok := d.Entries.Lookup(key); ok && (forbidden && deadAction(v, f.spec) || isCleared(v, cleared)) {
-				d.Entries.Del(key)
-				*changed = true
+			dead := func(v pdf.PDFValue) bool {
+				return forbidden && deadAction(v, f.spec) || isCleared(v, cleared)
+			}
+			switch v := d.Entries.Get(key).(type) {
+			case pdf.PDFArray:
+				if live := slices.DeleteFunc(slices.Clone(v), dead); len(live) < len(v) {
+					if len(live) == 0 {
+						d.Entries.Del(key)
+					} else {
+						d.Entries.Set(key, live)
+					}
+					*changed = true
+				}
+			default:
+				if dead(v) {
+					d.Entries.Del(key)
+					*changed = true
+				}
 			}
 		}
 

@@ -646,3 +646,60 @@ func TestInlineImageFilterFixerHoistsFromAForm(t *testing.T) {
 		t.Errorf("form content = %q", data)
 	}
 }
+
+// TestActionFixerKeepsAnnotationAAUnderPart2 verifies that under PDF/A-2 the
+// additional-actions repair removes the AA entries of the catalog and the
+// pages and leaves those of other annotations alone.
+func TestActionFixerKeepsAnnotationAAUnderPart2(t *testing.T) {
+	aa := func() pdf.PDFDict { return kv("O", kv("S", name("GoTo"))) }
+	annot := kv("Type", name("Annot"), "Subtype", name("Text"), "AA", aa())
+	page := kv("Type", name("Page"), "AA", aa(), "Annots", pdf.PDFArray{annot})
+	trailer := trailerWith("AA", aa())
+	root := trailer.Entries.Get("Root").(pdf.PDFDict)
+	root.Entries.Set("Pages", kv("Type", name("Pages"), "Kids", pdf.PDFArray{page}))
+	changed, err := actionFixer{spec: a2bSpec}.Fix(&trailer, issuesOf(pdf.Checks.Action.AdditionalActions))
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want changed", changed, err)
+	}
+	if root.Entries.Get("AA") != nil || page.Entries.Get("AA") != nil {
+		t.Error("catalog or page AA kept")
+	}
+	if annot.Entries.Get("AA") == nil {
+		t.Error("annotation AA removed")
+	}
+}
+
+// TestActionFixerUnlinksDeadActions verifies that a forbidden action is taken
+// off an outline item and off the /Next entry of another action, whether
+// /Next holds one action or an array of them.
+func TestActionFixerUnlinksDeadActions(t *testing.T) {
+	launch := func() pdf.PDFDict { return kv("S", name("Launch")) }
+	goTo := kv("S", name("GoTo"))
+	single := kv("S", name("GoTo"), "Next", launch())
+	array := kv("S", name("URI"), "Next", pdf.PDFArray{launch(), goTo})
+	allDead := kv("S", name("URI"), "Next", pdf.PDFArray{launch()})
+	outlines := kv("Type", name("Outlines"))
+	item := kv("Title", pdf.PDFString{Value: "x"}, "Parent", outlines, "A", launch())
+	outlines.Entries.Set("First", item)
+	trailer := trailerWith("OpenAction", single)
+	root := trailer.Entries.Get("Root").(pdf.PDFDict)
+	root.Entries.Set("Outlines", outlines)
+	root.Entries.Set("Extra", pdf.PDFArray{array, allDead})
+
+	changed, err := actionFixer{spec: a2bSpec}.Fix(&trailer, issuesOf(pdf.Checks.Action.ForbiddenActionType))
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want changed", changed, err)
+	}
+	if item.Entries.Get("A") != nil {
+		t.Error("outline item /A kept")
+	}
+	if single.Entries.Get("Next") != nil {
+		t.Error("single /Next kept")
+	}
+	if next, _ := array.Entries.Get("Next").(pdf.PDFArray); len(next) != 1 || next[0] != pdf.PDFValue(goTo) {
+		t.Errorf("array /Next = %v, want [GoTo]", array.Entries.Get("Next"))
+	}
+	if allDead.Entries.Get("Next") != nil {
+		t.Error("/Next of dead actions only kept")
+	}
+}
