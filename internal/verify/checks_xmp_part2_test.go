@@ -125,7 +125,7 @@ func TestCheckXMPPackagePart2Properties(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			xmp := extDesc(goodSchema, tc.props)
-			got := checkNames(checkXMPPackagePart2(xmp, mustParseXMP(t, xmp), nil))
+			got := checkNames(checkXMPPackagePart2([]byte(xmp), mustParseXMP(t, xmp), nil))
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("checks = %v, want %v", got, tc.want)
 			}
@@ -136,11 +136,11 @@ func TestCheckXMPPackagePart2Properties(t *testing.T) {
 func TestCheckXMPPackagePart2MainDefinitions(t *testing.T) {
 	main := xmpExtensionDefs(mustParseXMP(t, extDesc(goodSchema, "")).schemas, nil)
 	xmp := desc(`<t:q>x</t:q>`)
-	if errs := checkXMPPackagePart2(xmp, mustParseXMP(t, xmp), main); len(errs) != 0 {
+	if errs := checkXMPPackagePart2([]byte(xmp), mustParseXMP(t, xmp), main); len(errs) != 0 {
 		t.Errorf("a property the main packet defines: %v", errs)
 	}
 	xmp = `<?xpacket begin="" bytes="1" encoding="UTF-8"?>` + desc(`<t:q>x</t:q>`)
-	got := checkNames(checkXMPPackagePart2(xmp, mustParseXMP(t, xmp), nil))
+	got := checkNames(checkXMPPackagePart2([]byte(xmp), mustParseXMP(t, xmp), nil))
 	want := []string{"MetadataUndeclaredProperty", "XPacketBytesAttribute", "XPacketEncodingAttribute"}
 	if !slices.Equal(got, want) {
 		t.Errorf("checks = %v, want %v", got, want)
@@ -312,6 +312,47 @@ func TestCheckNonCatalogXMPStreamsPart2(t *testing.T) {
 			}
 			ctx := &ValidationContext{Spec: a2bSpec}
 			if got := checkNames(checkNonCatalogXMPStreams(graph, ctx)); !slices.Equal(got, tc.want) {
+				t.Errorf("checks = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCheckNonCatalogXMPStreamsMainPacket verifies that the document's own
+// packet is read once for several other packets, and that other packets are
+// checked when the catalog has no metadata stream.
+func TestCheckNonCatalogXMPStreamsMainPacket(t *testing.T) {
+	page := desc(`<t:q>x</t:q>`)
+	stream := func(xmp string) string {
+		return fmt.Sprintf("<< /Type /Metadata /Subtype /XML /Length %d >>\nstream\n%s\nendstream", len(xmp)+1, xmp)
+	}
+	for _, tc := range []struct {
+		name, catalog string
+		want          []string
+	}{
+		{"two packets", "/Metadata 5 0 R", nil},
+		{"no catalog packet", "", []string{"MetadataUndeclaredProperty"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := pdfgen.NewBuilder("%PDF-1.7\n")
+			b.Obj(1, "<< /Type /Catalog /Pages 2 0 R "+tc.catalog+" >>")
+			b.Obj(2, "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>")
+			b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1 1] /Metadata 6 0 R >>")
+			b.Obj(4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1 1] /Metadata 7 0 R >>")
+			b.Obj(5, stream(extDesc(goodSchema, "")))
+			b.Obj(6, stream(page))
+			b.Obj(7, stream(page))
+			d, err := pdf.OpenBytes(b.FinishClassic("<< /Size 8 /Root 1 0 R >>"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			graph, err := d.ResolveGraph()
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := checkNames(checkNonCatalogXMPStreams(graph, &ValidationContext{Spec: a2bSpec}))
+			if !slices.Equal(got, tc.want) {
 				t.Errorf("checks = %v, want %v", got, tc.want)
 			}
 		})

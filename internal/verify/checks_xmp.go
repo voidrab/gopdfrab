@@ -910,16 +910,24 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 		return nil
 	}
 	var catalogMetaPtr uintptr
+	catalogMeta, ok := root.Entries.Get("Metadata").(pdf.PDFDict)
+	if ok && catalogMeta.IsStream() {
+		catalogMetaPtr = pdf.ValuePointer(catalogMeta.Entries)
+	}
+	// mainDefs are the extension schemas of the document's own packet, read
+	// when the first other packet needs them.
 	var mainDefs map[string]*xmpSchemaDef
-	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.IsStream() {
-		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
-		if ctx.part2() {
-			if data, err := ctx.decodeStreamCached(meta); err == nil {
+	mainRead := false
+	readMainDefs := func() map[string]*xmpSchemaDef {
+		if !mainRead && catalogMetaPtr != 0 {
+			mainRead = true
+			if data, err := ctx.decodeStreamCached(catalogMeta); err == nil {
 				if pkt, err := parseXMPPacket(pdf.DecodeXMPEncoding(data)); err == nil {
 					mainDefs = xmpExtensionDefs(pkt.schemas, nil)
 				}
 			}
 		}
+		return mainDefs
 	}
 
 	var errs []pdf.PDFError
@@ -942,7 +950,7 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 				switch {
 				case err != nil:
 				case ctx.part2():
-					errs = append(errs, withRef(checkObjectXMPPart2(pdf.DecodeXMPEncoding(data), mainDefs), val)...)
+					errs = append(errs, withRef(checkObjectXMPPart2(pdf.DecodeXMPEncoding(data), readMainDefs()), val)...)
 				case !xpacketRe.Match(data):
 					errs = append(errs, withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
 						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions")}, val)...)

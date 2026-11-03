@@ -175,6 +175,7 @@ func TestParseXMPPacketRejects(t *testing.T) {
 		"rdf:li outside an array":    desc(`<t:a rdf:parseType="Resource"><rdf:li>1</rdf:li></t:a>`),
 		"rdf:value outside a struct": desc(`<t:a><rdf:Bag><rdf:value>1</rdf:value></rdf:Bag></t:a>`),
 		"duplicate struct field":     desc(`<t:a rdf:parseType="Resource"><t:x>1</t:x><t:x>2</t:x></t:a>`),
+		"duplicate rdf:value":        desc(`<t:a rdf:parseType="Resource"><rdf:value>1</rdf:value><rdf:value>2</rdf:value></t:a>`),
 	} {
 		if _, err := parseXMPPacket([]byte(xmp)); err == nil {
 			t.Errorf("%s: parseXMPPacket accepted %s", name, xmp)
@@ -239,5 +240,14 @@ func TestParseXMPPacketOldTermProperty(t *testing.T) {
 	}
 	if !strings.Contains(errBadRDF.Error(), "RDF") {
 		t.Error("errBadRDF should name RDF")
+	}
+}
+
+// TestParseXMPPacketEncodingDeclaration verifies that a declaration naming
+// the encoding a packet had before it was decoded to UTF-8 is accepted.
+func TestParseXMPPacketEncodingDeclaration(t *testing.T) {
+	pkt := mustParseXMP(t, `<?xml version="1.0" encoding="UTF-16"?>`+desc(`<dc:format>a/b</dc:format>`))
+	if len(pkt.props) != 1 {
+		t.Errorf("got %d properties, want 1", len(pkt.props))
 	}
 }

@@ -132,8 +132,8 @@ func (ts *xmpTypeSet) addValueType(vt *xmpNode) {
 // 6.6.2.3.3). The extension schemas of main, the document's own packet,
 // define properties for every packet, those of a packet for it alone; main
 // is nil for the document's own packet.
-func checkXMPPackagePart2(xmp string, pkt *xmpPacket, main map[string]*xmpSchemaDef) []pdf.PDFError {
-	errs := checkXMPHeader(xmp)
+func checkXMPPackagePart2(data []byte, pkt *xmpPacket, main map[string]*xmpSchemaDef) []pdf.PDFError {
+	errs := checkXMPHeader(string(xpacketRe.Find(data)))
 	own := xmpExtensionDefs(pkt.schemas, main)
 	for _, n := range pkt.props {
 		def := own[n.ns]
@@ -363,7 +363,7 @@ func verifyXMPMetadataPart2(data []byte, meta pdf.PDFDict, readErr error, spec p
 			xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata does not parse: "+err.Error()),
 			xmpErr(pdf.Checks.Metadata.PDFAIdentifierMissing, "XMP metadata has no PDF/A identification properties"))
 	}
-	errs = append(errs, checkXMPPackagePart2(string(data), pkt, nil)...)
+	errs = append(errs, checkXMPPackagePart2(data, pkt, nil)...)
 	return append(errs, checkPDFAIdentificationPart2(pkt, spec)...)
 }
 
@@ -375,5 +375,5 @@ func checkObjectXMPPart2(data []byte, main map[string]*xmpSchemaDef) []pdf.PDFEr
 	if err != nil {
 		return []pdf.PDFError{xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata does not parse: "+err.Error())}
 	}
-	return checkXMPPackagePart2(string(data), pkt, main)
+	return checkXMPPackagePart2(data, pkt, main)
 }

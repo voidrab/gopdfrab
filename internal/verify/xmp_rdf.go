@@ -128,6 +128,8 @@ func parseXMLDocument(data []byte) (*xmlElem, error) {
 		data = data[i:]
 	}
 	dec := xml.NewDecoder(bytes.NewReader(data))
+	// data is UTF-8 already; an encoding declaration names what it was.
+	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	doc := &xmlElem{}
 	stack := []*xmlElem{doc}
 	scopes := []map[string]string{{"xml": nsXML}}
@@ -142,42 +144,30 @@ func parseXMLDocument(data []byte) (*xmlElem, error) {
 		top := stack[len(stack)-1]
 		switch t := tok.(type) {
 		case xml.StartElement:
-			scope := map[string]string{}
+			var scope map[string]string
 			for _, a := range t.Attr {
-				switch {
-				case a.Name.Space == "xmlns":
-					scope[a.Name.Local] = a.Value
-				case a.Name.Space == "" && a.Name.Local == "xmlns":
-					scope[""] = a.Value
+				if prefix, ok := xmlnsPrefix(a.Name); ok {
+					if scope == nil {
+						scope = map[string]string{}
+					}
+					scope[prefix] = a.Value
 				}
 			}
 			scopes = append(scopes, scope)
-			resolve := func(prefix string, attr bool) (string, error) {
-				if attr && prefix == "" {
-					return "", nil
-				}
-				for i := len(scopes) - 1; i >= 0; i-- {
-					if uri, ok := scopes[i][prefix]; ok {
-						return uri, nil
-					}
-				}
-				if prefix == "" {
-					return "", nil
-				}
-				return "", errors.New("unbound XML namespace prefix " + prefix)
-			}
-			uri, err := resolve(t.Name.Space, false)
+			uri, err := resolveXMLPrefix(scopes, t.Name.Space)
 			if err != nil {
 				return nil, err
 			}
 			el := &xmlElem{uri: uri, prefix: t.Name.Space, local: t.Name.Local}
 			for _, a := range t.Attr {
-				if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
+				if _, ok := xmlnsPrefix(a.Name); ok {
 					continue
 				}
-				auri, err := resolve(a.Name.Space, true)
-				if err != nil {
-					return nil, err
+				auri := ""
+				if a.Name.Space != "" {
+					if auri, err = resolveXMLPrefix(scopes, a.Name.Space); err != nil {
+						return nil, err
+					}
 				}
 				el.attrs = append(el.attrs, xmlAttr{auri, a.Name.Space, a.Name.Local, a.Value})
 			}
@@ -199,6 +189,32 @@ func parseXMLDocument(data []byte) (*xmlElem, error) {
 		return nil, errors.New("unclosed XML element")
 	}
 	return doc, nil
+}
+
+// xmlnsPrefix reports whether an attribute named name declares a namespace,
+// and for which prefix; the default namespace has the empty prefix.
+func xmlnsPrefix(name xml.Name) (string, bool) {
+	switch {
+	case name.Space == "xmlns":
+		return name.Local, true
+	case name.Space == "" && name.Local == "xmlns":
+		return "", true
+	}
+	return "", false
+}
+
+// resolveXMLPrefix returns the namespace prefix is bound to in the innermost
+// of scopes that binds it. An unbound empty prefix means no namespace.
+func resolveXMLPrefix(scopes []map[string]string, prefix string) (string, error) {
+	for i := len(scopes) - 1; i >= 0; i-- {
+		if uri, ok := scopes[i][prefix]; ok {
+			return uri, nil
+		}
+	}
+	if prefix == "" {
+		return "", nil
+	}
+	return "", errors.New("unbound XML namespace prefix " + prefix)
 }
 
 // findRDFRoot returns the first rdf:RDF element, looking inside x:xmpmeta
@@ -281,6 +297,8 @@ func isWhitespaceText(k xmlKid) bool {
 type rdfParser struct {
 	pkt   *xmpPacket
 	about string
+	// seen holds the namespace and name of each top-level property.
+	seen map[[2]string]bool
 }
 
 func (p *rdfParser) rdf(rdf *xmlElem) error {
@@ -577,9 +595,14 @@ func (p *rdfParser) addChild(parent *xmpNode, uri, prefix, local string) (*xmpNo
 	isItem := uri == nsRDF && local == "li"
 	isValue := uri == nsRDF && local == "value"
 	if parent == nil {
-		if isItem || isValue || p.pkt.prop(uri, local) != nil {
+		key := [2]string{uri, local}
+		if isItem || isValue || p.seen[key] {
 			return nil, errBadRDF
 		}
+		if p.seen == nil {
+			p.seen = map[[2]string]bool{}
+		}
+		p.seen[key] = true
 		p.pkt.props = append(p.pkt.props, n)
 		return n, nil
 	}
@@ -589,13 +612,13 @@ func (p *rdfParser) addChild(parent *xmpNode, uri, prefix, local string) (*xmpNo
 			return nil, errBadRDF
 		}
 		n.name = "[]"
+	case parent.child(uri, local) != nil:
+		return nil, errBadRDF
 	case isValue:
 		if parent.form != xmpStructure {
 			return nil, errBadRDF
 		}
 		parent.hasValueChild = true
-	case parent.child(uri, local) != nil:
-		return nil, errBadRDF
 	}
 	if isValue {
 		parent.children = append([]*xmpNode{n}, parent.children...)

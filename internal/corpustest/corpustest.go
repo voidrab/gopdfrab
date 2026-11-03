@@ -74,7 +74,7 @@ var (
 		Flavour: "1b",
 		Naming:  IsartorNames,
 	}
-	// VeraPDF2B covers only the clauses the PDF/A-2b verifier implements.
+	// VeraPDF2B is the veraPDF corpus of PDF/A-2b, verified with PDFA2B.
 	VeraPDF2B = Corpus{
 		Name:    "veraPDF-2b",
 		Dir:     "tests/veraPDF/PDF_A-2b",
