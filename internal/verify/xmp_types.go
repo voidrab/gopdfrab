@@ -230,8 +230,8 @@ func (ts *xmpTypeSet) validSimplified(n *xmpNode, s string) bool {
 }
 
 // xmpDateValueRe matches a date XMP readers accept: ISO 8601 with any
-// trailing components left out. A number out of range is clamped, not
-// rejected.
+// trailing components left out. The pattern does not bound the numeric
+// fields, so an out-of-range number is accepted.
 var xmpDateValueRe = regexp.MustCompile(
 	`^(?:-?\d+(?:-\d+(?:-\d+(?:T\d+(?::\d+(?::\d+(?:\.\d+)?)?)?(?:Z|[+-]\d+(?::\d+)?)?)?)?)?)?$`)
 
