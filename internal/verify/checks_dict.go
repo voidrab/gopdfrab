@@ -469,8 +469,8 @@ func checkAnnotColour(v pdf.PDFDict, c pdf.PDFValue, ctx *ValidationContext) {
 
 // --- 6.9 Interactive form fields ---
 
-// IsFieldOrWidget reports whether d is a terminal form field, one with an FT
-// entry, or a widget annotation, whose Type entry is optional.
+// IsFieldOrWidget reports whether d has an FT entry or is a widget annotation.
+// The Type entry of a widget annotation is optional.
 func IsFieldOrWidget(d pdf.PDFDict) bool {
 	if d.Entries.Get("FT") != nil {
 		return true
@@ -523,7 +523,7 @@ func verifyInteractiveForms(d *pdf.Reader, part2 bool) []pdf.PDFError {
 }
 
 // NeedsRendering reports whether the catalog has a NeedsRendering entry
-// other than false. As in veraPDF, a value that is no boolean counts.
+// other than false. A value that is not a boolean also counts.
 func NeedsRendering(root pdf.PDFDict) bool {
 	v, ok := root.Entries.Lookup("NeedsRendering")
 	return ok && v != pdf.PDFBoolean(false)

@@ -382,7 +382,8 @@ type formChecks struct {
 	FieldAction             Check
 	FieldAdditionalActions  Check
 	WidgetMissingAppearance Check
-	// A rule of PDF/A-2 alone: the catalog's NeedsRendering entry.
+	// NeedsRendering is the catalog's NeedsRendering entry. Only PDF/A-2
+	// checks it.
 	NeedsRendering Check
 }
 
