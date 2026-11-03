@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -644,5 +645,181 @@ func TestInlineImageFilterFixerHoistsFromAForm(t *testing.T) {
 	}
 	if data, _ := pdf.DecodeStream(form); string(data) != "/InlineIm1 Do\n" {
 		t.Errorf("form content = %q", data)
+	}
+}
+
+// TestActionFixerKeepsAnnotationAAUnderPart2 verifies that under PDF/A-2 the
+// additional-actions repair removes the AA entries of the catalog and the
+// pages and leaves those of other annotations alone.
+func TestActionFixerKeepsAnnotationAAUnderPart2(t *testing.T) {
+	aa := func() pdf.PDFDict { return kv("O", kv("S", name("GoTo"))) }
+	annot := kv("Type", name("Annot"), "Subtype", name("Text"), "AA", aa())
+	page := kv("Type", name("Page"), "AA", aa(), "Annots", pdf.PDFArray{annot})
+	trailer := trailerWith("AA", aa())
+	root := trailer.Entries.Get("Root").(pdf.PDFDict)
+	root.Entries.Set("Pages", kv("Type", name("Pages"), "Kids", pdf.PDFArray{page}))
+	changed, err := actionFixer{spec: a2bSpec}.Fix(&trailer, issuesOf(pdf.Checks.Action.AdditionalActions))
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want changed", changed, err)
+	}
+	if root.Entries.Get("AA") != nil || page.Entries.Get("AA") != nil {
+		t.Error("catalog or page AA kept")
+	}
+	if annot.Entries.Get("AA") == nil {
+		t.Error("annotation AA removed")
+	}
+}
+
+// TestActionFixerUnlinksDeadActions verifies that a forbidden action is taken
+// off an outline item and off the Next entry (/Next) of another action,
+// whether that entry holds one action or an array of them, and that the live
+// actions chained after it take its place.
+func TestActionFixerUnlinksDeadActions(t *testing.T) {
+	launch := func(next ...pdf.PDFValue) pdf.PDFDict {
+		d := kv("S", name("Launch"))
+		if len(next) > 0 {
+			d.Entries.Set("Next", next[0])
+		}
+		return d
+	}
+	goTo, uri := kv("S", name("GoTo")), kv("S", name("URI"))
+	single := kv("S", name("GoTo"), "Next", launch())
+	// A member that is no dictionary is no dead action.
+	array := kv("S", name("URI"), "Next", pdf.PDFArray{launch(), goTo, pdf.PDFInteger(1)})
+	allDead := kv("S", name("URI"), "Next", pdf.PDFArray{launch(), kv("S", pdf.PDFInteger(1))})
+	chain := kv("S", name("GoTo"), "Next", launch(launch(uri)))
+	fanOut := kv("S", name("GoTo"), "Next", launch(pdf.PDFArray{goTo, uri}))
+	outlines := kv("Type", name("Outlines"))
+	item := kv("Title", pdf.PDFString{Value: "x"}, "Parent", outlines, "A", launch())
+	spliced := kv("Title", pdf.PDFString{Value: "y"}, "Parent", outlines, "A", launch(uri))
+	outlines.Entries.Set("First", item)
+	outlines.Entries.Set("Last", spliced)
+	trailer := trailerWith("OpenAction", single)
+	root := trailer.Entries.Get("Root").(pdf.PDFDict)
+	root.Entries.Set("Outlines", outlines)
+	root.Entries.Set("Extra", pdf.PDFArray{array, allDead, chain, fanOut})
+
+	changed, err := actionFixer{spec: a2bSpec}.Fix(&trailer, issuesOf(pdf.Checks.Action.ForbiddenActionType))
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want changed", changed, err)
+	}
+	same := func(got pdf.PDFValue, want ...pdf.PDFValue) bool {
+		if len(want) == 1 {
+			if _, isArray := got.(pdf.PDFArray); !isArray {
+				return got == want[0]
+			}
+		}
+		arr, _ := got.(pdf.PDFArray)
+		return slices.Equal(arr, want)
+	}
+	for _, tc := range []struct {
+		name string
+		got  pdf.PDFValue
+		want []pdf.PDFValue
+	}{
+		{"outline item /A", item.Entries.Get("A"), nil},
+		{"outline item /A spliced", spliced.Entries.Get("A"), []pdf.PDFValue{uri}},
+		{"single /Next", single.Entries.Get("Next"), nil},
+		{"array /Next", array.Entries.Get("Next"), []pdf.PDFValue{goTo, pdf.PDFInteger(1)}},
+		{"/Next of dead actions only", allDead.Entries.Get("Next"), nil},
+		{"chained /Next", chain.Entries.Get("Next"), []pdf.PDFValue{uri}},
+		{"fanned-out /Next", fanOut.Entries.Get("Next"), []pdf.PDFValue{goTo, uri}},
+	} {
+		if tc.want == nil && tc.got != nil || tc.want != nil && !same(tc.got, tc.want...) {
+			t.Errorf("%s = %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// TestActionFixerUnlinksLaterNamedAction verifies that an owner visited before
+// its disallowed named action is emptied still loses it.
+func TestActionFixerUnlinksLaterNamedAction(t *testing.T) {
+	owner := kv("S", name("GoTo"), "Next", pdf.PDFArray{kv("S", name("Named"), "N", name("Print"))})
+	trailer := trailerWith("OpenAction", owner)
+	changed, err := actionFixer{spec: a2bSpec}.Fix(&trailer, issuesOf(pdf.Checks.Action.DisallowedNamedAction))
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want changed", changed, err)
+	}
+	if next := owner.Entries.Get("Next"); next != nil {
+		t.Errorf("/Next = %v, want removed", next)
+	}
+}
+
+// TestActionFixerSplicesActionEmptiedEarlier verifies that an owner visited
+// after its forbidden action was emptied still drops it and keeps the action
+// chained after it, and that a named action no owner holds is emptied in
+// place.
+func TestActionFixerSplicesActionEmptiedEarlier(t *testing.T) {
+	uri := kv("S", name("URI"))
+	launch := kv("S", name("Launch"), "Next", uri)
+	owner := kv("S", name("GoTo"), "Next", launch)
+	quit := kv("S", name("Named"), "N", name("Quit"))
+	// The walk reaches launch and quit through entries that own no action,
+	// and launch before owner.
+	holder := kv()
+	holder.Entries.Set("a", launch)
+	holder.Entries.Set("b", owner)
+	holder.Entries.Set("c", quit)
+	trailer := trailerWith("Holder", holder)
+	issues := append(issuesOf(pdf.Checks.Action.ForbiddenActionType), issuesOf(pdf.Checks.Action.DisallowedNamedAction)...)
+	if _, err := (actionFixer{spec: a2bSpec}).Fix(&trailer, issues); err != nil {
+		t.Fatal(err)
+	}
+	if launch.Entries.Len() != 0 {
+		t.Error("forbidden action not emptied")
+	}
+	if got := owner.Entries.Get("Next"); got != pdf.PDFValue(uri) {
+		t.Errorf("/Next = %v, want the URI action", got)
+	}
+	if quit.Entries.Len() != 0 {
+		t.Error("disallowed named action not emptied")
+	}
+}
+
+// TestActionFixerStopsOnDeadActionCycle verifies that a cycle of forbidden
+// actions is dropped whole.
+func TestActionFixerStopsOnDeadActionCycle(t *testing.T) {
+	a, b := kv("S", name("Launch")), kv("S", name("Launch"))
+	a.Entries.Set("Next", b)
+	b.Entries.Set("Next", a)
+	owner := kv("S", name("GoTo"), "Next", a)
+	trailer := trailerWith("OpenAction", owner)
+	if _, err := (actionFixer{spec: a2bSpec}).Fix(&trailer, issuesOf(pdf.Checks.Action.ForbiddenActionType)); err != nil {
+		t.Fatal(err)
+	}
+	if got := owner.Entries.Get("Next"); got != nil {
+		t.Errorf("/Next = %v, want removed", got)
+	}
+}
+
+// TestActionFixerUnlinksTriggerActions verifies that under PDF/A-2, where an
+// annotation may keep its AA entry, a forbidden action is taken off each
+// trigger and the action chained after it takes its place.
+func TestActionFixerUnlinksTriggerActions(t *testing.T) {
+	uri := kv("S", name("URI"))
+	aa := kv("E", kv("S", name("Launch"), "Next", uri), "X", kv("S", name("JavaScript")))
+	annot := kv("Type", name("Annot"), "Subtype", name("Text"), "AA", aa)
+	trailer := trailerWith("Annot", annot)
+	if _, err := (actionFixer{spec: a2bSpec}).Fix(&trailer, issuesOf(pdf.Checks.Action.ForbiddenActionType)); err != nil {
+		t.Fatal(err)
+	}
+	if got := aa.Entries.Get("E"); got != pdf.PDFValue(uri) {
+		t.Errorf("AA /E = %v, want the URI action", got)
+	}
+	if got := aa.Entries.Get("X"); got != nil {
+		t.Errorf("AA /X = %v, want removed", got)
+	}
+}
+
+// TestActionFixerKeepsOpenActionDestination verifies that an /OpenAction
+// naming a destination array is left alone.
+func TestActionFixerKeepsOpenActionDestination(t *testing.T) {
+	dest := pdf.PDFArray{kv("Type", name("Page")), name("Fit")}
+	trailer := trailerWith("OpenAction", dest)
+	if _, err := (actionFixer{spec: a1bSpec}).Fix(&trailer, issuesOf(pdf.Checks.Action.ForbiddenActionType)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("OpenAction").(pdf.PDFArray); len(got) != 2 {
+		t.Errorf("/OpenAction = %v, want the destination", got)
 	}
 }

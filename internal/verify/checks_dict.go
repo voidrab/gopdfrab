@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"iter"
 	"math"
 	"sort"
 
@@ -21,8 +22,8 @@ func HasAnyKey(v pdf.PDFDict, keys ...string) bool {
 
 // --- 6.6 Actions ---
 
-// ActionTypes is the set of /S values that identify an action dictionary.
-var ActionTypes = map[string]bool{
+// actionTypes is the set of /S values that identify an action dictionary.
+var actionTypes = map[string]bool{
 	"GoTo": true, "GoToR": true, "GoToE": true, "Launch": true, "Thread": true,
 	"URI": true, "Sound": true, "Movie": true, "Hide": true, "Named": true,
 	"SubmitForm": true, "ResetForm": true, "ImportData": true, "JavaScript": true,
@@ -31,53 +32,145 @@ var ActionTypes = map[string]bool{
 }
 
 // ActionOwnerKey returns the entry of d whose value is an action dictionary,
-// or "" when d owns no action. The key alone does not settle it: /A on a
-// structure element is an attribute dictionary and /Next on an outline item is
-// a sibling, so only an annotation's /A and the catalogue's /OpenAction count.
-// Exported for the fixer.
+// or "" when d owns no action. The key name alone does not settle it: the
+// action entry (/A) of a structure element is an attribute dictionary, and the
+// next entry (/Next) of an outline item is a sibling. Only the action entry of
+// an annotation or outline item, the open-action entry (/OpenAction) of the
+// catalog, and the next entry of an action count. The next entry holds one
+// action or an array of them. Exported for the fixer.
 func ActionOwnerKey(d pdf.PDFDict) string {
 	switch {
-	case IsAnnotationDict(d):
+	case IsAnnotationDict(d), isOutlineItem(d):
 		return "A"
 	case d.Entries.Get("Type") == (pdf.PDFName{Value: "Catalog"}):
 		return "OpenAction"
+	case IsActionDict(d):
+		return "Next"
 	}
 	return ""
+}
+
+// IsActionDict reports whether d is an action dictionary of a known type. The
+// Type entry is optional, but a dictionary whose Type is not Action, such as a
+// structure element, is not an action whatever its /S. It is exported for use
+// by internal/convert.
+func IsActionDict(d pdf.PDFDict) bool {
+	if t := d.Entries.Get("Type"); t != nil && t != (pdf.PDFName{Value: "Action"}) {
+		return false
+	}
+	s, ok := d.Entries.Get("S").(pdf.PDFName)
+	return ok && actionTypes[s.Value]
+}
+
+// ActionList returns the actions that v, the value of an owner's entry key,
+// holds. Only /Next may hold an array of actions. Any other entry holds one
+// action, except that an array there, such as the destination an /OpenAction
+// may name, holds none. It is exported for use by internal/convert.
+func ActionList(key string, v pdf.PDFValue) []pdf.PDFValue {
+	switch v := v.(type) {
+	case nil:
+		return nil
+	case pdf.PDFArray:
+		if key == "Next" {
+			return v
+		}
+		return nil
+	}
+	return []pdf.PDFValue{v}
+}
+
+// isOutlineItem reports whether d is an outline item, which has both a Title
+// and a Parent entry (ISO 32000-1 Table 153). A document information
+// dictionary has a Title but no Parent.
+func isOutlineItem(d pdf.PDFDict) bool {
+	return d.Entries.Get("Title") != nil && d.Entries.Get("Parent") != nil
+}
+
+// reportUntypedActions reports each action dictionary in owned, the value of
+// owner's entry key or AA trigger key, that has no /S.
+func reportUntypedActions(owner pdf.PDFDict, owned pdf.PDFValue, key string, ctx *ValidationContext) {
+	for _, t := range ActionList(key, owned) {
+		if target, ok := t.(pdf.PDFDict); ok {
+			if _, hasS := target.Entries.Get("S").(pdf.PDFName); !hasS {
+				ctx.Report(pdf.Checks.Action.ForbiddenActionType, owner,
+					fmt.Sprintf("/%s names an action dictionary with no /S", key))
+			}
+		}
+	}
+}
+
+// ActionEntries yields each entry of d that names an action, as the
+// dictionary holding it and its key: the entry ActionOwnerKey returns, and
+// each trigger of an AA entry. The trigger keys are read up front, so the
+// caller may change the AA dictionary. Exported for the fixer.
+func ActionEntries(d pdf.PDFDict) iter.Seq2[pdf.PDFDict, string] {
+	return func(yield func(pdf.PDFDict, string) bool) {
+		if key := ActionOwnerKey(d); key != "" && !yield(d, key) {
+			return
+		}
+		if aa, ok := d.Entries.Get("AA").(pdf.PDFDict); ok {
+			for _, trigger := range aa.Entries.Keys() {
+				if !yield(aa, trigger) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// ActionViolation returns the check an action dictionary d breaks, a
+// forbidden type or a disallowed named action, or the zero Check when d is
+// no action or a permitted one. Exported for the fixer.
+func ActionViolation(d pdf.PDFDict, spec *pdfa.Spec) pdf.Check {
+	if !IsActionDict(d) {
+		return pdf.Check{}
+	}
+	s := d.Entries.Get("S").(pdf.PDFName)
+	if spec.ForbiddenActions.Has(s.Value) {
+		return pdf.Checks.Action.ForbiddenActionType
+	}
+	if s.Value == "Named" {
+		if n, ok := d.Entries.Get("N").(pdf.PDFName); !ok || !spec.NamedActions.Has(n.Value) {
+			return pdf.Checks.Action.DisallowedNamedAction
+		}
+	}
+	return pdf.Check{}
 }
 
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
 func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 	// /S is required in an action dictionary (ISO 32000-1 Table 193), so a
-	// target without one names an action of no known type, which 6.6.1 does not
-	// permit either.
-	if key := ActionOwnerKey(v); key != "" {
-		if target, ok := v.Entries.Get(key).(pdf.PDFDict); ok {
-			if _, hasS := target.Entries.Get("S").(pdf.PDFName); !hasS {
-				ctx.Report(pdf.Checks.Action.ForbiddenActionType, v,
-					fmt.Sprintf("/%s names an action dictionary with no /S", key))
-			}
-		}
+	// target without one is an action of no known type, which 6.6.1 does
+	// not permit.
+	for owner, key := range ActionEntries(v) {
+		reportUntypedActions(v, owner.Entries.Get(key), key, ctx)
 	}
 
-	s, ok := v.Entries.Get("S").(pdf.PDFName)
-	if !ok || !ActionTypes[s.Value] {
-		return
+	switch ActionViolation(v, ctx.Spec) {
+	case pdf.Checks.Action.ForbiddenActionType:
+		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v,
+			fmt.Sprintf("forbidden action type /%s", v.Entries.Get("S").(pdf.PDFName).Value))
+	case pdf.Checks.Action.DisallowedNamedAction:
+		ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
 	}
-	if ctx.Spec.ForbiddenActions.Has(s.Value) {
-		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v, fmt.Sprintf("forbidden action type /%s", s.Value))
-		return
+}
+
+// AdditionalActionsBarred reports whether d holds an AA entry the level does
+// not permit. Exported for the fixer.
+func AdditionalActionsBarred(d pdf.PDFDict, spec *pdfa.Spec) bool {
+	if d.Entries.Get("AA") == nil {
+		return false
 	}
-	if s.Value == "Named" {
-		n, ok := v.Entries.Get("N").(pdf.PDFName)
-		if !ok || !ctx.Spec.NamedActions.Has(n.Value) {
-			ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
-		}
+	if spec.AABarredTypes.Len() == 0 {
+		return true
 	}
+	t, _ := d.Entries.Get("Type").(pdf.PDFName)
+	return spec.AABarredTypes.Has(t.Value)
 }
 
 // validateAdditionalActions flags presence of an additional-actions dictionary (6.6.2).
 func validateAdditionalActions(v pdf.PDFDict, ctx *ValidationContext) {
-	if v.Entries.Get("AA") != nil {
+	if AdditionalActionsBarred(v, ctx.Spec) {
 		ctx.Report(pdf.Checks.Action.AdditionalActions, v, "additional-actions (AA) dictionary not allowed")
 	}
 }

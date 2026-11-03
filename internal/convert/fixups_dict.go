@@ -2,6 +2,7 @@ package convert
 
 import (
 	"math"
+	"slices"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
@@ -118,26 +119,6 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool, spec *pdfa.Spec) {
 	}
 }
 
-// deadAction reports whether v is an action dictionary that can no longer be
-// used -- a forbidden type, or one already emptied by this pass. /S is
-// required in an action dictionary (ISO 32000-1 Table 193), so an /A pointing
-// at a dict without one reads as an action of unknown type. Clearing an action
-// in place produces exactly that state.
-func deadAction(v pdf.PDFValue, spec *pdfa.Spec) bool {
-	d, ok := v.(pdf.PDFDict)
-	if !ok {
-		return false
-	}
-	s, ok := d.Entries.Get("S").(pdf.PDFName)
-	return !ok || spec.ForbiddenActions.Has(s.Value)
-}
-
-// isCleared reports whether v is one of the dictionaries in cleared.
-func isCleared(v pdf.PDFValue, cleared map[uintptr]bool) bool {
-	d, ok := v.(pdf.PDFDict)
-	return ok && cleared[pdf.ValuePointer(d.Entries)]
-}
-
 // --- 6.6 Actions ---
 
 // actionFixer remediates Checks.Action.ForbiddenActionType,
@@ -164,11 +145,77 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 	ac := pdf.Checks.Action
 	forbidden, named := reported[ac.ForbiddenActionType], reported[ac.DisallowedNamedAction]
 	additional := reported[ac.AdditionalActions]
-	// An owner whose named action this pass emptied loses its entry too,
-	// even when the forbidden types were not reported.
-	cleared := map[uintptr]bool{}
+	// cleared maps each action this pass emptied to the /Next it had, so an
+	// owner visited after it can still splice the rest of the chain in.
+	cleared := map[uintptr]pdf.PDFValue{}
+	// dead reports whether v is an action this pass removes. /S is required
+	// in an action dictionary (ISO 32000-1 Table 193), so a dictionary
+	// without one is an action of unknown type; clearing an action in place
+	// leaves exactly that state.
+	dead := func(v pdf.PDFValue) bool {
+		d, ok := v.(pdf.PDFDict)
+		if !ok {
+			return false
+		}
+		if _, hasS := d.Entries.Get("S").(pdf.PDFName); !hasS {
+			_, emptied := cleared[pdf.ValuePointer(d.Entries)]
+			return emptied || forbidden
+		}
+		return reported[verify.ActionViolation(d, f.spec)]
+	}
+	// live returns what replaces v in its owner's entry: v itself, or, for a
+	// dead action, the live actions its /Next chain leads to.
+	var live func(v pdf.PDFValue, depth int) []pdf.PDFValue
+	live = func(v pdf.PDFValue, depth int) []pdf.PDFValue {
+		if !dead(v) {
+			return []pdf.PDFValue{v}
+		}
+		if depth > maxGraphWalkDepth {
+			return nil
+		}
+		d := v.(pdf.PDFDict)
+		next, ok := cleared[pdf.ValuePointer(d.Entries)]
+		if !ok {
+			next = d.Entries.Get("Next")
+		}
+		var out []pdf.PDFValue
+		for _, n := range verify.ActionList("Next", next) {
+			out = append(out, live(n, depth+1)...)
+		}
+		return out
+	}
+	empty := func(d pdf.PDFDict) {
+		cleared[pdf.ValuePointer(d.Entries)] = d.Entries.Get("Next")
+		clearDict(d)
+		*changed = true
+	}
+	// unlink removes the dead actions from owner's key and keeps the live
+	// actions chained after them. Emptying an action dictionary does not
+	// remove the owner's reference to it, so the reference is dropped here.
+	unlink := func(owner pdf.PDFDict, key string) {
+		v := owner.Entries.Get(key)
+		actions := verify.ActionList(key, v)
+		if !slices.ContainsFunc(actions, dead) {
+			return
+		}
+		var kept pdf.PDFArray
+		for _, a := range actions {
+			kept = append(kept, live(a, 0)...)
+		}
+		_, isArray := v.(pdf.PDFArray)
+		switch {
+		case len(kept) == 0:
+			owner.Entries.Del(key)
+		case key == "Next" && (isArray || len(kept) > 1):
+			owner.Entries.Set(key, kept)
+		default:
+			// Every other owner entry holds one action.
+			owner.Entries.Set(key, kept[0])
+		}
+		*changed = true
+	}
 	return func(d pdf.PDFDict) {
-		if _, ok := d.Entries.Lookup("AA"); ok && additional {
+		if additional && verify.AdditionalActionsBarred(d, f.spec) {
 			d.Entries.Del("AA")
 			*changed = true
 		}
@@ -181,33 +228,14 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 			*changed = true
 		}
 
-		// Take a dead action off whatever points at it. Emptying the action
-		// dictionary is not enough on its own: the owner still names it.
-		if key := verify.ActionOwnerKey(d); key != "" {
-			if v, ok := d.Entries.Lookup(key); ok && (forbidden && deadAction(v, f.spec) || isCleared(v, cleared)) {
-				d.Entries.Del(key)
-				*changed = true
-			}
-		}
-
-		s, ok := d.Entries.Get("S").(pdf.PDFName)
-		if !ok || !verify.ActionTypes[s.Value] {
+		if !forbidden && !named {
 			return
 		}
-		if f.spec.ForbiddenActions.Has(s.Value) {
-			if forbidden {
-				clearDict(d)
-				*changed = true
-			}
-			return
+		for owner, key := range verify.ActionEntries(d) {
+			unlink(owner, key)
 		}
-		if s.Value == "Named" && named {
-			n, ok := d.Entries.Get("N").(pdf.PDFName)
-			if !ok || !f.spec.NamedActions.Has(n.Value) {
-				clearDict(d)
-				cleared[pdf.ValuePointer(d.Entries)] = true
-				*changed = true
-			}
+		if reported[verify.ActionViolation(d, f.spec)] {
+			empty(d)
 		}
 	}, true
 }

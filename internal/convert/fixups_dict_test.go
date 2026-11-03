@@ -407,28 +407,6 @@ func TestClearJSNameTreeReachesNestedDicts(t *testing.T) {
 	}
 }
 
-func TestDeadAction(t *testing.T) {
-	typed := func(s string) pdf.PDFDict {
-		d := pdf.NewPDFDict()
-		d.Entries.Set("S", pdf.PDFName{Value: s})
-		return d
-	}
-	for name, tc := range map[string]struct {
-		v    pdf.PDFValue
-		want bool
-	}{
-		"not a dict":       {pdf.PDFInteger(1), false},
-		"allowed action":   {typed("GoTo"), false},
-		"forbidden action": {typed("JavaScript"), true},
-		"no /S (emptied)":  {pdf.NewPDFDict(), true},
-		"/S not a name":    {func() pdf.PDFDict { d := pdf.NewPDFDict(); d.Entries.Set("S", pdf.PDFInteger(1)); return d }(), true},
-	} {
-		if got := deadAction(tc.v, a1bSpec); got != tc.want {
-			t.Errorf("%s: deadAction = %v, want %v", name, got, tc.want)
-		}
-	}
-}
-
 // TestImageSampleDepthFixerLeavesWhatItCannotRewrite verifies that an image
 // with no depth to repair, and a 16-bit one that cannot be decoded, are both
 // left exactly as they were.

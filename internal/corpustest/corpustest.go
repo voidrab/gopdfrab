@@ -87,7 +87,7 @@ var (
 		Default: pdf.PDFA2B,
 		Flavour: "2b",
 		Naming:  VeraPDFNames,
-		Clauses: []string{"6.1", "6.2.2", "6.2.3", "6.2.4", "6.2.5", "6.2.6", "6.2.8", "6.2.9", "6.2.10", "6.2.11", "6.3", "6.4"},
+		Clauses: []string{"6.1", "6.2.2", "6.2.3", "6.2.4", "6.2.5", "6.2.6", "6.2.8", "6.2.9", "6.2.10", "6.2.11", "6.3", "6.4", "6.5"},
 		Reclassified: map[string]string{
 			// The rendering intent of an image dictionary is checked under
 			// 6.2.6, not 6.2.8.
@@ -96,6 +96,8 @@ var (
 			// the page contains no transparency; the file fails only for
 			// its uncovered DeviceGray.
 			"veraPDF test suite 6-2-10-t04-fail-i.pdf": "6.2.4.3",
+			// The AA entry is a widget's, which veraPDF checks under 6.4.1.
+			"veraPDF test suite 6-5-2-t01-fail-a.pdf": "6.4.1",
 		},
 	}
 )

@@ -44,6 +44,9 @@ type Spec struct {
 	// ZeroAreaAnnotsExempt says whether an annotation whose Rect covers no
 	// area needs no appearance dictionary.
 	ZeroAreaAnnotsExempt bool
+	// AABarredTypes, when not empty, are the /Type values of the only
+	// dictionaries that may not hold an AA entry. When empty, none may.
+	AABarredTypes Names
 	// SubsetSetsOptional says whether a subset font's descriptor may omit its
 	// CharSet or CIDSet, which must still be complete when present.
 	SubsetSetsOptional bool
@@ -266,6 +269,8 @@ var a2b = Spec{
 	UseCMapPredefined: true,
 	// 6.3.3: zero-area annotations need no appearance dictionary.
 	ZeroAreaAnnotsExempt: true,
+	// 6.5.2: the AA entries of widgets and fields are left to 6.4.1.
+	AABarredTypes: NewNames("Catalog", "Page"),
 	// 6.2.11.4.2 and 6.2.11.6.
 	SubsetSetsOptional:    true,
 	SymbolCmapAmongOthers: true,
