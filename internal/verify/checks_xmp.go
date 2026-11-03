@@ -866,6 +866,10 @@ func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		return withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, err.Error())}, catalog(d))
 	}
 
+	if spec.Part >= 2 {
+		return withRef(verifyXMPMetadataPart2(data, meta, err, spec), meta)
+	}
+
 	var errs []pdf.PDFError
 
 	// 6.7.2: the metadata stream shall not be filtered.
@@ -891,9 +895,11 @@ func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	return withRef(errs, meta)
 }
 
-// checkNonCatalogXMPStreams flags /Type /Metadata streams outside Root/Metadata
-// that lack an xpacket wrapper (6.7.5), resolving violations the converter
-// strips via stripEmbeddedMetadata.
+// checkNonCatalogXMPStreams checks the /Type /Metadata streams outside
+// Root/Metadata, which the converter strips via stripEmbeddedMetadata. Under
+// ISO 19005-1 each needs an xpacket wrapper (6.7.5); under ISO 19005-2 each
+// is checked as the document's own packet is, except for the PDF/A
+// identification (6.6.2).
 func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
 	trailer, ok := graph.(pdf.PDFDict)
 	if !ok {
@@ -904,8 +910,16 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 		return nil
 	}
 	var catalogMetaPtr uintptr
+	var mainDefs map[string]*xmpSchemaDef
 	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.IsStream() {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
+		if ctx.part2() {
+			if data, err := ctx.decodeStreamCached(meta); err == nil {
+				if pkt, err := parseXMPPacket(pdf.DecodeXMPEncoding(data)); err == nil {
+					mainDefs = xmpExtensionDefs(pkt.schemas, nil)
+				}
+			}
+		}
 	}
 
 	var errs []pdf.PDFError
@@ -925,7 +939,11 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 				// missing xpacket wrapper; the chokepoint reports it as
 				// StreamUndecodable rather than conflating the two.
 				data, err := ctx.decodeStreamCached(val)
-				if err == nil && !xpacketRe.Match(data) {
+				switch {
+				case err != nil:
+				case ctx.part2():
+					errs = append(errs, withRef(checkObjectXMPPart2(pdf.DecodeXMPEncoding(data), mainDefs), val)...)
+				case !xpacketRe.Match(data):
 					errs = append(errs, withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
 						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions")}, val)...)
 				}

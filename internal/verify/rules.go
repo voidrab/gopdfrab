@@ -244,6 +244,8 @@ var (
 				pdf.Checks.Metadata.ExtPropertyMultipleName,
 				pdf.Checks.Metadata.ExtPropertyUndefinedType,
 				pdf.Checks.Metadata.ExtPropertyUndocumented, pdf.Checks.Metadata.ExtSchemaNamespace,
+				pdf.Checks.Metadata.ExtSchemaDefinitionInvalid,
+				pdf.Checks.Metadata.ExtSchemaUndefinedField,
 				pdf.Checks.Metadata.ExtSchemaWrongPrefixURI, pdf.Checks.Metadata.ExtSchemasNotBag,
 				pdf.Checks.Metadata.ExtTypeInvalid, pdf.Checks.Metadata.InfoXMPSync,
 				pdf.Checks.Metadata.MetadataFiltered, pdf.Checks.Metadata.MetadataMissing,
@@ -263,6 +265,14 @@ var (
 		{
 			checks: []pdf.Check{
 				pdf.Checks.Metadata.ObjectXMPNoXPacket, pdf.Checks.Structure.StreamUndecodable,
+				pdf.Checks.Metadata.ExtFieldInvalid, pdf.Checks.Metadata.ExtPropertyMissingField,
+				pdf.Checks.Metadata.ExtPropertyUndefinedType,
+				pdf.Checks.Metadata.ExtSchemaDefinitionInvalid,
+				pdf.Checks.Metadata.ExtSchemaUndefinedField, pdf.Checks.Metadata.ExtSchemasNotBag,
+				pdf.Checks.Metadata.ExtTypeInvalid, pdf.Checks.Metadata.MetadataUndeclaredProperty,
+				pdf.Checks.Metadata.XMPNoCorrespondingType, pdf.Checks.Metadata.XMPNotWellFormed,
+				pdf.Checks.Metadata.XPacketBytesAttribute,
+				pdf.Checks.Metadata.XPacketEncodingAttribute,
 			},
 			fn: objectXMPRule,
 		},

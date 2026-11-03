@@ -181,4 +181,27 @@ var part2Clauses = map[string]clauseRef{
 	"DisallowedNamedAction": {"6.5.1", 2, ""},
 	// 6.5.2 Trigger events.
 	"AdditionalActions": {"6.5.2", 0, "The document catalog and page dictionaries must not contain an AA entry"},
+	// 6.6.2.1 Metadata streams, general.
+	"MetadataMissing":          {"6.6.2.1", 1, "The document catalog must contain a Metadata entry whose value is a metadata stream"},
+	"XPacketBytesAttribute":    {"6.6.2.1", 2, ""},
+	"XPacketEncodingAttribute": {"6.6.2.1", 3, ""},
+	"XMPStreamUnreadable":      {"6.6.2.1", 4, ""},
+	"XMPNotWellFormed":         {"6.6.2.1", 4, "Every metadata stream must hold well-formed XMP"},
+	// 6.6.2.3.1 Schemas, general.
+	"MetadataUndeclaredProperty": {"6.6.2.3.1", 1, "XMP properties must be predefined by XMP 2005 or ISO 19005, or defined by an extension schema"},
+	"XMPNoCorrespondingType":     {"6.6.2.3.1", 2, "XMP properties must have the value type their schema defines"},
+	// 6.6.2.3.2 Extension schemas.
+	"ExtSchemaUndefinedField": {"6.6.2.3.2", 1, ""},
+	// 6.6.2.3.3 Extension schema container schemas.
+	"ExtSchemasNotBag":           {"6.6.2.3.3", 1, "The pdfaExtension:schemas container must be an rdf:Bag with the pdfaExtension prefix"},
+	"ExtSchemaDefinitionInvalid": {"6.6.2.3.3", 0, ""},
+	"ExtPropertyMissingField":    {"6.6.2.3.3", 0, "Extension schema property entries must give name, category (external or internal) and description as pdfaProperty Text fields"},
+	"ExtPropertyUndefinedType":   {"6.6.2.3.3", 8, "Extension schema property entries must give a defined value type as a pdfaProperty Text valueType field"},
+	"ExtTypeInvalid":             {"6.6.2.3.3", 0, "Extension schema value-type entries must give type, namespaceURI, prefix and description as pdfaType fields, and field as a pdfaType Seq"},
+	"ExtFieldInvalid":            {"6.6.2.3.3", 0, "Extension schema field entries must give name, a defined valueType and description as pdfaField Text fields"},
+	// 6.6.4 Version and conformance level identification.
+	"PDFAIdentifierMissing":   {"6.6.4", 1, "XMP metadata must contain properties of the PDF/A identification schema"},
+	"PDFAPartNumber":          {"6.6.4", 2, "The pdfaid:part value must be 2"},
+	"PDFAConformanceLevel":    {"6.6.4", 3, "The pdfaid:conformance value must be A, B or U"},
+	"PDFAIdentifierNamespace": {"6.6.4", 0, "The PDF/A identification properties must use the pdfaid prefix"},
 }
