@@ -495,8 +495,8 @@ func validateFormField(v pdf.PDFDict, ctx *ValidationContext) {
 // --- 6.9 Interactive forms ---
 
 // verifyInteractiveForms checks the AcroForm dictionary (6.9, under PDF/A-2
-// 6.4.1 and 6.4.2) and the catalog's NeedsRendering entry (6.4.2), which the
-// profile drops for PDF/A-1 levels.
+// 6.4.1 and 6.4.2) and the catalog's NeedsRendering entry (6.4.2), which is
+// only defined for PDF/A-2 and later.
 func verifyInteractiveForms(d *pdf.Reader) []pdf.PDFError {
 	// A catalog that does not resolve is no dictionary.
 	value, _ := d.ResolveGraphByPath([]string{"Root"})
