@@ -53,7 +53,7 @@ func TestVerifyInteractiveFormsCatalogNotADict(t *testing.T) {
 	doc := bytes.Replace(catalogDoc(""), []byte("/Root 1 0 R"), []byte("/Root 1    "), 1)
 	d, err := pdf.OpenBytes(doc)
 	if err != nil {
-		t.Skipf("OpenBytes: %v", err)
+		t.Fatalf("OpenBytes: %v", err)
 	}
 	defer d.Close()
 	if errs := verifyInteractiveForms(d, true); errs != nil {
