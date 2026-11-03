@@ -233,6 +233,7 @@ var (
 		{
 			checks: []pdf.Check{
 				pdf.Checks.Form.NeedAppearances, pdf.Checks.Form.XFA,
+				pdf.Checks.Form.NeedsRendering,
 			},
 			fn: interactiveFormRule,
 		},

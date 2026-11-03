@@ -106,7 +106,7 @@ func (f annotColourFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool
 func (f annotColourFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	hasOutputIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
 	return func(d pdf.PDFDict) {
-		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
+		if !verify.IsAnnotationDict(d) {
 			return
 		}
 		for _, key := range []string{"C", "IC"} {

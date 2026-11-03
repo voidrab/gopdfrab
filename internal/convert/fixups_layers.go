@@ -5,6 +5,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // --- 6.1.13 Optional content ---
@@ -56,7 +57,7 @@ func (f optionalContentFixer) removeHiddenLayers(trailer *pdf.PDFDict, oc *conte
 	}
 
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) || !oc.Hides(d.Entries.Get("OC")) {
+		if !verify.IsAnnotationDict(d) || !oc.Hides(d.Entries.Get("OC")) {
 			return
 		}
 		msg := "annotation in hidden optional content removed"

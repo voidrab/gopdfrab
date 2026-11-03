@@ -54,6 +54,8 @@ Everything under `internal/` may change in any release without notice.
   `Checks.Annotation.AnnotationFlagsMissing` and `ToggleNoViewFlagSet`.
   Converting to PDF/A-2b gives an annotation without an F key the Print flag
   and clears ToggleNoView.
+- A PDF/A-2-only check for the catalog: `Checks.Form.NeedsRendering`, which
+  converting to PDF/A-2b repairs by removing the entry.
 
 ### Fixed
 
@@ -101,6 +103,12 @@ Everything under `internal/` may change in any release without notice.
   `/Type`, which verify reports as one when it has `/Subtype` and `/Rect`,
   and reads a real-valued annotation F as its integer, keeping its other
   flags.
+- Verify reports an action on a widget annotation that has no `/Type`, and
+  convert removes it. Only a widget with `/Type /Annot`, or a field with
+  `/FT`, used to be checked.
+- Convert removes an uncovered colour from an annotation without `/Type`, and
+  an annotation without `/Type` in hidden optional content, as it does for
+  one with it.
 
 ## [1.3.0] - 2026-10-31
 

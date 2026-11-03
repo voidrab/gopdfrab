@@ -384,16 +384,17 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, chang
 
 // --- 6.9 Interactive forms ---
 
-// formFixer remediates AcroForm-level (NeedAppearances, XFA) and
-// field-level (A, AA) form violations, mirroring verifyInteractiveForms and
-// validateFormField in checks_dict.go/document.go. Each key is repaired only
-// when its own check was reported.
+// formFixer remediates catalog-level (NeedsRendering), AcroForm-level
+// (NeedAppearances, XFA) and field-level (A, AA) form violations, mirroring
+// verifyInteractiveForms and validateFormField. Each key is repaired only when
+// its own check was reported.
 type formFixer struct{}
 
 func (formFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Form.NeedAppearances, pdf.Checks.Form.XFA,
-		pdf.Checks.Form.FieldAction, pdf.Checks.Form.FieldAdditionalActions:
+		pdf.Checks.Form.FieldAction, pdf.Checks.Form.FieldAdditionalActions,
+		pdf.Checks.Form.NeedsRendering:
 		return true
 	}
 	return false
@@ -407,6 +408,10 @@ func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *b
 	reported := reportedChecks(issues)
 	fm := pdf.Checks.Form
 	if root, ok := trailer.Entries.Get("Root").(pdf.PDFDict); ok {
+		if reported[fm.NeedsRendering] && verify.NeedsRendering(root) {
+			root.Entries.Del("NeedsRendering")
+			*changed = true
+		}
 		if form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict); ok {
 			if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) && reported[fm.NeedAppearances] {
 				form.Entries.Set("NeedAppearances", pdf.PDFBoolean(false))
@@ -421,10 +426,7 @@ func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *b
 
 	action, additional := reported[fm.FieldAction], reported[fm.FieldAdditionalActions]
 	return func(d pdf.PDFDict) {
-		isWidget := d.Entries.Get("Type") == pdf.PDFName{Value: "Annot"} &&
-			d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
-		isField := d.Entries.Get("FT") != nil
-		if !isWidget && !isField {
+		if !verify.IsFieldOrWidget(d) {
 			return
 		}
 		if _, ok := d.Entries.Lookup("A"); ok && action {

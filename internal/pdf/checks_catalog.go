@@ -382,6 +382,9 @@ type formChecks struct {
 	FieldAction             Check
 	FieldAdditionalActions  Check
 	WidgetMissingAppearance Check
+	// NeedsRendering is the catalog's NeedsRendering entry. Only PDF/A-2
+	// checks it.
+	NeedsRendering Check
 }
 
 // ObjectModelClause is the synthetic clause the generic object-model checks
@@ -1258,6 +1261,9 @@ func init() {
 				"WidgetMissingAppearance",
 				"Form field widget annotations (with FT) must have an appearance dictionary (AP)",
 				"6.9", 5),
+			NeedsRendering: newPart2Check(190,
+				"NeedsRendering",
+				"The document catalog's NeedsRendering entry, when present, must be false"),
 		},
 
 		ObjectModel: objectModelChecks{
