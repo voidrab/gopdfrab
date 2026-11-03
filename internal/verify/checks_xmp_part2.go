@@ -1,8 +1,9 @@
 package verify
 
 import (
+	"errors"
 	"fmt"
-	"regexp"
+	"maps"
 	"slices"
 	"strconv"
 
@@ -21,12 +22,8 @@ type xmpSchemaDef struct {
 // type name against when its schema defines no properties: the basic types
 // without the structured ones.
 var xmpEmptyTypes = func() *xmpTypeSet {
-	ts := &xmpTypeSet{simple: map[string]*regexp.Regexp{}, structs: map[string]xmpStructType{}}
-	for k, v := range xmpBasicSimpleTypes {
-		if k != "locale" {
-			ts.simple[k] = v
-		}
-	}
+	ts := &xmpTypeSet{simple: maps.Clone(xmpBasicSimpleTypes), structs: map[string]xmpStructType{}}
+	delete(ts.simple, "locale")
 	return ts
 }()
 
@@ -41,8 +38,7 @@ func xmpExtensionDefs(container *xmpNode, base map[string]*xmpSchemaDef) map[str
 		return defs
 	}
 	for _, schema := range container.children {
-		var props, valueTypes *xmpNode
-		ns, hasNS := "", false
+		var props, valueTypes, ns *xmpNode
 		for _, c := range schema.children {
 			if c.ns != nsScm {
 				continue
@@ -57,22 +53,25 @@ func xmpExtensionDefs(container *xmpNode, base map[string]*xmpSchemaDef) map[str
 					valueTypes = c
 				}
 			case "namespaceURI":
-				ns, hasNS = c.value, true
+				ns = c
 			}
 		}
-		if !hasNS || props == nil {
+		if ns == nil || props == nil {
 			continue
 		}
 		types := xmpPart2Types
-		if b := base[ns]; b != nil {
+		if b := base[ns.value]; b != nil {
 			types = b.types
 		}
-		def := &xmpSchemaDef{props: map[string]string{}, types: types.clone()}
+		// The type sets are shared, so a schema with value types of its
+		// own extends a copy.
 		if valueTypes != nil {
+			types = types.clone()
 			for _, vt := range valueTypes.children {
-				def.types.addValueType(vt)
+				types.addValueType(vt)
 			}
 		}
+		def := &xmpSchemaDef{props: map[string]string{}, types: types}
 		for _, p := range props.children {
 			name := p.child(nsProp, "name")
 			valueType := p.child(nsProp, "valueType")
@@ -83,7 +82,7 @@ func xmpExtensionDefs(container *xmpNode, base map[string]*xmpSchemaDef) map[str
 				def.props[name.value] = valueType.value
 			}
 		}
-		defs[ns] = def
+		defs[ns.value] = def
 	}
 	return defs
 }
@@ -109,7 +108,7 @@ func (ts *xmpTypeSet) addValueType(vt *xmpNode) {
 			for _, f := range c.children {
 				fn, ft := f.child(nsFld, "name"), f.child(nsFld, "valueType")
 				if fn != nil && ft != nil {
-					fields[fn.value] = ft.value
+					fields[fn.value] = xmpSimplifyType(ft.value)
 				}
 			}
 		}
@@ -129,23 +128,18 @@ func (ts *xmpTypeSet) addValueType(vt *xmpNode) {
 // checkXMPPackagePart2 checks one metadata stream's XMP under ISO 19005-2:
 // the xpacket header (6.6.2.1), that every property is defined and has its
 // defined value type (6.6.2.3.1), and the extension schemas (6.6.2.3.2,
-// 6.6.2.3.3). The extension schemas of main, the document's own packet,
-// define properties for every packet, those of a packet for it alone; main
-// is nil for the document's own packet.
-func checkXMPPackagePart2(data []byte, pkt *xmpPacket, main map[string]*xmpSchemaDef) []pdf.PDFError {
+// 6.6.2.3.3). own are the extension schemas of the packet, which define
+// properties for it alone; main are those of the document's own packet,
+// which define them for every packet, and are nil for that packet itself.
+func checkXMPPackagePart2(data []byte, pkt *xmpPacket, own, main map[string]*xmpSchemaDef) []pdf.PDFError {
 	errs := checkXMPHeader(string(xpacketRe.Find(data)))
-	own := xmpExtensionDefs(pkt.schemas, main)
 	for _, n := range pkt.props {
-		def := own[n.ns]
-		if def == nil || def.props[n.name] == "" {
-			def = main[n.ns]
-		}
-		var typ string
-		types := xmpPart2Types
-		if def != nil && def.props[n.name] != "" {
-			typ, types = def.props[n.name], def.types
-		} else {
-			typ = xmpPart2Properties[n.ns][n.name]
+		typ, types := xmpPart2Properties[n.ns][n.name], xmpPart2Types
+		for _, defs := range []map[string]*xmpSchemaDef{own, main} {
+			if d := defs[n.ns]; d != nil && d.props[n.name] != "" {
+				typ, types = d.props[n.name], d.types
+				break
+			}
 		}
 		switch {
 		case typ == "":
@@ -306,21 +300,15 @@ func arrayItems(n *xmpNode) []*xmpNode {
 // checkPDFAIdentificationPart2 checks the PDF/A identification schema of the
 // document's packet under ISO 19005-2 (6.6.4).
 func checkPDFAIdentificationPart2(pkt *xmpPacket, spec pdfa.Spec) []pdf.PDFError {
-	var id []*xmpNode
-	for _, n := range pkt.props {
-		if n.ns == pdfaIDNamespace {
-			id = append(id, n)
-		}
-	}
-	if len(id) == 0 {
+	if !slices.ContainsFunc(pkt.props, func(n *xmpNode) bool { return n.ns == pdfaIDNamespace }) {
 		return []pdf.PDFError{xmpErr(pdf.Checks.Metadata.PDFAIdentifierMissing,
 			"XMP metadata has no PDF/A identification properties")}
 	}
 	var errs []pdf.PDFError
-	part := pkt.prop(pdfaIDNamespace, "part")
-	if n, err := strconv.Atoi(simpleValue(part)); err != nil || strconv.Itoa(n) != spec.XMPPart {
+	part := simpleValue(pkt.prop(pdfaIDNamespace, "part"))
+	if n, err := strconv.Atoi(part); err != nil || strconv.Itoa(n) != spec.XMPPart {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAPartNumber,
-			fmt.Sprintf("pdfaid:part is %q, not %s", simpleValue(part), spec.XMPPart)))
+			fmt.Sprintf("pdfaid:part is %q, not %s", part, spec.XMPPart)))
 	}
 	conf := simpleValue(pkt.prop(pdfaIDNamespace, "conformance"))
 	if !spec.XMPConformances.Has(conf) {
@@ -344,27 +332,59 @@ func simpleValue(n *xmpNode) string {
 	return n.value
 }
 
-// verifyXMPMetadataPart2 checks the document's metadata stream meta, whose
-// decoded content is data or whose decoding failed with readErr, under
+// documentXMP is the document's own XMP packet: what pdf.Reader.RawXMP
+// returns for it, and, when that is readable, the parsed packet and the
+// extension schemas it defines.
+type documentXMP struct {
+	data    []byte
+	meta    pdf.PDFDict
+	readErr error
+
+	pkt      *xmpPacket
+	parseErr error
+	defs     map[string]*xmpSchemaDef
+}
+
+// documentXMP reads and parses the document's own XMP packet once for the
+// rules that need it.
+func (ctx *ValidationContext) documentXMP(d *pdf.Reader) *documentXMP {
+	if ctx.docXMP == nil {
+		x := &documentXMP{}
+		x.data, x.meta, x.readErr = d.RawXMP()
+		if x.readErr == nil {
+			if x.pkt, x.parseErr = parseXMPPacket(x.data); x.parseErr == nil {
+				x.defs = xmpExtensionDefs(x.pkt.schemas, nil)
+			}
+		}
+		ctx.docXMP = x
+	}
+	return ctx.docXMP
+}
+
+// verifyXMPMetadataPart2 checks the document's metadata stream under
 // ISO 19005-2 (6.6). XMP that does not parse has no properties, so it has
 // no PDF/A identification either.
-func verifyXMPMetadataPart2(data []byte, meta pdf.PDFDict, readErr error, spec pdfa.Spec) []pdf.PDFError {
+func verifyXMPMetadataPart2(d *pdf.Reader, ctx *ValidationContext) []pdf.PDFError {
+	x := ctx.documentXMP(d)
+	if errors.Is(x.readErr, pdf.ErrNoXMPMetadata) || errors.Is(x.readErr, pdf.ErrXMPMetadataNotStream) {
+		return withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, x.readErr.Error())}, catalog(d))
+	}
 	var errs []pdf.PDFError
-	if meta.Entries.Get("Type") != (pdf.PDFName{Value: "Metadata"}) || meta.Entries.Get("Subtype") != (pdf.PDFName{Value: "XML"}) {
+	if x.meta.Entries.Get("Type") != (pdf.PDFName{Value: "Metadata"}) || x.meta.Entries.Get("Subtype") != (pdf.PDFName{Value: "XML"}) {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataMissing,
 			"the catalog's metadata stream is not of Type Metadata and Subtype XML"))
 	}
-	if readErr != nil {
-		return append(errs, xmpErr(pdf.Checks.Metadata.XMPStreamUnreadable, "unable to read XMP metadata stream"))
+	switch {
+	case x.readErr != nil:
+		errs = append(errs, xmpErr(pdf.Checks.Metadata.XMPStreamUnreadable, "unable to read XMP metadata stream"))
+	case x.parseErr != nil:
+		errs = append(errs, xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata does not parse: "+x.parseErr.Error()))
+		errs = append(errs, checkPDFAIdentificationPart2(&xmpPacket{}, *ctx.Spec)...)
+	default:
+		errs = append(errs, checkXMPPackagePart2(x.data, x.pkt, x.defs, nil)...)
+		errs = append(errs, checkPDFAIdentificationPart2(x.pkt, *ctx.Spec)...)
 	}
-	pkt, err := parseXMPPacket(data)
-	if err != nil {
-		return append(errs,
-			xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata does not parse: "+err.Error()),
-			xmpErr(pdf.Checks.Metadata.PDFAIdentifierMissing, "XMP metadata has no PDF/A identification properties"))
-	}
-	errs = append(errs, checkXMPPackagePart2(data, pkt, nil)...)
-	return append(errs, checkPDFAIdentificationPart2(pkt, spec)...)
+	return withRef(errs, x.meta)
 }
 
 // checkObjectXMPPart2 checks the XMP of a metadata stream other than the
@@ -375,5 +395,5 @@ func checkObjectXMPPart2(data []byte, main map[string]*xmpSchemaDef) []pdf.PDFEr
 	if err != nil {
 		return []pdf.PDFError{xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata does not parse: "+err.Error())}
 	}
-	return checkXMPPackagePart2(data, pkt, main)
+	return checkXMPPackagePart2(data, pkt, xmpExtensionDefs(pkt.schemas, main), main)
 }

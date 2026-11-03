@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"maps"
 	"regexp"
 	"strings"
 )
@@ -127,30 +128,15 @@ var xmpPart2StructTypes = map[string]xmpStructType{
 // newXMPPart2TypeSet returns the types of ISO 19005-2 and -3 before any
 // extension schema adds its own.
 func newXMPPart2TypeSet() *xmpTypeSet {
-	ts := &xmpTypeSet{simple: map[string]*regexp.Regexp{}, structs: map[string]xmpStructType{}}
-	for k, v := range xmpBasicSimpleTypes {
-		ts.simple[k] = v
-	}
+	ts := &xmpTypeSet{simple: maps.Clone(xmpBasicSimpleTypes), structs: maps.Clone(xmpBasicStructTypes)}
 	ts.simple["gpscoordinate"] = fullMatch(`\d{1,3},\d{1,2}(,\d{1,2}|\.\d+)[NSEW]`)
-	for _, m := range []map[string]xmpStructType{xmpBasicStructTypes, xmpPart2StructTypes} {
-		for k, v := range m {
-			ts.structs[k] = v
-		}
-	}
+	maps.Copy(ts.structs, xmpPart2StructTypes)
 	return ts
 }
 
 // clone returns a copy of ts that can be extended without changing ts.
 func (ts *xmpTypeSet) clone() *xmpTypeSet {
-	c := &xmpTypeSet{simple: make(map[string]*regexp.Regexp, len(ts.simple)),
-		structs: make(map[string]xmpStructType, len(ts.structs))}
-	for k, v := range ts.simple {
-		c.simple[k] = v
-	}
-	for k, v := range ts.structs {
-		c.structs[k] = v
-	}
-	return c
+	return &xmpTypeSet{simple: maps.Clone(ts.simple), structs: maps.Clone(ts.structs)}
 }
 
 var xmpChoiceRe = regexp.MustCompile(`(open |closed )?(choice |choice$)(of )?`)
@@ -194,22 +180,19 @@ func (ts *xmpTypeSet) known(t string) bool {
 		}
 		s = item
 	}
-	return ts.isType(s)
-}
-
-func (ts *xmpTypeSet) isType(s string) bool {
-	if _, ok := ts.simple[s]; ok {
-		return true
-	}
-	if _, ok := ts.structs[s]; ok {
-		return true
-	}
-	return s == "date" || s == "lang alt"
+	_, simple := ts.simple[s]
+	_, structure := ts.structs[s]
+	return simple || structure || s == "date" || s == "lang alt"
 }
 
 // valid reports whether n is a value of type t.
 func (ts *xmpTypeSet) valid(n *xmpNode, t string) bool {
-	s := xmpSimplifyType(t)
+	return ts.validSimplified(n, xmpSimplifyType(t))
+}
+
+// validSimplified reports whether n is a value of type s, a name in the form
+// xmpSimplifyType returns. Item and field types are in that form too.
+func (ts *xmpTypeSet) validSimplified(n *xmpNode, s string) bool {
 	if s == "any" {
 		return true
 	}
@@ -218,7 +201,7 @@ func (ts *xmpTypeSet) valid(n *xmpNode, t string) bool {
 			return false
 		}
 		for _, c := range n.children {
-			if !ts.valid(c, item) {
+			if !ts.validSimplified(c, item) {
 				return false
 			}
 		}
@@ -228,7 +211,7 @@ func (ts *xmpTypeSet) valid(n *xmpNode, t string) bool {
 	case "date":
 		return n.form == xmpSimple && xmpParseDate(n.value)
 	case "lang alt":
-		return n.form == xmpAlt && (n.altText || len(n.children) == 0)
+		return n.isAltText() || (n.form == xmpAlt && len(n.children) == 0)
 	}
 	if re, ok := ts.simple[s]; ok {
 		return n.form == xmpSimple && (re == nil || re.MatchString(n.value))
@@ -239,111 +222,21 @@ func (ts *xmpTypeSet) valid(n *xmpNode, t string) bool {
 	}
 	for _, f := range n.children {
 		ft, ok := st.fields[f.name]
-		if !ok || f.ns != st.ns || !ts.valid(f, ft) {
+		if !ok || f.ns != st.ns || !ts.validSimplified(f, ft) {
 			return false
 		}
 	}
 	return true
 }
 
-// xmpParseDate reports whether s is a date XMP readers accept: ISO 8601
-// with any trailing components left out, numbers past their range clamped.
-func xmpParseDate(s string) bool {
-	if s == "" {
-		return true
-	}
-	i := 0
-	at := func() byte {
-		if i < len(s) {
-			return s[i]
-		}
-		return 0
-	}
-	digits := func() bool {
-		start := i
-		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-			i++
-		}
-		return i > start
-	}
-	more := func() bool { return i < len(s) }
-	isTZ := func(c byte) bool { return c == 'Z' || c == '+' || c == '-' }
+// xmpDateValueRe matches a date XMP readers accept: ISO 8601 with any
+// trailing components left out. A number out of range is clamped, not
+// rejected.
+var xmpDateValueRe = regexp.MustCompile(
+	`^(?:-?\d+(?:-\d+(?:-\d+(?:T\d+(?::\d+(?::\d+(?:\.\d+)?)?)?(?:Z|[+-]\d+(?::\d+)?)?)?)?)?)?$`)
 
-	if at() == '-' {
-		i++
-	}
-	if !digits() || (more() && at() != '-') {
-		return false
-	}
-	if !more() {
-		return true
-	}
-	i++
-	if !digits() || (more() && at() != '-') {
-		return false
-	}
-	if !more() {
-		return true
-	}
-	i++
-	if !digits() || (more() && at() != 'T') {
-		return false
-	}
-	if !more() {
-		return true
-	}
-	i++
-	if !digits() {
-		return false
-	}
-	if !more() {
-		return true
-	}
-	if at() == ':' {
-		i++
-		if !digits() || (more() && at() != ':' && !isTZ(at())) {
-			return false
-		}
-	}
-	switch {
-	case !more():
-		return true
-	case at() == ':':
-		i++
-		if !digits() || (more() && at() != '.' && !isTZ(at())) {
-			return false
-		}
-		if at() == '.' {
-			i++
-			if !digits() || (more() && !isTZ(at())) {
-				return false
-			}
-		}
-	case !isTZ(at()):
-		return false
-	}
-	switch {
-	case !more():
-		return true
-	case at() == 'Z':
-		i++
-	default:
-		i++
-		if !digits() {
-			return false
-		}
-		if more() {
-			if at() != ':' {
-				return false
-			}
-			i++
-			if !digits() {
-				return false
-			}
-		}
-	}
-	return !more()
-}
+// xmpParseDate reports whether s is a date XMP readers accept.
+func xmpParseDate(s string) bool { return xmpDateValueRe.MatchString(s) }
 
 // xmpPart2Properties are the properties of the schemas XMP 2005 predefines,
 // by namespace, with each one's value type, as ISO 19005-2 and -3 read them.

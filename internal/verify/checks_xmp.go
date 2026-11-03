@@ -56,38 +56,38 @@ const (
 // knownXMPNamespaces lists the XMP namespace URIs predefined by PDF/A-1b
 // that do not require extension schema descriptions.
 var knownXMPNamespaces = map[string]bool{
-	"http://www.w3.org/1999/02/22-rdf-syntax-ns#": true,
-	"adobe:ns:meta/":                         true,
-	"http://ns.adobe.com/xap/1.0/":           true,
-	"http://ns.adobe.com/xap/1.0/mm/":        true,
-	"http://ns.adobe.com/xap/1.0/rights/":    true,
-	"http://ns.adobe.com/xap/1.0/t/pg/":      true,
-	"http://ns.adobe.com/pdf/1.3/":           true,
-	"http://purl.org/dc/elements/1.1/":       true,
-	"http://www.aiim.org/pdfa/ns/id/":        true,
-	"http://www.aiim.org/pdfa/ns/extension/": true,
-	"http://www.aiim.org/pdfa/ns/schema#":    true,
-	"http://www.aiim.org/pdfa/ns/property#":  true,
-	"http://www.aiim.org/pdfa/ns/type#":      true,
-	"http://www.aiim.org/pdfa/ns/field#":     true,
-	"http://ns.adobe.com/photoshop/1.0/":     true,
-	"http://ns.adobe.com/tiff/1.0/":          true,
-	"http://ns.adobe.com/exif/1.0/":          true,
+	nsRDF:                             true,
+	"adobe:ns:meta/":                  true,
+	nsXMP:                             true,
+	nsXMPMM:                           true,
+	nsXMPRights:                       true,
+	nsXMPTPg:                          true,
+	nsPDF:                             true,
+	nsDC:                              true,
+	"http://www.aiim.org/pdfa/ns/id/": true,
+	nsExt:                             true,
+	nsScm:                             true,
+	nsProp:                            true,
+	nsType:                            true,
+	nsFld:                             true,
+	nsPhotoshop:                       true,
+	nsTIFF:                            true,
+	nsEXIF:                            true,
 	// aux: and xmpDM: are not standard XMP 2004 schemas; omit so undeclared use is flagged.
 	// Camera Raw is not a standard XMP 2004 schema; omit so undeclared use is flagged.
 	// XMP structured-type namespaces (st* prefixes) are standard Adobe XMP
 	// namespaces for structured properties (e.g. xmpMM:DerivedFrom uses stRef).
-	"http://ns.adobe.com/xap/1.0/sType/ResourceRef#":   true,
-	"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#": true,
-	"http://ns.adobe.com/xap/1.0/sType/Version#":       true,
-	"http://ns.adobe.com/xap/1.0/sType/Font#":          true,
-	"http://ns.adobe.com/xap/1.0/sType/Dimensions#":    true,
-	"http://ns.adobe.com/xap/1.0/sType/Thumbnail#":     true,
-	"http://ns.adobe.com/xap/1.0/sType/Job#":           true,
-	"http://ns.adobe.com/xap/1.0/sType/ManifestItem#":  true,
-	"http://ns.adobe.com/xap/1.0/g/img/":               true,
-	"http://ns.adobe.com/xap/1.0/bj/":                  true,
-	"http://ns.adobe.com/xmp/Identifier/qual/1.0/":     true,
+	nsResRef:     true,
+	nsResEvent:   true,
+	nsVersion:    true,
+	nsFont:       true,
+	nsDimensions: true,
+	"http://ns.adobe.com/xap/1.0/sType/Thumbnail#": true,
+	nsJob: true,
+	"http://ns.adobe.com/xap/1.0/sType/ManifestItem#": true,
+	nsImage: true,
+	nsXMPBJ: true,
+	"http://ns.adobe.com/xmp/Identifier/qual/1.0/": true,
 	// xmpDM: is not a standard XMP 2004 schema; omit.
 	"http://ns.adobe.com/InDesign/1.0/":    true,
 	"http://ns.adobe.com/illustrator/1.0/": true,
@@ -866,10 +866,6 @@ func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		return withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, err.Error())}, catalog(d))
 	}
 
-	if spec.Part >= 2 {
-		return withRef(verifyXMPMetadataPart2(data, meta, err, spec), meta)
-	}
-
 	var errs []pdf.PDFError
 
 	// 6.7.2: the metadata stream shall not be filtered.
@@ -882,7 +878,7 @@ func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	}
 	xmp := string(data)
 
-	errs = append(errs, checkXMPHeader(xmp)...)
+	errs = append(errs, checkXMPHeader(xpacketRe.FindString(xmp))...)
 	errs = append(errs, checkPDFAIdentifier(xmp, spec)...)
 	if !xmpWellFormed(data) {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata is not well-formed XML"))
@@ -900,7 +896,7 @@ func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 // ISO 19005-1 each needs an xpacket wrapper (6.7.5); under ISO 19005-2 each
 // is checked as the document's own packet is, except for the PDF/A
 // identification (6.6.2).
-func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
+func checkNonCatalogXMPStreams(d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
 	trailer, ok := graph.(pdf.PDFDict)
 	if !ok {
 		return nil
@@ -910,24 +906,8 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 		return nil
 	}
 	var catalogMetaPtr uintptr
-	catalogMeta, ok := root.Entries.Get("Metadata").(pdf.PDFDict)
-	if ok && catalogMeta.IsStream() {
-		catalogMetaPtr = pdf.ValuePointer(catalogMeta.Entries)
-	}
-	// mainDefs are the extension schemas of the document's own packet, read
-	// when the first other packet needs them.
-	var mainDefs map[string]*xmpSchemaDef
-	mainRead := false
-	readMainDefs := func() map[string]*xmpSchemaDef {
-		if !mainRead && catalogMetaPtr != 0 {
-			mainRead = true
-			if data, err := ctx.decodeStreamCached(catalogMeta); err == nil {
-				if pkt, err := parseXMPPacket(pdf.DecodeXMPEncoding(data)); err == nil {
-					mainDefs = xmpExtensionDefs(pkt.schemas, nil)
-				}
-			}
-		}
-		return mainDefs
+	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.IsStream() {
+		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
 	}
 
 	var errs []pdf.PDFError
@@ -950,7 +930,7 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 				switch {
 				case err != nil:
 				case ctx.part2():
-					errs = append(errs, withRef(checkObjectXMPPart2(pdf.DecodeXMPEncoding(data), readMainDefs()), val)...)
+					errs = append(errs, withRef(checkObjectXMPPart2(pdf.DecodeXMPEncoding(data), ctx.documentXMP(d).defs), val)...)
 				case !xpacketRe.Match(data):
 					errs = append(errs, withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
 						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions")}, val)...)
@@ -974,12 +954,9 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 	return errs
 }
 
-// checkXMPHeader checks the xpacket processing instruction (6.7.5).
-func checkXMPHeader(xmp string) []pdf.PDFError {
-	pi := xpacketRe.FindString(xmp)
-	if pi == "" {
-		return nil
-	}
+// checkXMPHeader checks pi, a packet's first xpacket processing
+// instruction, or "" when it has none (6.7.5).
+func checkXMPHeader(pi string) []pdf.PDFError {
 	var errs []pdf.PDFError
 	if strings.Contains(pi, "bytes=") {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.XPacketBytesAttribute, "xpacket header shall not contain a bytes attribute"))
@@ -1095,7 +1072,7 @@ func checkXMPPropertyTypes(xmp string) []pdf.PDFError {
 
 	// The rdf namespace is declared but the root element uses a wrong or
 	// undeclared prefix (e.g. <RDF:RDF> instead of <rdf:RDF>).
-	if strings.Contains(xmp, `xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"`) &&
+	if strings.Contains(xmp, `xmlns:rdf="`+nsRDF+`"`) &&
 		!strings.Contains(xmp, "<rdf:RDF") {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataMissing, "rdf namespace declared but rdf:RDF root element is missing or uses wrong prefix"))
 	}
@@ -1257,7 +1234,7 @@ const (
 // A property from a listed namespace but not in its map is not permitted (6.7.2).
 var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 	// Dublin Core (dc:)
-	"http://purl.org/dc/elements/1.1/": {
+	nsDC: {
 		"contributor": xmpKindBag, "coverage": xmpKindScalar,
 		"creator": xmpKindSeq, "date": xmpKindSeq,
 		"description": xmpKindAlt, "format": xmpKindScalar,
@@ -1268,7 +1245,7 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		"type": xmpKindBag,
 	},
 	// XMP Basic (xmp:) — XMP 2004 valid subset only
-	"http://ns.adobe.com/xap/1.0/": {
+	nsXMP: {
 		"Advisory": xmpKindBag, "BaseURL": xmpKindScalar,
 		"CreateDate": xmpKindScalar, "CreatorTool": xmpKindScalar,
 		"Format": xmpKindScalar, "Identifier": xmpKindBag,
@@ -1277,18 +1254,18 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		// Author, Description, Label, Rating, Title are not valid in XMP 2004
 	},
 	// PDF schema (pdf:) — XMP 2004 valid subset only
-	"http://ns.adobe.com/pdf/1.3/": {
+	nsPDF: {
 		"Keywords": xmpKindScalar, "PDFVersion": xmpKindScalar, "Producer": xmpKindScalar,
 		// Author, BaseURL, CreationDate, Creator, ModDate, Subject, Title, Trapped not valid in XMP 2004
 	},
 	// XMP Rights Management (xmpRights:)
-	"http://ns.adobe.com/xap/1.0/rights/": {
+	nsXMPRights: {
 		"Certificate": xmpKindScalar, "Marked": xmpKindBoolean,
 		"Owner": xmpKindBag, "UsageTerms": xmpKindAlt, "WebStatement": xmpKindScalar,
 		// Copyright is not valid in XMP 2004
 	},
 	// XMP Media Management (xmpMM:)
-	"http://ns.adobe.com/xap/1.0/mm/": {
+	nsXMPMM: {
 		"DerivedFrom": xmpKindStruct, "DocumentID": xmpKindScalar,
 		"History": xmpKindSeq, "Ingredients": xmpKindBag,
 		"InstanceID": xmpKindScalar, "LastURL": xmpKindScalar,
@@ -1300,16 +1277,16 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		// Manifest, Pantry, placedXResolution not valid in XMP 2004
 	},
 	// XMP Basic Job Ticket (xmpBJ:)
-	"http://ns.adobe.com/xap/1.0/bj/": {
+	nsXMPBJ: {
 		"JobRef": xmpKindBag,
 	},
 	// XMP Paged-Text (xmpTPg:) — XMP 2004 valid subset only
-	"http://ns.adobe.com/xap/1.0/t/pg/": {
+	nsXMPTPg: {
 		"MaxPageSize": xmpKindStruct, "NPages": xmpKindInteger,
 		// Fonts, Colorants, PlateNames not valid in XMP 2004
 	},
 	// Photoshop (photoshop:) — XMP 2004 valid subset only
-	"http://ns.adobe.com/photoshop/1.0/": {
+	nsPhotoshop: {
 		"AuthorsPosition": xmpKindScalar, "CaptionWriter": xmpKindScalar,
 		"Category": xmpKindScalar, "City": xmpKindScalar,
 		"Country": xmpKindScalar, "Credit": xmpKindScalar,
@@ -1321,7 +1298,7 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		// Author, Copyright, History, Title not valid in XMP 2004
 	},
 	// TIFF (tiff:)
-	"http://ns.adobe.com/tiff/1.0/": {
+	nsTIFF: {
 		"Artist": xmpKindScalar, "BitsPerSample": xmpKindSeq,
 		"Compression": xmpKindInteger, "Copyright": xmpKindAlt,
 		"DateTime": xmpKindScalar, "ImageDescription": xmpKindAlt,
@@ -1337,7 +1314,7 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		"YResolution": xmpKindScalar,
 	},
 	// EXIF (exif:) — includes struct field sub-properties
-	"http://ns.adobe.com/exif/1.0/": {
+	nsEXIF: {
 		"ApertureValue": xmpKindScalar, "BrightnessValue": xmpKindScalar,
 		"CFAPattern": xmpKindStruct, "ColorSpace": xmpKindInteger,
 		"ComponentsConfiguration": xmpKindSeq, "CompressedBitsPerPixel": xmpKindScalar,
@@ -1414,22 +1391,22 @@ type xmpValueRule struct {
 // xmpValueRules maps namespace URI to property name to value-type constraint,
 // for properties whose container shape alone (xmpNSSchemas) is insufficient.
 var xmpValueRules = map[string]map[string]xmpValueRule{
-	"http://purl.org/dc/elements/1.1/": {
+	nsDC: {
 		"date": {kind: xmpVTDate},
 	},
-	"http://ns.adobe.com/xap/1.0/": {
+	nsXMP: {
 		"CreateDate":   {kind: xmpVTDate},
 		"ModifyDate":   {kind: xmpVTDate},
 		"MetadataDate": {kind: xmpVTDate},
 	},
-	"http://ns.adobe.com/photoshop/1.0/": {
+	nsPhotoshop: {
 		"DateCreated": {kind: xmpVTDate},
 	},
-	"http://ns.adobe.com/tiff/1.0/": {
+	nsTIFF: {
 		"DateTime":      {kind: xmpVTDate},
 		"BitsPerSample": {kind: xmpVTInteger},
 	},
-	"http://ns.adobe.com/exif/1.0/": {
+	nsEXIF: {
 		"DateTimeOriginal": {kind: xmpVTDate},
 		"GPSTimeStamp":     {kind: xmpVTDate},
 		"ISOSpeedRatings":  {kind: xmpVTInteger},
@@ -1440,16 +1417,16 @@ var xmpValueRules = map[string]map[string]xmpValueRule{
 // xmpLangAltProps marks properties whose Alt container is a LangAlt, where
 // every rdf:li item must carry an xml:lang qualifier (plain Alt is exempt).
 var xmpLangAltProps = map[string]map[string]bool{
-	"http://purl.org/dc/elements/1.1/": {
+	nsDC: {
 		"description": true, "rights": true, "title": true,
 	},
-	"http://ns.adobe.com/xap/1.0/rights/": {
+	nsXMPRights: {
 		"UsageTerms": true,
 	},
-	"http://ns.adobe.com/tiff/1.0/": {
+	nsTIFF: {
 		"Copyright": true, "ImageDescription": true,
 	},
-	"http://ns.adobe.com/exif/1.0/": {
+	nsEXIF: {
 		"UserComment": true,
 	},
 }
@@ -1506,7 +1483,7 @@ func checkXMPPropertySchemas(data []byte) []pdf.PDFError {
 			// Check attribute-style properties on rdf:Description.
 			for _, a := range se.Attr {
 				if a.Name.Space == "" || a.Name.Space == nsRDF ||
-					a.Name.Space == "http://www.w3.org/XML/1998/namespace" {
+					a.Name.Space == nsXML {
 					continue
 				}
 				errs = append(errs, xmpValidateProp(a.Name.Space, a.Name.Local, xmpKindScalar, a.Value, nil)...)
@@ -1572,7 +1549,7 @@ func xmpConsumeProperty(dec *xml.Decoder, elem xml.StartElement) (kind xmpContai
 				(kind == xmpKindBag || kind == xmpKindSeq || kind == xmpKindAlt) {
 				item := xmpPropItem{}
 				for _, a := range t.Attr {
-					if a.Name.Space == "http://www.w3.org/XML/1998/namespace" && a.Name.Local == "lang" {
+					if a.Name.Space == nsXML && a.Name.Local == "lang" {
 						item.hasLang = true
 					}
 				}

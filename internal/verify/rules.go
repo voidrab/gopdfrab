@@ -348,9 +348,12 @@ func interactiveFormRule(d *pdf.Reader, _ pdf.PDFValue, _ *ValidationContext) []
 }
 
 func xmpMetadataRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
+	if ctx.part2() {
+		return verifyXMPMetadataPart2(d, ctx)
+	}
 	return verifyXMPMetadata(d, *ctx.Spec)
 }
 
-func objectXMPRule(_ *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
-	return checkNonCatalogXMPStreams(graph, ctx)
+func objectXMPRule(d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
+	return checkNonCatalogXMPStreams(d, graph, ctx)
 }

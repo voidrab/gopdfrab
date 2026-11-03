@@ -72,7 +72,7 @@ func TestXMPExtensionDefs(t *testing.T) {
 	if def == nil || def.props["p"] != "T" || def.props["q"] != "Plain" {
 		t.Fatalf("urn:t/ = %+v, want p:T and q:Plain (the first q wins)", def)
 	}
-	if st, ok := def.types.structs["t"]; !ok || st.ns != "urn:f/" || st.fields["n"] != "Integer" {
+	if st, ok := def.types.structs["t"]; !ok || st.ns != "urn:f/" || st.fields["n"] != "integer" {
 		t.Errorf("type T = %+v", st)
 	}
 	if _, ok := def.types.simple["plain"]; !ok {
@@ -125,7 +125,7 @@ func TestCheckXMPPackagePart2Properties(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			xmp := extDesc(goodSchema, tc.props)
-			got := checkNames(checkXMPPackagePart2([]byte(xmp), mustParseXMP(t, xmp), nil))
+			got := checkNames(checkObjectXMPPart2([]byte(xmp), nil))
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("checks = %v, want %v", got, tc.want)
 			}
@@ -136,11 +136,11 @@ func TestCheckXMPPackagePart2Properties(t *testing.T) {
 func TestCheckXMPPackagePart2MainDefinitions(t *testing.T) {
 	main := xmpExtensionDefs(mustParseXMP(t, extDesc(goodSchema, "")).schemas, nil)
 	xmp := desc(`<t:q>x</t:q>`)
-	if errs := checkXMPPackagePart2([]byte(xmp), mustParseXMP(t, xmp), main); len(errs) != 0 {
+	if errs := checkObjectXMPPart2([]byte(xmp), main); len(errs) != 0 {
 		t.Errorf("a property the main packet defines: %v", errs)
 	}
 	xmp = `<?xpacket begin="" bytes="1" encoding="UTF-8"?>` + desc(`<t:q>x</t:q>`)
-	got := checkNames(checkXMPPackagePart2([]byte(xmp), mustParseXMP(t, xmp), nil))
+	got := checkNames(checkObjectXMPPart2([]byte(xmp), nil))
 	want := []string{"MetadataUndeclaredProperty", "XPacketBytesAttribute", "XPacketEncodingAttribute"}
 	if !slices.Equal(got, want) {
 		t.Errorf("checks = %v, want %v", got, want)
@@ -280,10 +280,22 @@ func TestVerifyXMPMetadataPart2(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer d.Close()
-			if got := checkNames(verifyXMPMetadata(d, a2b())); !slices.Equal(got, tc.want) {
+			if got := checkNames(xmpMetadataRule(d, nil, &ValidationContext{Spec: a2bSpec})); !slices.Equal(got, tc.want) {
 				t.Errorf("checks = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestVerifyXMPMetadataPart2NoPacket(t *testing.T) {
+	d, err := pdf.OpenBytes(catalogDoc(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	got := checkNames(verifyXMPMetadataPart2(d, &ValidationContext{Spec: a2bSpec}))
+	if !slices.Equal(got, []string{"MetadataMissing"}) {
+		t.Errorf("checks = %v, want MetadataMissing", got)
 	}
 }
 
@@ -311,7 +323,7 @@ func TestCheckNonCatalogXMPStreamsPart2(t *testing.T) {
 				t.Fatal(err)
 			}
 			ctx := &ValidationContext{Spec: a2bSpec}
-			if got := checkNames(checkNonCatalogXMPStreams(graph, ctx)); !slices.Equal(got, tc.want) {
+			if got := checkNames(checkNonCatalogXMPStreams(d, graph, ctx)); !slices.Equal(got, tc.want) {
 				t.Errorf("checks = %v, want %v", got, tc.want)
 			}
 		})
@@ -351,7 +363,7 @@ func TestCheckNonCatalogXMPStreamsMainPacket(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := checkNames(checkNonCatalogXMPStreams(graph, &ValidationContext{Spec: a2bSpec}))
+			got := checkNames(checkNonCatalogXMPStreams(d, graph, &ValidationContext{Spec: a2bSpec}))
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("checks = %v, want %v", got, tc.want)
 			}

@@ -62,8 +62,8 @@ func TestParseXMPPacketShapes(t *testing.T) {
 			t.Errorf("%s = form %d value %q, %d children; want %+v", n.name, n.form, n.value, len(n.children), w)
 		}
 	}
-	if !pkt.prop(nsDC, "title").altText || pkt.prop("urn:t/", "alt").altText {
-		t.Error("altText: want it on the lang-qualified Alt only")
+	if !pkt.prop(nsDC, "title").isAltText() || pkt.prop("urn:t/", "alt").isAltText() {
+		t.Error("isAltText: want it on the lang-qualified Alt only")
 	}
 	if !pkt.prop("urn:t/", "lit").hasLang || !pkt.prop("urn:t/", "ref").hasLang {
 		t.Error("hasLang not recorded")
@@ -85,7 +85,7 @@ func TestParseXMPPacketQualifiedValue(t *testing.T) {
 	if q.form != xmpSimple || q.value != "v" || len(q.children) != 0 {
 		t.Errorf("q = %+v, want simple v", q)
 	}
-	if r.form != xmpAlt || !r.altText || !r.hasLang {
+	if !r.isAltText() || !r.hasLang {
 		t.Errorf("r = %+v, want the lang Alt it qualifies", r)
 	}
 	if s.value != "w" {

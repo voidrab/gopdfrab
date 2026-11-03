@@ -5,8 +5,8 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"slices"
 	"strings"
-	"unicode"
 )
 
 // nsXML is the namespace the xml prefix is bound to.
@@ -35,25 +35,36 @@ const (
 type xmpNode struct {
 	ns, prefix, name string
 	form             xmpForm
-	// altText marks an Alt array with an item that has an xml:lang
-	// qualifier.
-	altText bool
-	hasLang bool
-	value   string
+	hasLang          bool
+	value            string
 	// children are the fields of a structure or the items of an array.
 	children []*xmpNode
-
-	hasValueChild bool
 }
 
 func (n *xmpNode) isArray() bool { return n.form >= xmpBag }
+
+// isAltText reports whether n is an Alt array with an item that has an
+// xml:lang qualifier.
+func (n *xmpNode) isAltText() bool {
+	return n.form == xmpAlt && slices.ContainsFunc(n.children, func(c *xmpNode) bool { return c.hasLang })
+}
+
+// isQualified reports whether n is a structure holding rdf:value, which
+// addChild always puts first.
+func (n *xmpNode) isQualified() bool {
+	return n.form == xmpStructure && len(n.children) > 0 &&
+		n.children[0].ns == nsRDF && n.children[0].name == "value"
+}
 
 // isOrdered reports whether n is a Seq or an Alt array.
 func (n *xmpNode) isOrdered() bool { return n.form == xmpSeq || n.form == xmpAlt }
 
 // child returns n's field named name in namespace ns, or nil.
-func (n *xmpNode) child(ns, name string) *xmpNode {
-	for _, c := range n.children {
+func (n *xmpNode) child(ns, name string) *xmpNode { return findXMPNode(n.children, ns, name) }
+
+// findXMPNode returns the node of nodes named name in namespace ns, or nil.
+func findXMPNode(nodes []*xmpNode, ns, name string) *xmpNode {
+	for _, c := range nodes {
 		if c.ns == ns && c.name == name {
 			return c
 		}
@@ -69,14 +80,7 @@ type xmpPacket struct {
 }
 
 // prop returns the top-level property name in namespace ns, or nil.
-func (p *xmpPacket) prop(ns, name string) *xmpNode {
-	for _, n := range p.props {
-		if n.ns == ns && n.name == name {
-			return n
-		}
-	}
-	return nil
-}
+func (p *xmpPacket) prop(ns, name string) *xmpNode { return findXMPNode(p.props, ns, name) }
 
 // xmlElem is an element of a parsed XML document, with namespaces resolved.
 type xmlElem struct {
@@ -290,8 +294,34 @@ func attrTerm(a xmlAttr, owner *xmlElem) rdfTerm {
 	return termOf(a.uri, a.local)
 }
 
-func isWhitespaceText(k xmlKid) bool {
-	return k.elem == nil && strings.TrimFunc(k.text, unicode.IsSpace) == ""
+// childElems returns the element children of el, which may have white
+// space between them but no other text.
+func childElems(el *xmlElem) ([]*xmlElem, error) {
+	var out []*xmlElem
+	for _, k := range el.kids {
+		switch {
+		case k.elem != nil:
+			out = append(out, k.elem)
+		case strings.TrimSpace(k.text) != "":
+			return nil, errBadRDF
+		}
+	}
+	return out, nil
+}
+
+// qualifierAttrs checks that el has no attribute but xml:lang, rdf:ID and
+// the rdf: attribute named allowed, and reports whether it has xml:lang.
+func qualifierAttrs(el *xmlElem, allowed string) (hasLang bool, err error) {
+	for _, a := range el.attrs {
+		switch {
+		case a.isLang():
+			hasLang = true
+		case a.is(nsRDF, "ID"), a.is(nsRDF, allowed):
+		default:
+			return false, errBadRDF
+		}
+	}
+	return hasLang, nil
 }
 
 // rdfParser builds an xmpPacket from the rdf:RDF element of a packet.
@@ -303,23 +333,18 @@ type rdfParser struct {
 }
 
 func (p *rdfParser) rdf(rdf *xmlElem) error {
-	for _, k := range rdf.kids {
-		if isWhitespaceText(k) {
-			continue
-		}
-		if k.elem == nil {
-			return errBadRDF
-		}
-		if err := p.nodeElement(nil, k.elem); err != nil {
+	nodes, err := childElems(rdf)
+	if err != nil {
+		return err
+	}
+	for _, el := range nodes {
+		if err := p.nodeElement(nil, el); err != nil {
 			return err
 		}
 	}
-	for i := 0; i < len(p.pkt.props); i++ {
-		if n := p.pkt.props[i]; n.ns == nsExt && n.name == "schemas" {
-			p.pkt.schemas = n
-			p.pkt.props = append(p.pkt.props[:i], p.pkt.props[i+1:]...)
-			break
-		}
+	if i := slices.IndexFunc(p.pkt.props, func(n *xmpNode) bool { return n.ns == nsExt && n.name == "schemas" }); i >= 0 {
+		p.pkt.schemas = p.pkt.props[i]
+		p.pkt.props = slices.Delete(p.pkt.props, i, i+1)
 	}
 	return nil
 }
@@ -327,21 +352,18 @@ func (p *rdfParser) rdf(rdf *xmlElem) error {
 // nodeElement parses an rdf:Description or typed node into the fields of
 // parent, or into top-level properties when parent is nil.
 func (p *rdfParser) nodeElement(parent *xmpNode, el *xmlElem) error {
-	term := termOf(el.uri, el.local)
-	if term != rdfDescription && term != rdfOther {
-		return errBadRDF
-	}
-	if parent == nil && term == rdfOther {
+	// A typed node may only give the value of a property.
+	if term := termOf(el.uri, el.local); term != rdfDescription && (term != rdfOther || parent == nil) {
 		return errBadRDF
 	}
 	exclusive := 0
 	for _, a := range el.attrs {
-		switch attrTerm(a, el) {
+		switch term := attrTerm(a, el); term {
 		case rdfID, rdfNodeID, rdfAbout:
 			if exclusive++; exclusive > 1 {
 				return errBadRDF
 			}
-			if parent == nil && attrTerm(a, el) == rdfAbout {
+			if parent == nil && term == rdfAbout {
 				if p.about != "" && a.value != "" && a.value != p.about {
 					return errBadRDF
 				}
@@ -363,14 +385,12 @@ func (p *rdfParser) nodeElement(parent *xmpNode, el *xmlElem) error {
 }
 
 func (p *rdfParser) propertyElementList(parent *xmpNode, el *xmlElem) error {
-	for _, k := range el.kids {
-		if isWhitespaceText(k) {
-			continue
-		}
-		if k.elem == nil {
-			return errBadRDF
-		}
-		if err := p.propertyElement(parent, k.elem); err != nil {
+	props, err := childElems(el)
+	if err != nil {
+		return err
+	}
+	for _, c := range props {
+		if err := p.propertyElement(parent, c); err != nil {
 			return err
 		}
 	}
@@ -426,43 +446,28 @@ func (p *rdfParser) resourcePropertyElement(parent *xmpNode, el *xmlElem) error 
 	}
 	// el has no attribute but xml:lang, so any attribute is an xml:lang one.
 	n.hasLang = len(el.attrs) > 0
-	found := false
-	for _, k := range el.kids {
-		if isWhitespaceText(k) {
-			continue
-		}
-		if k.elem == nil || found {
+	kids, err := childElems(el)
+	if err != nil || len(kids) != 1 {
+		return errBadRDF
+	}
+	c := kids[0]
+	switch {
+	case c.uri == nsRDF && c.local == "Bag":
+		n.form = xmpBag
+	case c.uri == nsRDF && c.local == "Seq":
+		n.form = xmpSeq
+	case c.uri == nsRDF && c.local == "Alt":
+		n.form = xmpAlt
+	default:
+		n.form = xmpStructure
+		if c.uri == "" && c.local != "Description" {
 			return errBadRDF
 		}
-		found = true
-		c := k.elem
-		switch {
-		case c.uri == nsRDF && c.local == "Bag":
-			n.form = xmpBag
-		case c.uri == nsRDF && c.local == "Seq":
-			n.form = xmpSeq
-		case c.uri == nsRDF && c.local == "Alt":
-			n.form = xmpAlt
-		default:
-			n.form = xmpStructure
-			if c.uri == "" && c.local != "Description" {
-				return errBadRDF
-			}
-		}
-		if err := p.nodeElement(n, c); err != nil {
-			return err
-		}
-		if n.hasValueChild {
-			fixupQualifiedNode(n)
-		} else if n.form == xmpAlt {
-			for _, item := range n.children {
-				if item.hasLang {
-					n.altText = true
-					break
-				}
-			}
-		}
 	}
+	if err := p.nodeElement(n, c); err != nil {
+		return err
+	}
+	fixupQualifiedNode(n)
 	return nil
 }
 
@@ -471,14 +476,8 @@ func (p *rdfParser) literalPropertyElement(parent *xmpNode, el *xmlElem) error {
 	if err != nil {
 		return err
 	}
-	for _, a := range el.attrs {
-		switch {
-		case a.isLang():
-			n.hasLang = true
-		case a.is(nsRDF, "ID"), a.is(nsRDF, "datatype"):
-		default:
-			return errBadRDF
-		}
+	if n.hasLang, err = qualifierAttrs(el, "datatype"); err != nil {
+		return err
 	}
 	var text strings.Builder
 	for _, k := range el.kids {
@@ -497,21 +496,13 @@ func (p *rdfParser) parseTypeResource(parent *xmpNode, el *xmlElem) error {
 		return err
 	}
 	n.form = xmpStructure
-	for _, a := range el.attrs {
-		switch {
-		case a.isLang():
-			n.hasLang = true
-		case a.is(nsRDF, "ID"), a.is(nsRDF, "parseType"):
-		default:
-			return errBadRDF
-		}
+	if n.hasLang, err = qualifierAttrs(el, "parseType"); err != nil {
+		return err
 	}
 	if err := p.propertyElementList(n, el); err != nil {
 		return err
 	}
-	if n.hasValueChild {
-		fixupQualifiedNode(n)
-	}
+	fixupQualifiedNode(n)
 	return nil
 }
 
@@ -555,12 +546,11 @@ func (p *rdfParser) emptyPropertyElement(parent *xmpNode, el *xmlElem) error {
 	if err != nil {
 		return err
 	}
-	isStruct := false
 	switch {
 	case hasValue || hasResource:
 		n.value = el.attrs[valueAttr].value
 	case hasPropertyAttrs:
-		n.form, isStruct = xmpStructure, true
+		n.form = xmpStructure
 	}
 	for i, a := range el.attrs {
 		if i == valueAttr {
@@ -572,7 +562,7 @@ func (p *rdfParser) emptyPropertyElement(parent *xmpNode, el *xmlElem) error {
 		switch {
 		case a.isLang():
 			n.hasLang = true
-		case isStruct:
+		case n.form == xmpStructure:
 			f, err := p.addChild(n, a.uri, a.prefix, a.local)
 			if err != nil {
 				return err
@@ -615,11 +605,8 @@ func (p *rdfParser) addChild(parent *xmpNode, uri, prefix, local string) (*xmpNo
 		n.name = "[]"
 	case parent.child(uri, local) != nil:
 		return nil, errBadRDF
-	case isValue:
-		if parent.form != xmpStructure {
-			return nil, errBadRDF
-		}
-		parent.hasValueChild = true
+	case isValue && parent.form != xmpStructure:
+		return nil, errBadRDF
 	}
 	if isValue {
 		parent.children = append([]*xmpNode{n}, parent.children...)
@@ -631,10 +618,12 @@ func (p *rdfParser) addChild(parent *xmpNode, uri, prefix, local string) (*xmpNo
 
 // fixupQualifiedNode turns a structure holding rdf:value into the value it
 // qualifies; the other fields are qualifiers, which the PDF/A rules ignore.
+// It leaves any other node unchanged.
 func fixupQualifiedNode(n *xmpNode) {
+	if !n.isQualified() {
+		return
+	}
 	v := n.children[0]
 	n.form, n.value, n.children = v.form, v.value, v.children
-	n.altText = v.altText
 	n.hasLang = n.hasLang || v.hasLang
-	n.hasValueChild = false
 }

@@ -81,7 +81,6 @@ func TestXMPTypeSetValid(t *testing.T) {
 	array := func(f xmpForm, kids ...*xmpNode) *xmpNode { return &xmpNode{form: f, children: kids} }
 	strct := func(kids ...*xmpNode) *xmpNode { return &xmpNode{form: xmpStructure, children: kids} }
 	langAlt := array(xmpAlt, &xmpNode{hasLang: true, value: "t"})
-	langAlt.altText = true
 	for _, tc := range []struct {
 		name string
 		n    *xmpNode
