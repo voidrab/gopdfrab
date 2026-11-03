@@ -169,4 +169,11 @@ var part2Clauses = map[string]clauseRef{
 	"AppearanceMissingN":     {"6.3.3", 2, ""},
 	"AppearanceExtraEntries": {"6.3.3", 2, ""},
 	"AppearanceNNotStream":   {"6.3.3", 0, ""},
+	// 6.4.1 Interactive forms, general.
+	"FieldAction":            {"6.4.1", 1, ""},
+	"FieldAdditionalActions": {"6.4.1", 0, ""},
+	"NeedAppearances":        {"6.4.1", 3, ""},
+	// 6.4.2 XFA forms.
+	"XFA":            {"6.4.2", 1, ""},
+	"NeedsRendering": {"6.4.2", 2, ""},
 }

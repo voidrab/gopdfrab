@@ -469,13 +469,19 @@ func checkAnnotColour(v pdf.PDFDict, c pdf.PDFValue, ctx *ValidationContext) {
 
 // --- 6.9 Interactive form fields ---
 
-// validateFormField flags actions on interactive form fields / widget
-// annotations (6.9).
+// IsFieldOrWidget reports whether d is a terminal form field, one with an FT
+// entry, or a widget annotation, whose Type entry is optional.
+func IsFieldOrWidget(d pdf.PDFDict) bool {
+	if d.Entries.Get("FT") != nil {
+		return true
+	}
+	return IsAnnotationDict(d) && d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
+}
+
+// validateFormField flags actions on interactive form fields and widget
+// annotations (6.9, under PDF/A-2 6.4.1).
 func validateFormField(v pdf.PDFDict, ctx *ValidationContext) {
-	isWidget := v.Entries.Get("Type") == pdf.PDFName{Value: "Annot"} &&
-		v.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
-	isField := v.Entries.Get("FT") != nil
-	if !isWidget && !isField {
+	if !IsFieldOrWidget(v) {
 		return
 	}
 	if v.Entries.Get("A") != nil {
@@ -488,27 +494,37 @@ func validateFormField(v pdf.PDFDict, ctx *ValidationContext) {
 
 // --- 6.9 Interactive forms ---
 
-// verifyInteractiveForms checks the AcroForm dictionary (6.9).
-func verifyInteractiveForms(d *pdf.Reader) []pdf.PDFError {
-	value, err := d.ResolveGraphByPath([]string{"Root", "AcroForm"})
-	if err != nil || value == nil {
-		return nil
-	}
-	form, ok := value.(pdf.PDFDict)
+// verifyInteractiveForms checks the AcroForm dictionary (6.9, under PDF/A-2
+// 6.4.1 and 6.4.2) and, when part2 is set, the catalog's NeedsRendering
+// entry (6.4.2).
+func verifyInteractiveForms(d *pdf.Reader, part2 bool) []pdf.PDFError {
+	// A catalog that does not resolve is no dictionary.
+	value, _ := d.ResolveGraphByPath([]string{"Root"})
+	root, ok := value.(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
 
-	errs := []pdf.PDFError{}
+	var errs []pdf.PDFError
+	if part2 && NeedsRendering(root) {
+		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedsRendering, []error{fmt.Errorf("catalog NeedsRendering shall be false")}, 0, refOf(root)))
+	}
+	form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict)
+	if !ok {
+		return errs
+	}
 	if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
 		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedAppearances, []error{fmt.Errorf("AcroForm NeedAppearances shall not be true")}, 0, refOf(form)))
 	}
 	if form.Entries.Get("XFA") != nil {
 		errs = append(errs, pdf.NewError(pdf.Checks.Form.XFA, []error{fmt.Errorf("AcroForm shall not contain XFA")}, 0, refOf(form)))
 	}
+	return errs
+}
 
-	if len(errs) > 0 {
-		return errs
-	}
-	return nil
+// NeedsRendering reports whether the catalog has a NeedsRendering entry
+// other than false. As in veraPDF, a value that is no boolean counts.
+func NeedsRendering(root pdf.PDFDict) bool {
+	v, ok := root.Entries.Lookup("NeedsRendering")
+	return ok && v != pdf.PDFBoolean(false)
 }

@@ -233,6 +233,7 @@ var (
 		{
 			checks: []pdf.Check{
 				pdf.Checks.Form.NeedAppearances, pdf.Checks.Form.XFA,
+				pdf.Checks.Form.NeedsRendering,
 			},
 			fn: interactiveFormRule,
 		},
@@ -332,8 +333,8 @@ func outputIntentRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []p
 	return verifyOutputIntent(d, *ctx.Spec)
 }
 
-func interactiveFormRule(d *pdf.Reader, _ pdf.PDFValue, _ *ValidationContext) []pdf.PDFError {
-	return verifyInteractiveForms(d)
+func interactiveFormRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
+	return verifyInteractiveForms(d, ctx.part2())
 }
 
 func xmpMetadataRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {

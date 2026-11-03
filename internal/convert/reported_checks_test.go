@@ -368,12 +368,19 @@ func TestFormFixerRepairsOnlyReportedChecks(t *testing.T) {
 		form := specDict("NeedAppearances", pdf.PDFBoolean(true), "XFA", pdf.PDFArray{})
 		field := specDict("FT", specName("Tx"), "A", specDict("S", specName("GoTo")),
 			"AA", specDict("K", specDict("S", specName("GoTo"))))
+		// A widget's Type entry is optional.
+		widget := specDict("Subtype", specName("Widget"), "Rect", pdf.PDFArray{},
+			"A", specDict("S", specName("GoTo")))
 		trailer := trailerWith("AcroForm", form)
-		form.Entries.Set("Fields", pdf.PDFArray{field})
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("NeedsRendering", pdf.PDFBoolean(true))
+		form.Entries.Set("Fields", pdf.PDFArray{field, widget})
 		return trailer, formFixer{}, []repairProbe{
+			{fm.NeedsRendering, "/NeedsRendering", func() bool { return root.Entries.Get("NeedsRendering") == nil }},
 			{fm.NeedAppearances, "/NeedAppearances", func() bool { return form.Entries.Get("NeedAppearances") == pdf.PDFBoolean(false) }},
 			{fm.XFA, "/XFA", func() bool { return form.Entries.Get("XFA") == nil }},
 			{fm.FieldAction, "field /A", func() bool { return field.Entries.Get("A") == nil }},
+			{fm.FieldAction, "widget /A", func() bool { return widget.Entries.Get("A") == nil }},
 			{fm.FieldAdditionalActions, "field /AA", func() bool { return field.Entries.Get("AA") == nil }},
 		}
 	})

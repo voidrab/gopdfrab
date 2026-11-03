@@ -199,6 +199,7 @@ var stableCheckIDs = map[string]int{
 	"NotdefGlyphReference":             187,
 	"AnnotationFlagsMissing":           188,
 	"ToggleNoViewFlagSet":              189,
+	"NeedsRendering":                   190,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {
