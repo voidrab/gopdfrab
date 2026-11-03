@@ -49,9 +49,10 @@ func ActionOwnerKey(d pdf.PDFDict) string {
 	return ""
 }
 
-// IsActionDict reports whether d is an action dictionary of a known type. Its
-// Type entry is optional, but a dictionary of another Type, such as a
-// structure element, is no action whatever its /S. Exported for the fixer.
+// IsActionDict reports whether d is an action dictionary of a known type. The
+// Type entry is optional, but a dictionary whose Type is not Action, such as a
+// structure element, is not an action whatever its /S. It is exported for use
+// by internal/convert.
 func IsActionDict(d pdf.PDFDict) bool {
 	if t := d.Entries.Get("Type"); t != nil && t != (pdf.PDFName{Value: "Action"}) {
 		return false
@@ -60,10 +61,10 @@ func IsActionDict(d pdf.PDFDict) bool {
 	return ok && ActionTypes[s.Value]
 }
 
-// ActionList returns the actions v, the value of an owner's entry key, holds.
-// /Next may hold an array of actions; any other entry holds one action, and an
-// array there, such as the destination an /OpenAction may name, holds none.
-// Exported for the fixer.
+// ActionList returns the actions that v, the value of an owner's entry key,
+// holds. Only /Next may hold an array of actions. Any other entry holds one
+// action, except that an array there, such as the destination an /OpenAction
+// may name, holds none. It is exported for use by internal/convert.
 func ActionList(key string, v pdf.PDFValue) []pdf.PDFValue {
 	switch v := v.(type) {
 	case nil:

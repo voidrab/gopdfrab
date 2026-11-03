@@ -199,9 +199,9 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 		clearDict(d)
 		*changed = true
 	}
-	// unlink takes the dead actions off owner's key, keeping the live actions
-	// chained after them. Emptying an action dictionary is not enough on its
-	// own: the owner still names it.
+	// unlink removes the dead actions from owner's key and keeps the live
+	// actions chained after them. Emptying an action dictionary does not
+	// remove the owner's reference to it, so the reference is dropped here.
 	unlink := func(owner pdf.PDFDict, key string) {
 		v := owner.Entries.Get(key)
 		actions := verify.ActionList(key, v)

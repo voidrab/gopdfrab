@@ -67,7 +67,7 @@ func TestValidateActionsNextArrayWithoutS(t *testing.T) {
 }
 
 // TestValidateActionsStructElemNamedLikeAction verifies that a structure
-// element whose type is spelt like a forbidden action is no action.
+// element whose /S names a forbidden action type is not reported as an action.
 func TestValidateActionsStructElemNamedLikeAction(t *testing.T) {
 	ctx := &ValidationContext{Spec: a2bSpec}
 	validateActions(kv("Type", name("StructElem"), "S", name("Sound")), ctx)
