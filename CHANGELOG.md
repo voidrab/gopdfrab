@@ -93,10 +93,14 @@ Everything under `internal/` may change in any release without notice.
 - Convert removes an annotation of a disallowed type from its page's
   `/Annots`. It used to leave an empty dictionary there, which veraPDF reads
   as an annotation with no type, so the output still failed.
-- Convert removes a forbidden action from an outline item and from the
-  `/Next` entry of another action. It used to empty the action dictionary
-  and leave it linked, which veraPDF reads as an action with no type, so
-  the output still failed.
+- Convert removes a forbidden or disallowed named action from an outline
+  item, from the `/Next` entry of another action and from the triggers of a
+  permitted additional-actions dictionary, and keeps the permitted actions
+  chained after it. It used to empty the action dictionary and leave it
+  linked, which veraPDF reads as an action with no type, so the output
+  still failed. Verify reports such a dictionary in each of these places.
+- A structure element whose type is spelt like an action type, such as
+  `/Sound`, is no longer read as a forbidden action.
 - Verify requires a button widget's normal appearance to name at least one
   appearance stream, as veraPDF does, and convert builds one when it does
   not.

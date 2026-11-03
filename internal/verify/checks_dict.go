@@ -43,16 +43,38 @@ func ActionOwnerKey(d pdf.PDFDict) string {
 		return "A"
 	case d.Entries.Get("Type") == (pdf.PDFName{Value: "Catalog"}):
 		return "OpenAction"
-	case isActionDict(d):
+	case IsActionDict(d):
 		return "Next"
 	}
 	return ""
 }
 
-// isActionDict reports whether d is an action dictionary of a known type.
-func isActionDict(d pdf.PDFDict) bool {
+// IsActionDict reports whether d is an action dictionary of a known type. Its
+// Type entry is optional, but a dictionary of another Type, such as a
+// structure element, is no action whatever its /S. Exported for the fixer.
+func IsActionDict(d pdf.PDFDict) bool {
+	if t := d.Entries.Get("Type"); t != nil && t != (pdf.PDFName{Value: "Action"}) {
+		return false
+	}
 	s, ok := d.Entries.Get("S").(pdf.PDFName)
 	return ok && ActionTypes[s.Value]
+}
+
+// ActionList returns the actions v, the value of an owner's entry key, holds.
+// /Next may hold an array of actions; any other entry holds one action, and an
+// array there, such as the destination an /OpenAction may name, holds none.
+// Exported for the fixer.
+func ActionList(key string, v pdf.PDFValue) []pdf.PDFValue {
+	switch v := v.(type) {
+	case nil:
+		return nil
+	case pdf.PDFArray:
+		if key == "Next" {
+			return v
+		}
+		return nil
+	}
+	return []pdf.PDFValue{v}
 }
 
 // isOutlineItem reports whether d is an outline item, which has both a Title
@@ -62,24 +84,38 @@ func isOutlineItem(d pdf.PDFDict) bool {
 	return d.Entries.Get("Title") != nil && d.Entries.Get("Parent") != nil
 }
 
+// reportUntypedActions reports each action dictionary in owned, the value of
+// owner's entry key or AA trigger key, that has no /S.
+func reportUntypedActions(owner pdf.PDFDict, owned pdf.PDFValue, key string, ctx *ValidationContext) {
+	for _, t := range ActionList(key, owned) {
+		if target, ok := t.(pdf.PDFDict); ok {
+			if _, hasS := target.Entries.Get("S").(pdf.PDFName); !hasS {
+				ctx.Report(pdf.Checks.Action.ForbiddenActionType, owner,
+					fmt.Sprintf("/%s names an action dictionary with no /S", key))
+			}
+		}
+	}
+}
+
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
 func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 	// /S is required in an action dictionary (ISO 32000-1 Table 193), so a
 	// target without one names an action of no known type, which 6.6.1 does not
 	// permit either.
 	if key := ActionOwnerKey(v); key != "" {
-		if target, ok := v.Entries.Get(key).(pdf.PDFDict); ok {
-			if _, hasS := target.Entries.Get("S").(pdf.PDFName); !hasS {
-				ctx.Report(pdf.Checks.Action.ForbiddenActionType, v,
-					fmt.Sprintf("/%s names an action dictionary with no /S", key))
-			}
+		reportUntypedActions(v, v.Entries.Get(key), key, ctx)
+	}
+	// Each trigger of an AA entry names an action.
+	if aa, ok := v.Entries.Get("AA").(pdf.PDFDict); ok {
+		for trigger, t := range aa.Entries.All() {
+			reportUntypedActions(v, t, trigger, ctx)
 		}
 	}
 
-	s, ok := v.Entries.Get("S").(pdf.PDFName)
-	if !ok || !ActionTypes[s.Value] {
+	if !IsActionDict(v) {
 		return
 	}
+	s := v.Entries.Get("S").(pdf.PDFName)
 	if ctx.Spec.ForbiddenActions.Has(s.Value) {
 		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v, fmt.Sprintf("forbidden action type /%s", s.Value))
 		return

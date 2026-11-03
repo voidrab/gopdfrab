@@ -106,7 +106,7 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 				action := specDict("S", specName("Named"), "N", specName("Print"))
 				trailer := trailerWith("OpenAction", action)
 				_, _ = actionFixer{spec: s}.Fix(&trailer, everyCheck(actionFixer{}))
-				return action.Entries.Get("S") == nil
+				return trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("OpenAction") == nil
 			}, false},
 		{"ExtGState rendering intent", func(s *pdfa.Spec) { s.RenderingIntents = pdfa.NewNames("Custom") },
 			func(t *testing.T, s *pdfa.Spec) bool {

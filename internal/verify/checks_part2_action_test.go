@@ -44,12 +44,56 @@ func TestActionOwnerKey(t *testing.T) {
 		{"catalog", kv("Type", name("Catalog")), "OpenAction"},
 		{"action", kv("S", name("GoTo")), "Next"},
 		{"unknown action type", kv("S", name("Foo")), ""},
-		{"structure element", kv("Type", name("StructElem"), "S", name("P")), ""},
+		{"structure element", kv("Type", name("StructElem"), "S", name("Sound")), ""},
+		{"typed action", kv("Type", name("Action"), "S", name("GoTo")), "Next"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ActionOwnerKey(tc.d); got != tc.want {
 				t.Errorf("ActionOwnerKey = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestValidateActionsNextArrayWithoutS verifies that an action in a /Next
+// array with no /S is reported, as a single one is.
+func TestValidateActionsNextArrayWithoutS(t *testing.T) {
+	owner := kv("S", name("GoTo"), "Next", pdf.PDFArray{kv("S", name("URI")), kv()})
+	ctx := &ValidationContext{Spec: a2bSpec}
+	validateActions(owner, ctx)
+	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
+		t.Errorf("errs = %v, want ForbiddenActionType", ctx.errs)
+	}
+}
+
+// TestValidateActionsStructElemNamedLikeAction verifies that a structure
+// element whose type is spelt like a forbidden action is no action.
+func TestValidateActionsStructElemNamedLikeAction(t *testing.T) {
+	ctx := &ValidationContext{Spec: a2bSpec}
+	validateActions(kv("Type", name("StructElem"), "S", name("Sound")), ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("errs = %v, want none", ctx.errs)
+	}
+}
+
+// TestValidateActionsTriggerWithoutS verifies that a trigger of an AA entry
+// naming a dictionary with no /S is reported.
+func TestValidateActionsTriggerWithoutS(t *testing.T) {
+	annot := kv("Type", name("Annot"), "Subtype", name("Text"), "AA", kv("E", kv()))
+	ctx := &ValidationContext{Spec: a2bSpec}
+	validateActions(annot, ctx)
+	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
+		t.Errorf("errs = %v, want ForbiddenActionType", ctx.errs)
+	}
+}
+
+// TestValidateActionsOpenActionDestination verifies that an /OpenAction
+// naming a destination array is no action of unknown type.
+func TestValidateActionsOpenActionDestination(t *testing.T) {
+	catalog := kv("Type", name("Catalog"), "OpenAction", pdf.PDFArray{kv("Type", name("Page")), name("Fit")})
+	ctx := &ValidationContext{Spec: a1bSpec}
+	validateActions(catalog, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("errs = %v, want none", ctx.errs)
 	}
 }

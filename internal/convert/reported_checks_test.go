@@ -354,7 +354,7 @@ func TestActionFixerRepairsOnlyReportedChecks(t *testing.T) {
 		return trailer, actionFixer{spec: a1bSpec}, []repairProbe{
 			{ac.ForbiddenActionType, "/OpenAction", func() bool { return root.Entries.Get("OpenAction") == nil }},
 			{ac.ForbiddenActionType, "JavaScript name tree", func() bool { return names.Entries.Get("JavaScript") == nil }},
-			{ac.DisallowedNamedAction, "named action", func() bool { return named.Entries.Get("S") == nil }},
+			{ac.DisallowedNamedAction, "named action", func() bool { return link.Entries.Get("A") == nil }},
 			{ac.AdditionalActions, "/AA", func() bool { return root.Entries.Get("AA") == nil }},
 		}
 	})
