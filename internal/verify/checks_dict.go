@@ -140,8 +140,8 @@ func ActionViolation(d pdf.PDFDict, spec *pdfa.Spec) pdf.Check {
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
 func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 	// /S is required in an action dictionary (ISO 32000-1 Table 193), so a
-	// target without one names an action of no known type, which 6.6.1 does not
-	// permit either.
+	// target without one is an action of no known type, which 6.6.1 does
+	// not permit.
 	for owner, key := range ActionEntries(v) {
 		reportUntypedActions(v, owner.Entries.Get(key), key, ctx)
 	}
