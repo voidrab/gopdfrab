@@ -28,7 +28,8 @@ func hiddenLayerDoc() []byte {
 	b.Obj(5, "<< /Type /OCG /Name (Hidden) >>")
 	b.Obj(6, "<< /Type /OCG /Name (Shown) >>")
 	b.StreamObj(7, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /OC 5 0 R", []byte("0 g 20 120 60 60 re f\n"))
-	b.Obj(8, "<< /Type /Annot /Subtype /Square /Rect [120 20 180 80] /F 4 /OC 5 0 R >>")
+	// An annotation's Type entry is optional.
+	b.Obj(8, "<< /Subtype /Square /Rect [120 20 180 80] /F 4 /OC 5 0 R >>")
 	return b.FinishClassic("<< /Size 9 /Root 1 0 R >>")
 }
 

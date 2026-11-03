@@ -106,6 +106,9 @@ Everything under `internal/` may change in any release without notice.
 - Verify reports an action on a widget annotation that has no `/Type`, and
   convert removes it. Only a widget with `/Type /Annot`, or a field with
   `/FT`, used to be checked.
+- Convert removes an uncovered colour from an annotation without `/Type`, and
+  an annotation without `/Type` in hidden optional content, as it does for
+  one with it.
 
 ## [1.3.0] - 2026-10-31
 

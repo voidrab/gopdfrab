@@ -329,7 +329,7 @@ func TestVerifyInteractiveFormsNeedAppearancesAndXFA(t *testing.T) {
 		t.Fatalf("pdf.Open: %v", err)
 	}
 	defer doc.Close()
-	errs := verifyInteractiveForms(doc, false)
+	errs := verifyInteractiveForms(doc)
 	var gotNeedAppearances, gotXFA bool
 	for _, e := range errs {
 		if e.Check() == pdf.Checks.Form.NeedAppearances {
@@ -354,7 +354,7 @@ func TestVerifyInteractiveFormsNoAcroForm(t *testing.T) {
 		t.Fatalf("pdf.Open: %v", err)
 	}
 	defer doc.Close()
-	if errs := verifyInteractiveForms(doc, false); errs != nil {
+	if errs := verifyInteractiveForms(doc); errs != nil {
 		t.Errorf("expected nil for a document with no AcroForm, got %v", errs)
 	}
 }
@@ -609,7 +609,7 @@ func TestVerifyInteractiveFormsIgnoresNonDictAcroForm(t *testing.T) {
 		t.Fatalf("OpenBytes: %v", err)
 	}
 	defer doc.Close()
-	if errs := verifyInteractiveForms(doc, false); errs != nil {
+	if errs := verifyInteractiveForms(doc); errs != nil {
 		t.Errorf("verifyInteractiveForms = %v, want nil", errs)
 	}
 }

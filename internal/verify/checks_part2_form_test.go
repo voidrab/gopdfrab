@@ -2,37 +2,31 @@ package verify
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // catalogDoc returns a classic-xref PDF whose catalog carries the given
 // extra entries.
 func catalogDoc(extra string) []byte {
-	header := "%PDF-1.7\n"
-	obj1 := "1 0 obj\n<< /Type /Catalog /Pages 2 0 R " + extra + " >>\nendobj\n"
-	obj2 := "2 0 obj\n<< /Type /Pages /Count 0 /Kids [] >>\nendobj\n"
-	off1 := len(header)
-	off2 := off1 + len(obj1)
-	xref := fmt.Sprintf("xref\n0 3\n0000000000 65535 f \n%010d 00000 n \n%010d 00000 n \n", off1, off2)
-	tail := fmt.Sprintf("trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF", off2+len(obj2))
-	return []byte(header + obj1 + obj2 + xref + tail)
+	b := pdfgen.NewBuilder("%PDF-1.7\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R "+extra+" >>")
+	b.Obj(2, "<< /Type /Pages /Count 0 /Kids [] >>")
+	return b.FinishClassic("<< /Size 3 /Root 1 0 R >>")
 }
 
 func TestVerifyInteractiveFormsNeedsRendering(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		extra string
-		part2 bool
 		want  bool
 	}{
-		{"true", "/NeedsRendering true", true, true},
-		{"false", "/NeedsRendering false", true, false},
-		{"not a boolean", "/NeedsRendering 1", true, true},
-		{"absent", "", true, false},
-		{"under Part 1", "/NeedsRendering true", false, false},
+		{"true", "/NeedsRendering true", true},
+		{"false", "/NeedsRendering false", false},
+		{"not a boolean", "/NeedsRendering 1", true},
+		{"absent", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, err := pdf.OpenBytes(catalogDoc(tc.extra))
@@ -40,7 +34,7 @@ func TestVerifyInteractiveFormsNeedsRendering(t *testing.T) {
 				t.Fatalf("OpenBytes: %v", err)
 			}
 			defer d.Close()
-			errs := verifyInteractiveForms(d, tc.part2)
+			errs := verifyInteractiveForms(d)
 			got := len(errs) == 1 && errs[0].Check() == pdf.Checks.Form.NeedsRendering
 			if got != tc.want || (!tc.want && len(errs) != 0) {
 				t.Errorf("verifyInteractiveForms = %v, want NeedsRendering %v", errs, tc.want)
@@ -56,7 +50,7 @@ func TestVerifyInteractiveFormsCatalogNotADict(t *testing.T) {
 		t.Fatalf("OpenBytes: %v", err)
 	}
 	defer d.Close()
-	if errs := verifyInteractiveForms(d, true); errs != nil {
+	if errs := verifyInteractiveForms(d); errs != nil {
 		t.Errorf("verifyInteractiveForms = %v, want nil", errs)
 	}
 }

@@ -48,13 +48,22 @@ func TestAnnotColourFixer(t *testing.T) {
 	})}
 	// No output intent in the trailer, so an RGB annotation colour is
 	// uncovered.
+	// An annotation's Type entry is optional.
+	typeless := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Square"}, "Rect": pdf.PDFArray{},
+		"C": pdf.PDFArray{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)},
+	})}
 	trailer := trailerWith("Annot0", annot)
+	trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("Annot1", typeless)
 	changed, err := annotColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("annotColourFixer.Fix = %v, %v", changed, err)
 	}
 	if _, ok := annot.Entries.Lookup("C"); ok {
 		t.Error("uncovered annotation colour /C not removed")
+	}
+	if _, ok := typeless.Entries.Lookup("C"); ok {
+		t.Error("uncovered colour /C of an annotation without /Type not removed")
 	}
 }
 

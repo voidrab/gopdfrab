@@ -475,7 +475,7 @@ func IsFieldOrWidget(d pdf.PDFDict) bool {
 	if d.Entries.Get("FT") != nil {
 		return true
 	}
-	return IsAnnotationDict(d) && d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
+	return d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"} && IsAnnotationDict(d)
 }
 
 // validateFormField flags actions on interactive form fields and widget
@@ -495,9 +495,9 @@ func validateFormField(v pdf.PDFDict, ctx *ValidationContext) {
 // --- 6.9 Interactive forms ---
 
 // verifyInteractiveForms checks the AcroForm dictionary (6.9, under PDF/A-2
-// 6.4.1 and 6.4.2) and, when part2 is set, the catalog's NeedsRendering
-// entry (6.4.2).
-func verifyInteractiveForms(d *pdf.Reader, part2 bool) []pdf.PDFError {
+// 6.4.1 and 6.4.2) and the catalog's NeedsRendering entry (6.4.2), which the
+// profile drops for PDF/A-1 levels.
+func verifyInteractiveForms(d *pdf.Reader) []pdf.PDFError {
 	// A catalog that does not resolve is no dictionary.
 	value, _ := d.ResolveGraphByPath([]string{"Root"})
 	root, ok := value.(pdf.PDFDict)
@@ -506,7 +506,7 @@ func verifyInteractiveForms(d *pdf.Reader, part2 bool) []pdf.PDFError {
 	}
 
 	var errs []pdf.PDFError
-	if part2 && NeedsRendering(root) {
+	if NeedsRendering(root) {
 		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedsRendering, []error{fmt.Errorf("catalog NeedsRendering shall be false")}, 0, refOf(root)))
 	}
 	form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict)
