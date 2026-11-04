@@ -339,12 +339,13 @@ GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm
 ```
 
 A page can load the verify-only module up front and fetch the full one only to
-convert. Each registers its globals, which take a `Uint8Array` and return a
-Promise, then posts `{type: "ready", module}` with `module` set to `"verify"`
-or `"convert"`:
+convert. Each registers its globals, which take a `Uint8Array` and an optional
+profile name (`"pdfa1b"`, the default, `"legacy1b"`, `"pdfa2b"` or `"pdf"`, as
+for the CLI's `--profile`) and return a Promise, then posts
+`{type: "ready", module}` with `module` set to `"verify"` or `"convert"`:
 
-- `gopdfrabVerify(bytes)` resolves to `{valid, summary, profile, issueCount, doc, issues}`.
-- `gopdfrabConvert(bytes)` (full module only) resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, with `output` a `Uint8Array`.
+- `gopdfrabVerify(bytes, profile?)` resolves to `{valid, summary, profile, issueCount, doc, issues}`.
+- `gopdfrabConvert(bytes, profile?)` (full module only) resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, with `output` a `Uint8Array`.
 
 The doc comments in `wasm/main.go` and `wasm/internal/jsapi` are the full
 reference.
