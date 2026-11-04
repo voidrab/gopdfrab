@@ -14,11 +14,10 @@ import (
 // 6.8 Embedded files (ISO 19005-2)
 
 // maxEmbedDepth bounds how deeply embedded files are verified inside one
-// another, and maxEmbedVerifies how many embedded files one verify run
-// judges in all, at every depth. Each one decodes and verifies a whole
-// document, and a file can embed a copy of itself, so without both a file of
-// many small attachments, each with as many of its own, would cost a number
-// of verifies exponential in its depth.
+// another. maxEmbedVerifies bounds how many embedded files one verify run
+// judges in all, at every depth. Each judgement decodes and verifies a whole
+// document, and a file can embed a copy of itself. The depth bound alone
+// would allow a number of verifies exponential in the depth.
 const (
 	maxEmbedDepth    = 4
 	maxEmbedVerifies = 64
@@ -126,9 +125,9 @@ type embeddedVerdict struct {
 	decided bool
 }
 
-// NewEmbeddedFileJudge returns a judge for the run that run, nil for none, is
-// the context of. Within a nested verify, the judge shares the budget of the
-// run that verifies the enclosing file.
+// NewEmbeddedFileJudge returns a judge for the run whose context is run; a nil
+// run is treated as no run. Within a nested verify, the judge shares the budget
+// of the run that verifies the enclosing file.
 func NewEmbeddedFileJudge(run context.Context) *EmbeddedFileJudge {
 	if run == nil {
 		run = context.Background()
