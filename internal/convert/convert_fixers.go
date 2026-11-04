@@ -161,6 +161,8 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return permissionsFixer{} },
 		func(r *fixerRun) Fixer { return pageBoundaryFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return fileSpecFixer{lost: r.lost} },
+		func(r *fixerRun) Fixer { return embeddedFileFixer{ctx: r.ctx, lost: r.lost} },
+		func(r *fixerRun) Fixer { return presentationFixer{} },
 		func(r *fixerRun) Fixer { return fontDictFixer{} },
 		func(r *fixerRun) Fixer { return type0FontFixer{} },
 		func(r *fixerRun) Fixer { return baseFontFixer{} },

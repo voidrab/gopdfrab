@@ -182,6 +182,13 @@ type structureChecks struct {
 	OCConfigDuplicateName   Check
 	OCConfigOrderIncomplete Check
 	OCConfigAutoState       Check
+	// 6.8 Embedded files, 6.10 Alternate presentations and transitions and
+	// 6.11 Document requirements, clauses of PDF/A-2 alone.
+	EmbeddedFileMissingNames Check
+	EmbeddedFileNotPDFA      Check
+	AlternatePresentations   Check
+	PresentationSteps        Check
+	CatalogRequirements      Check
 }
 
 type colourChecks struct {
@@ -743,6 +750,21 @@ func init() {
 			OCConfigAutoState: newPart2Check(196,
 				"OCConfigAutoState",
 				"Optional content configuration dictionaries must not contain an AS entry"),
+			EmbeddedFileMissingNames: newPart2Check(197,
+				"EmbeddedFileMissingNames",
+				"The file specification dictionary of an embedded file must contain F and UF strings"),
+			EmbeddedFileNotPDFA: newPart2Check(198,
+				"EmbeddedFileNotPDFA",
+				"Each embedded file must comply with PDF/A-1b or PDF/A-2b"),
+			AlternatePresentations: newPart2Check(199,
+				"AlternatePresentations",
+				"The name dictionary must not contain an AlternatePresentations entry"),
+			PresentationSteps: newPart2Check(200,
+				"PresentationSteps",
+				"Page dictionaries must not contain a PresSteps entry"),
+			CatalogRequirements: newPart2Check(201,
+				"CatalogRequirements",
+				"The document catalog must not contain a Requirements entry"),
 		},
 
 		Colour: colourChecks{

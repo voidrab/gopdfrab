@@ -209,4 +209,12 @@ var part2Clauses = map[string]clauseRef{
 	"OCConfigDuplicateName":   {"6.9", 2, ""},
 	"OCConfigOrderIncomplete": {"6.9", 3, ""},
 	"OCConfigAutoState":       {"6.9", 4, ""},
+	// 6.8 Embedded files.
+	"EmbeddedFileMissingNames": {"6.8", 2, ""},
+	"EmbeddedFileNotPDFA":      {"6.8", 5, ""},
+	// 6.10 Alternate presentations and transitions.
+	"AlternatePresentations": {"6.10", 1, ""},
+	"PresentationSteps":      {"6.10", 2, ""},
+	// 6.11 Document requirements.
+	"CatalogRequirements": {"6.11", 1, ""},
 }

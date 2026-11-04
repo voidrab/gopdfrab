@@ -71,6 +71,15 @@ Everything under `internal/` may change in any release without notice.
   an Order array leaves out, and removes AS entries. The default visibility
   of each group is kept; without AS, a viewer no longer applies a group's
   Usage states automatically, for example when printing.
+- Five PDF/A-2-only checks for embedded files, presentations and document
+  requirements: `Checks.Structure.EmbeddedFileMissingNames`,
+  `EmbeddedFileNotPDFA`, `AlternatePresentations`, `PresentationSteps` and
+  `CatalogRequirements`. An embedded file must claim PDF/A-1b or PDF/A-2b and
+  pass every check of the level it claims; verify decodes and verifies it,
+  four levels deep at most. Converting to PDF/A-2b removes each embedded file
+  that does not comply, reporting it in `LostObjects`, gives the file
+  specification of each one it keeps the F or UF string it lacks, and deletes
+  the presentation and requirements entries.
 
 ### Fixed
 

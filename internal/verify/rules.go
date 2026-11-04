@@ -38,6 +38,12 @@ var dictRules = []dictRule{
 	},
 	{
 		checks: []pdf.Check{
+			pdf.Checks.Structure.EmbeddedFileMissingNames, pdf.Checks.Structure.EmbeddedFileNotPDFA,
+		},
+		fn: validateFileSpec,
+	},
+	{
+		checks: []pdf.Check{
 			pdf.Checks.Action.DisallowedNamedAction, pdf.Checks.Action.ForbiddenActionType,
 		},
 		fn: validateActions,
@@ -214,6 +220,19 @@ var (
 				pdf.Checks.Structure.OCConfigOrderIncomplete, pdf.Checks.Structure.OCConfigAutoState,
 			},
 			fn: ocConfigRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Structure.EmbeddedFileMissingNames, pdf.Checks.Structure.EmbeddedFileNotPDFA,
+			},
+			fn: embeddedFilesRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Structure.AlternatePresentations, pdf.Checks.Structure.PresentationSteps,
+				pdf.Checks.Structure.CatalogRequirements,
+			},
+			fn: presentationRule,
 		},
 		{
 			checks: []pdf.Check{

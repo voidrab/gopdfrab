@@ -206,6 +206,11 @@ var stableCheckIDs = map[string]int{
 	"OCConfigDuplicateName":            194,
 	"OCConfigOrderIncomplete":          195,
 	"OCConfigAutoState":                196,
+	"EmbeddedFileMissingNames":         197,
+	"EmbeddedFileNotPDFA":              198,
+	"AlternatePresentations":           199,
+	"PresentationSteps":                200,
+	"CatalogRequirements":              201,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {

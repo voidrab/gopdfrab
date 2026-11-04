@@ -435,3 +435,35 @@ func TestOCConfigFixerRepairsOnlyReportedChecks(t *testing.T) {
 		}
 	})
 }
+
+// TestEmbeddedFileFixerRepairsOnlyReportedChecks verifies that the embedded
+// file repairs each run only when their own check was reported.
+func TestEmbeddedFileFixerRepairsOnlyReportedChecks(t *testing.T) {
+	s := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		fs := specDict("Type", specName("Filespec"), "EF", specDict("F", pdf.NewStreamDict(nil, []byte("text"))))
+		return trailerWith("X", fs), embeddedFileFixer{}, []repairProbe{
+			{s.EmbeddedFileNotPDFA, "/EF", func() bool { return fs.Entries.Get("EF") == nil }},
+			{s.EmbeddedFileMissingNames, "/F and /UF", func() bool { return fs.Entries.Get("UF") != nil }},
+		}
+	})
+}
+
+// TestPresentationFixerRepairsOnlyReportedChecks verifies that each
+// presentation entry is deleted only when its own check was reported.
+func TestPresentationFixerRepairsOnlyReportedChecks(t *testing.T) {
+	s := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		page := specDict("Type", specName("Page"), "PresSteps", specDict())
+		names := specDict("AlternatePresentations", specDict())
+		trailer := trailerWith("Requirements", pdf.PDFArray{})
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("Names", names)
+		root.Entries.Set("Pages", specDict("Type", specName("Pages"), "Kids", pdf.PDFArray{page}))
+		return trailer, presentationFixer{}, []repairProbe{
+			{s.AlternatePresentations, "/AlternatePresentations", func() bool { return names.Entries.Get("AlternatePresentations") == nil }},
+			{s.PresentationSteps, "/PresSteps", func() bool { return page.Entries.Get("PresSteps") == nil }},
+			{s.CatalogRequirements, "/Requirements", func() bool { return root.Entries.Get("Requirements") == nil }},
+		}
+	})
+}

@@ -683,3 +683,44 @@ func (f viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 	}
 	return changed, nil
 }
+
+// --- 6.10 Alternate presentations and transitions, 6.11 Document
+// requirements (PDF/A-2) ---
+
+// presentationFixer deletes the AlternatePresentations entry of the name
+// dictionary, the PresSteps entry of each page of the page tree and the
+// catalog's Requirements entry, each only when its own check was reported.
+// A viewer then shows the pages without their slide show steps and opens the
+// document without checking what it requires.
+type presentationFixer struct{}
+
+func (presentationFixer) Applies(c pdf.Check) bool {
+	s := pdf.Checks.Structure
+	return c == s.AlternatePresentations || c == s.PresentationSteps || c == s.CatalogRequirements
+}
+
+func (presentationFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
+	if !ok {
+		return false, nil
+	}
+	reported := reportedChecks(issues)
+	s := pdf.Checks.Structure
+	changed := false
+	del := func(d pdf.PDFDict, key string) {
+		if _, ok := d.Entries.Lookup(key); ok {
+			d.Entries.Del(key)
+			changed = true
+		}
+	}
+	if names, ok := root.Entries.Get("Names").(pdf.PDFDict); ok && reported[s.AlternatePresentations] {
+		del(names, "AlternatePresentations")
+	}
+	if pages, ok := root.Entries.Get("Pages").(pdf.PDFDict); ok && reported[s.PresentationSteps] {
+		pdf.WalkPages(pages, func(page, _ pdf.PDFDict, _ [4]float64, _ int) { del(page, "PresSteps") })
+	}
+	if reported[s.CatalogRequirements] {
+		del(root, "Requirements")
+	}
+	return changed, nil
+}
