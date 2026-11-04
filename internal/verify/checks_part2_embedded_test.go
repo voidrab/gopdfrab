@@ -141,7 +141,7 @@ func TestPresentationRuleCatalogNotADict(t *testing.T) {
 	}
 }
 
-func TestEmbeddedFileProblem(t *testing.T) {
+func TestEmbeddedFileJudge(t *testing.T) {
 	stream := func(data []byte) pdf.PDFDict {
 		return pdf.NewStreamDict(nil, data)
 	}
@@ -170,9 +170,9 @@ func TestEmbeddedFileProblem(t *testing.T) {
 		{"fails its checks", nil, stream(readFile(t, failing2B)), "claims PDF/A-2b but fails 1 of its checks", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, decided := EmbeddedFileProblem(tc.run, tc.ef)
+			got, decided := NewEmbeddedFileJudge(tc.run).Problem(tc.ef)
 			if tc.want == "" && got != "" || !strings.Contains(got, tc.want) || decided != tc.decided {
-				t.Errorf("EmbeddedFileProblem = %q, %v; want it to contain %q, %v", got, decided, tc.want, tc.decided)
+				t.Errorf("Problem = %q, %v; want it to contain %q, %v", got, decided, tc.want, tc.decided)
 			}
 		})
 	}
@@ -192,5 +192,19 @@ func TestEmbeddedFileStreams(t *testing.T) {
 	got := EmbeddedFileStreams(fs)
 	if len(got) != 2 || got[0].Entries != a.Entries || got[1].Entries != b.Entries {
 		t.Errorf("EmbeddedFileStreams = %v, want [a b]", got)
+	}
+}
+
+// TestEmbeddedFileJudgeSharesBudget verifies that the files a run embeds draw
+// on one budget of verifies, rather than one each.
+func TestEmbeddedFileJudgeSharesBudget(t *testing.T) {
+	ok2B := readFile(t, compliant2B)
+	j := NewEmbeddedFileJudge(context.Background())
+	j.run.Value(embedStateKey{}).(embedState).left.Store(1)
+	if problem, decided := j.Problem(pdf.NewStreamDict(nil, ok2B)); problem != "" || !decided {
+		t.Fatalf("first file: %q, %v; want compliant", problem, decided)
+	}
+	if problem, decided := j.Problem(pdf.NewStreamDict(nil, ok2B)); decided || !strings.Contains(problem, "at most 64") {
+		t.Errorf("second file: %q, %v; want undecided over budget", problem, decided)
 	}
 }

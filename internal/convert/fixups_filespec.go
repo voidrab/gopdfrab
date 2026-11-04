@@ -125,7 +125,7 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 			treeNames[named.Spec.Entries] = named.Name
 		}
 	}
-	problems := map[pdf.Dict]string{}
+	judge := verify.NewEmbeddedFileJudge(f.ctx)
 	dropped := map[pdf.Dict]bool{}
 	changed := false
 	fix := func(fs pdf.PDFDict) {
@@ -134,17 +134,9 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		}
 		if reported[st.EmbeddedFileNotPDFA] {
 			for _, ef := range verify.EmbeddedFileStreams(fs) {
-				problem, ok := problems[ef.Entries]
-				if !ok {
-					// A file that could not be judged may comply, so it
-					// stays, and the output is left unconformant.
-					var decided bool
-					if problem, decided = verify.EmbeddedFileProblem(f.ctx, ef); !decided {
-						problem = ""
-					}
-					problems[ef.Entries] = problem
-				}
-				if problem != "" {
+				// A file that could not be judged may comply, so it stays,
+				// and the output is left unconformant.
+				if problem, decided := judge.Problem(ef); decided && problem != "" {
 					reportLost(f.lost, st.EmbeddedFileNotPDFA, fs, embeddedFileName(fs)+" removed: it "+problem)
 					fs.Entries.Del("EF")
 					dropped[fs.Entries] = true
@@ -164,7 +156,9 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		}
 	})
 	for _, named := range tree {
-		fix(named.Spec)
+		if !verify.IsFileSpec(named.Spec) {
+			fix(named.Spec)
+		}
 	}
 	if len(dropped) > 0 {
 		dropAssociatedFiles(*trailer, dropped)
@@ -199,14 +193,14 @@ func dropAssociatedFiles(trailer pdf.PDFDict, dropped map[pdf.Dict]bool) {
 // UF is a text string and keeps every character; F is a byte string, so a
 // character outside printable ASCII becomes an underscore there.
 func fillFileNames(fs pdf.PDFDict, treeName string) {
-	f, hasF := pdf.StringBytes(fs.Entries.Get("F"))
-	uf, hasUF := pdf.StringBytes(fs.Entries.Get("UF"))
+	_, hasF := pdf.StringBytes(fs.Entries.Get("F"))
+	_, hasUF := pdf.StringBytes(fs.Entries.Get("UF"))
 	var name string
 	switch {
 	case hasF:
-		name = pdf.DecodePDFTextString(f)
+		name = pdf.DecodeInfoTextString(fs.Entries.Get("F"))
 	case hasUF:
-		name = pdf.DecodePDFTextString(uf)
+		name = pdf.DecodeInfoTextString(fs.Entries.Get("UF"))
 	case treeName != "":
 		name = treeName
 	default:

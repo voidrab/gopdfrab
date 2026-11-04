@@ -15,7 +15,7 @@ import (
 
 // maxEmbedDepth bounds how deeply embedded files are verified inside one
 // another, and maxEmbedVerifies how many embedded files one verify run
-// verifies in all, at every depth. Each one decodes and verifies a whole
+// judges in all, at every depth. Each one decodes and verifies a whole
 // document, and a file can embed a copy of itself, so without both a file of
 // many small attachments, each with as many of its own, would cost a number
 // of verifies exponential in its depth.
@@ -113,25 +113,58 @@ func HasFileNames(fs pdf.PDFDict) bool {
 	return f && uf
 }
 
-// EmbeddedFileProblem says why the embedded file stream ef does not comply
-// with PDF/A-1b or PDF/A-2b, as test 5 of ISO 19005-2 6.8 requires, or
-// returns "" when it does. As veraPDF judges it, the file must claim one of
-// the two levels in its XMP metadata and pass every check of the level it
-// claims. decided is false when the file could not be judged: it is nested
-// too deeply, the run has verified as many embedded files as it may, or run
-// was cancelled. The problem then says so, and the file may comply. run is
-// the context of the run that found ef, or nil for none.
-func EmbeddedFileProblem(run context.Context, ef pdf.PDFDict) (problem string, decided bool) {
+// EmbeddedFileJudge judges the embedded file streams a run finds against
+// test 5 of ISO 19005-2 6.8, each stream once. The verifies it runs, and
+// those of the files they embed in turn, share one budget for the run.
+type EmbeddedFileJudge struct {
+	run  context.Context
+	seen map[pdf.Dict]embeddedVerdict
+}
+
+type embeddedVerdict struct {
+	problem string
+	decided bool
+}
+
+// NewEmbeddedFileJudge returns a judge for the run that run, nil for none, is
+// the context of. Within a nested verify, the judge shares the budget of the
+// run that verifies the enclosing file.
+func NewEmbeddedFileJudge(run context.Context) *EmbeddedFileJudge {
 	if run == nil {
 		run = context.Background()
 	}
-	state, ok := run.Value(embedStateKey{}).(embedState)
-	if !ok {
-		state.left = new(atomic.Int32)
+	if _, ok := run.Value(embedStateKey{}).(embedState); !ok {
+		state := embedState{left: new(atomic.Int32)}
 		state.left.Store(maxEmbedVerifies)
+		run = context.WithValue(run, embedStateKey{}, state)
 	}
+	return &EmbeddedFileJudge{run: run, seen: map[pdf.Dict]embeddedVerdict{}}
+}
+
+// Problem says why the embedded file stream ef does not comply with PDF/A-1b
+// or PDF/A-2b, or returns "" when it does. As veraPDF judges it, the file
+// must claim one of the two levels in its XMP metadata and pass every check of
+// the level it claims. decided is false when the file could not be judged: it
+// is nested too deeply, the run has verified as many embedded files as it
+// may, or the run was cancelled. The problem then says so, and the file may
+// comply.
+func (j *EmbeddedFileJudge) Problem(ef pdf.PDFDict) (problem string, decided bool) {
+	v, ok := j.seen[ef.Entries]
+	if !ok {
+		v.problem, v.decided = judgeEmbeddedFile(j.run, ef)
+		j.seen[ef.Entries] = v
+	}
+	return v.problem, v.decided
+}
+
+// judgeEmbeddedFile is Problem without the memo. run carries an embedState.
+func judgeEmbeddedFile(run context.Context, ef pdf.PDFDict) (problem string, decided bool) {
+	state := run.Value(embedStateKey{}).(embedState)
 	if state.depth >= maxEmbedDepth {
 		return fmt.Sprintf("is embedded more than %d levels deep, too deep to verify", maxEmbedDepth), false
+	}
+	if state.left.Add(-1) < 0 {
+		return fmt.Sprintf("was not verified: a document judges at most %d embedded files", maxEmbedVerifies), false
 	}
 	data, err := pdf.DecodeStream(ef)
 	if err != nil {
@@ -152,9 +185,6 @@ func EmbeddedFileProblem(run context.Context, ef pdf.PDFDict) (problem string, d
 		p = pdf.PDFA2B
 	default:
 		return "does not claim PDF/A-1b or PDF/A-2b", true
-	}
-	if state.left.Add(-1) < 0 {
-		return fmt.Sprintf("was not verified: a document verifies at most %d embedded files", maxEmbedVerifies), false
 	}
 	nested := embedState{depth: state.depth + 1, left: state.left}
 	res, err := verifyEmbedded(context.WithValue(run, embedStateKey{}, nested), doc, p)
@@ -213,18 +243,13 @@ func checkEmbeddedFileSpec(fs pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// embeddedFileProblem is EmbeddedFileProblem, memoized per stream so that a
-// stream several EF entries or file specifications share is verified once.
+// embeddedFileProblem is the problem the run's EmbeddedFileJudge finds with
+// ef, decided or not.
 func (ctx *ValidationContext) embeddedFileProblem(ef pdf.PDFDict) string {
-	ptr := pdf.ValuePointer(ef.Entries)
-	if problem, ok := ctx.embeddedFiles[ptr]; ok {
-		return problem
-	}
 	if ctx.embeddedFiles == nil {
-		ctx.embeddedFiles = map[uintptr]string{}
+		ctx.embeddedFiles = NewEmbeddedFileJudge(ctx.run)
 	}
-	problem, _ := EmbeddedFileProblem(ctx.run, ef)
-	ctx.embeddedFiles[ptr] = problem
+	problem, _ := ctx.embeddedFiles.Problem(ef)
 	return problem
 }
 
@@ -241,9 +266,9 @@ func presentationRule(d *pdf.Reader, _ pdf.PDFValue, _ *ValidationContext) []pdf
 	}
 	var errs []pdf.PDFError
 	report := func(c pdf.Check, owner pdf.PDFDict, page int, msg string) {
-		ref := refOf(root)
-		if r, ok := owner.Ref(); ok {
-			ref = &r
+		ref := refOf(owner)
+		if ref == nil {
+			ref = refOf(root)
 		}
 		errs = append(errs, pdf.NewError(c, []error{errors.New(msg)}, page, ref))
 	}

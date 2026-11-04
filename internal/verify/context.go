@@ -121,9 +121,8 @@ type ValidationContext struct {
 	// on the Reader because throwaway contexts have no reader at all.
 	undecodable map[pdf.StreamKey]bool
 
-	// embeddedFiles memoizes, by stream, what EmbeddedFileProblem found for
-	// each embedded file stream verified so far.
-	embeddedFiles map[uintptr]string
+	// embeddedFiles judges the run's embedded files; nil until the first.
+	embeddedFiles *EmbeddedFileJudge
 
 	// Spec is the conformance level's rules the checks apply. A check that
 	// reads it on a context without one panics: a nil Spec has no rules to
