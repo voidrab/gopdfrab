@@ -143,11 +143,11 @@ func (l *layerTracker) hidesXObject(x pdf.PDFDict) bool {
 // --- 6.9 Optional content (PDF/A-2) ---
 
 // ocConfigFixer repairs the optional content configuration dictionaries of
-// the catalog's OCProperties, each repair only when its check is reported:
-// it names a configuration that has no non-empty Name string and renames
-// one that repeats an earlier name, appends to each Order array the groups
-// it does not list, and deletes AS entries. None of these changes what is
-// shown: the visibility the configurations give is kept.
+// the catalog's OCProperties. Each repair runs only when its check is
+// reported: it removes configurations that repeat D or an earlier entry,
+// gives a fresh Name to configurations that lack one or repeat a name,
+// gives a fresh Name to groups that lack one, appends the groups missing
+// from each Order array, and deletes AS entries.
 type ocConfigFixer struct{}
 
 func (ocConfigFixer) Applies(c pdf.Check) bool {
@@ -193,8 +193,9 @@ func (ocConfigFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, err
 }
 
 // dropRepeatedOCConfigs removes from the Configs array of props each
-// dictionary that is D or an earlier entry. Such an entry repeats its own
-// name, so no renaming can make it unique, and it adds no configuration.
+// dictionary that is D or an earlier entry. Such an entry is the same
+// dictionary as one already listed, so it repeats that entry's name and
+// renaming cannot make it unique.
 func dropRepeatedOCConfigs(props pdf.PDFDict) bool {
 	arr, ok := props.Entries.Get("Configs").(pdf.PDFArray)
 	if !ok {

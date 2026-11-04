@@ -68,8 +68,9 @@ Everything under `internal/` may change in any release without notice.
   dictionaries: `Checks.Structure.OCConfigMissingName`,
   `OCConfigDuplicateName`, `OCConfigOrderIncomplete` and `OCConfigAutoState`.
   Converting to PDF/A-2b names and renames configurations, adds the groups
-  an Order array leaves out, and removes AS entries; what the configurations
-  show is unchanged.
+  an Order array leaves out, and removes AS entries. The default visibility
+  of each group is kept; without AS, a viewer no longer applies a group's
+  Usage states automatically, for example when printing.
 
 ### Fixed
 

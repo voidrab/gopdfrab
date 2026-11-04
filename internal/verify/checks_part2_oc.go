@@ -75,8 +75,8 @@ func OCConfigs(props pdf.PDFDict) []pdf.PDFDict {
 	return configs
 }
 
-// textEntry returns the decoded text of d's key entry and whether it is a
-// string. A name object is no string.
+// textEntry returns the decoded text of d's key entry and reports whether
+// that entry is a string. A name object is not a string.
 func textEntry(d pdf.PDFDict, key string) (string, bool) {
 	s, ok := d.Entries.Get(key).(pdf.PDFString)
 	if !ok {
@@ -86,7 +86,7 @@ func textEntry(d pdf.PDFDict, key string) (string, bool) {
 }
 
 // OCConfigName returns the Name of the configuration dictionary cfg and
-// whether it is a non-empty string.
+// reports whether that Name is a non-empty string.
 func OCConfigName(cfg pdf.PDFDict) (string, bool) {
 	name, ok := textEntry(cfg, "Name")
 	return name, ok && name != ""
@@ -110,8 +110,8 @@ func OCConfigDuplicates(configs []pdf.PDFDict) []bool {
 	return dup
 }
 
-// OCGroups returns the optional content group dictionaries props, an
-// OCProperties dictionary, lists in its OCGs array.
+// OCGroups returns the optional content group dictionaries that the OCGs
+// array of props, an OCProperties dictionary, lists.
 func OCGroups(props pdf.PDFDict) []pdf.PDFDict {
 	arr, _ := props.Entries.Get("OCGs").(pdf.PDFArray)
 	var groups []pdf.PDFDict
@@ -131,11 +131,11 @@ func OCGroupName(g pdf.PDFDict) string {
 }
 
 // OCGroupsMissingFromOrder returns the groups that the Order array of the
-// configuration dictionary cfg does not list. As in veraPDF, a group counts
-// as listed when a dictionary anywhere in Order, nested arrays included, has
-// a Name string equal to the group's; a group without one counts as named
-// with the empty string. A configuration whose Order is absent or no array lists
-// every group.
+// configuration dictionary cfg does not list. As in veraPDF, a group is
+// listed when a dictionary anywhere in Order, including in nested arrays,
+// has a Name string equal to the group's name; a group without a Name
+// string counts as named with the empty string. A configuration whose Order
+// is absent or not an array is treated as listing every group.
 func OCGroupsMissingFromOrder(cfg pdf.PDFDict, groups []pdf.PDFDict) []pdf.PDFDict {
 	order, ok := cfg.Entries.Get("Order").(pdf.PDFArray)
 	if !ok || len(groups) == 0 {
