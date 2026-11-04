@@ -124,7 +124,7 @@ func TestOnlyObjectModelChecks(t *testing.T) {
 // TestProfileByNameFindsEachReadyMadeProfile verifies that each profile
 // Profiles lists is found again under the name it reports.
 func TestProfileByNameFindsEachReadyMadeProfile(t *testing.T) {
-	want := []string{"pdfa1b", "legacy1b", "pdf"}
+	want := []string{"pdfa1b", "legacy1b", "pdfa2b", "pdf"}
 	ps := Profiles()
 	if len(ps) != len(want) {
 		t.Fatalf("Profiles() has %d profiles, want %d", len(ps), len(want))

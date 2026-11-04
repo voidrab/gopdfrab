@@ -16,14 +16,22 @@ type checkJSON struct {
 	Description string `json:"description"`
 }
 
-// MarshalJSON encodes a Check as {name, clause, subclause, description}.
+// MarshalJSON encodes a Check as {name, clause, subclause, description}, with
+// its PDF/A-1 clause and description.
 func (c Check) MarshalJSON() ([]byte, error) {
-	return json.Marshal(checkJSON{
+	return json.Marshal(c.jsonIn(Undefined))
+}
+
+// jsonIn is the wire shape of c with the clause and description the given
+// level gives it.
+func (c Check) jsonIn(level LevelType) checkJSON {
+	clause, subclause := c.numberIn(level)
+	return checkJSON{
 		Name:        c.name,
-		Clause:      c.clause,
-		Subclause:   c.subclause,
-		Description: c.description,
-	})
+		Clause:      clause,
+		Subclause:   subclause,
+		Description: c.DescriptionIn(level),
+	}
 }
 
 type objectRefJSON struct {
@@ -40,7 +48,7 @@ type objModelJSON struct {
 // pdfErrorJSON is the wire shape of PDFError. object and objModel are omitted
 // when absent; messages and text are always present.
 type pdfErrorJSON struct {
-	Check         Check          `json:"check"`
+	Check         checkJSON      `json:"check"`
 	Page          int            `json:"page"`
 	DocumentLevel bool           `json:"documentLevel"`
 	Object        *objectRefJSON `json:"object,omitempty"`
@@ -50,10 +58,12 @@ type pdfErrorJSON struct {
 }
 
 // MarshalJSON encodes a PDFError with its check, location, messages, and
-// rendered text. Without it every field is unexported and json.Marshal yields {}.
+// rendered text, the check's clause and description being those of the level
+// it was reported under. Without it every field is unexported and
+// json.Marshal yields {}.
 func (e PDFError) MarshalJSON() ([]byte, error) {
 	out := pdfErrorJSON{
-		Check:         e.check,
+		Check:         e.check.jsonIn(e.Level()),
 		Page:          e.page,
 		DocumentLevel: e.IsDocumentLevel(),
 		Messages:      e.Messages(),

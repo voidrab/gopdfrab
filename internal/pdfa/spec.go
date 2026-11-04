@@ -85,7 +85,8 @@ type Spec struct {
 	XMPConformance  string
 	XMPConformances Names
 
-	// ModelVersion is the PDF version whose object model applies.
+	// ModelVersion is the PDF version whose object model applies, and the
+	// version a converted file's header names.
 	ModelVersion string
 	// MaxPDFVersion is the newest version the file header may name, with the
 	// same major version; empty allows any %PDF-N.M header.

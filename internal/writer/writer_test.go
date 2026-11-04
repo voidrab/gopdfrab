@@ -526,7 +526,7 @@ func TestSizeHintDoesNotChangeOutput(t *testing.T) {
 	var wantCount int
 	for _, hint := range []int{-1, 0, 1, 4, 100000} {
 		var buf bytes.Buffer
-		order, err := WriteDocumentIndexed(&buf, build(), hint)
+		order, err := WriteDocumentIndexed(&buf, build(), hint, "1.4")
 		if err != nil {
 			t.Fatalf("hint %d: WriteDocumentIndexed: %v", hint, err)
 		}

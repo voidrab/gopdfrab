@@ -62,10 +62,10 @@ type issueKey struct {
 }
 
 func groupKeyOf(e verify.PDFError) groupKey {
-	c := e.Check()
+	clause, subclause := issueClause(e)
 	return groupKey{
-		clause:    c.Clause(),
-		subclause: c.Subclause(),
+		clause:    clause,
+		subclause: subclause,
 		// NUL cannot be confused with text inside a message, so ["a; b"] and
 		// ["a", "b"] stay distinct.
 		messages: strings.Join(e.Messages(), "\x00"),
@@ -188,14 +188,24 @@ func compareClause(a, b string) int {
 	return len(as) - len(bs)
 }
 
-// clauseField renders a check's clause and subclause, "-" for none.
-func clauseField(c verify.Check) string {
-	clause := c.Clause()
+// issueClause returns the clause and subclause of e's check under the level e
+// was reported at, or its PDF/A-1 ones when the check is no rule of that level.
+func issueClause(e verify.PDFError) (string, int) {
+	c := e.Check()
+	if clause, subclause, ok := c.ClauseIn(e.Level()); ok {
+		return clause, subclause
+	}
+	return c.Clause(), c.Subclause()
+}
+
+// clauseField renders an issue's clause and subclause, "-" for none.
+func clauseField(e verify.PDFError) string {
+	clause, subclause := issueClause(e)
 	if clause == "" {
 		clause = "-"
 	}
-	if c.Subclause() > 0 {
-		clause += "/" + strconv.Itoa(c.Subclause())
+	if subclause > 0 {
+		clause += "/" + strconv.Itoa(subclause)
 	}
 	return clause
 }
@@ -233,7 +243,7 @@ func writeGroups(w io.Writer, groups []issueGroup) {
 	rows := make([][]string, len(groups))
 	for i, g := range groups {
 		rows[i] = []string{
-			clauseField(g.first.Check()),
+			clauseField(g.first),
 			"count=" + strconv.Itoa(g.count),
 			"pages=" + pageRanges(g.pages),
 			"objs=" + strconv.Itoa(g.objs),
@@ -257,7 +267,7 @@ func writeIssues(w io.Writer, issues []foldedIssue) {
 			obj = fmt.Sprintf("obj=%d.%d", ref.ObjNum, ref.GenNum)
 		}
 		rows[i] = []string{
-			clauseField(e.Check()),
+			clauseField(e),
 			page,
 			obj,
 			"count=" + strconv.Itoa(f.count),

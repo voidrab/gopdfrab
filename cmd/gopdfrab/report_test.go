@@ -62,7 +62,7 @@ func TestGroupIssues(t *testing.T) {
 	}
 	for i, w := range wants {
 		g := got[i]
-		have := want{clauseField(g.first.Check()), g.first.Messages()[0], g.count, pageRanges(g.pages), g.objs}
+		have := want{clauseField(g.first), g.first.Messages()[0], g.count, pageRanges(g.pages), g.objs}
 		if have != w {
 			t.Errorf("group %d = %+v, want %+v", i, have, w)
 		}
@@ -70,6 +70,28 @@ func TestGroupIssues(t *testing.T) {
 
 	if got := groupIssues(nil); len(got) != 0 {
 		t.Errorf("groupIssues(nil) = %+v, want empty", got)
+	}
+}
+
+// TestClauseFieldNumbersByIssueLevel verifies that an issue's clause is the
+// one its level gives the check, so a PDF/A-2b issue shows its Part 2 number
+// and a check of Part 2 only shows a clause at all.
+func TestClauseFieldNumbersByIssueLevel(t *testing.T) {
+	utf8 := gopdfrab.Checks.Structure.NameNotUTF8
+	part2 := []gopdfrab.PDFError{issue(gray, 1, nil, "a"), issue(utf8, 0, nil, "b")}
+	pdf.StampLevel(part2, gopdfrab.A2B)
+	for _, tc := range []struct {
+		e    gopdfrab.PDFError
+		want string
+	}{
+		{issue(gray, 1, nil, "a"), "6.2.3.3/2"},
+		{issue(utf8, 0, nil, "b"), "-"},
+		{part2[0], "6.2.4.3"},
+		{part2[1], "6.1.8/1"},
+	} {
+		if got := clauseField(tc.e); got != tc.want {
+			t.Errorf("clauseField(%s at %s) = %q, want %q", tc.e.Check().Name(), tc.e.Level(), got, tc.want)
+		}
 	}
 }
 

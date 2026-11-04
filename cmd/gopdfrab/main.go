@@ -92,7 +92,7 @@ func versionOf(bi *debug.BuildInfo, ok bool) string {
 }
 
 // profileNames lists the ready-made profiles' names for flag help and errors,
-// as in "pdfa1b, legacy1b, or pdf".
+// as in "pdfa1b, legacy1b, pdfa2b, or pdf".
 func profileNames() string {
 	var names []string
 	for _, p := range verify.Profiles() {

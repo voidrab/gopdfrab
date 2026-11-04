@@ -190,6 +190,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 			cr.LostObjects = append(cr.LostObjects, e)
 		}
 	}
+	pdf.StampLevel(cr.LostObjects, p.Level)
 
 	// The run is over, so the input's decoded and tokenized streams are dead
 	// weight. They matter for a caller who keeps the Document open past
@@ -331,7 +332,7 @@ func (r *run) serializeAndVerify() (err error) {
 	if loopDoc != nil {
 		sw.grow(int(loopDoc.Size()))
 	}
-	order, err := writer.WriteDocumentIndexed(&sw, trailer, r.objHint)
+	order, err := writer.WriteDocumentIndexed(&sw, trailer, r.objHint, r.spec.ModelVersion)
 	if err != nil {
 		sw.abort()
 		return err

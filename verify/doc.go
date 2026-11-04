@@ -1,5 +1,5 @@
-// Package verify checks PDF files for PDF/A-1b conformance, without the
-// conversion half of gopdfrab.
+// Package verify checks PDF files for PDF/A-1b and PDF/A-2b conformance,
+// without the conversion half of gopdfrab.
 //
 // It is the verification API of the root gopdfrab package and nothing else:
 // the same functions under the same names, over the same types. A program that
@@ -19,7 +19,7 @@
 // [Result], [Profile], [Check], [PDFError] and the other data types are
 // aliases of the very types gopdfrab exposes, so values pass freely between a
 // program's verify-only and converting parts. The profile variables [PDF],
-// [PDFA1B] and [Legacy1B] start out as the same profiles as gopdfrab's, but
+// [PDFA1B], [Legacy1B] and [PDFA2B] start out as the same profiles as gopdfrab's, but
 // they are separate variables: reassigning one here does not change the
 // default gopdfrab uses, or the other way round. [SetLimits] is process-wide
 // and shared with gopdfrab.

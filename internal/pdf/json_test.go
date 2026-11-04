@@ -116,3 +116,38 @@ func TestResultMarshalJSON(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+// TestPDFErrorMarshalJSONUsesItsLevel verifies that a stamped PDFError
+// encodes its check with the clause and description of its level, while a
+// bare Check keeps its PDF/A-1 ones.
+func TestPDFErrorMarshalJSONUsesItsLevel(t *testing.T) {
+	blend := Checks.Transparency.BlendMode
+	issues := []PDFError{NewError(blend, nil, 1, nil)}
+	StampLevel(issues, A2B)
+
+	b, err := json.Marshal(issues[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Check struct {
+			Clause      string `json:"clause"`
+			Subclause   int    `json:"subclause"`
+			Description string `json:"description"`
+		} `json:"check"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Check.Clause != "6.2.10" || got.Check.Subclause != 1 || got.Check.Description != blend.DescriptionIn(A2B) {
+		t.Errorf("stamped check JSON = %+v, want 6.2.10/1 with the Part 2 description", got.Check)
+	}
+
+	b, err = json.Marshal(blend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"clause":"6.4"`) || !strings.Contains(string(b), blend.Description()) {
+		t.Errorf("Check JSON = %s, want the PDF/A-1 clause and description", b)
+	}
+}

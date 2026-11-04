@@ -94,9 +94,9 @@ func init() {
 	PDF.name = "pdf"
 }
 
-// Profiles returns the ready-made profiles: PDFA1B, Legacy1B and PDF.
+// Profiles returns the ready-made profiles: PDFA1B, Legacy1B, PDFA2B and PDF.
 func Profiles() []*Profile {
-	return []*Profile{PDFA1B, Legacy1B, PDF}
+	return []*Profile{PDFA1B, Legacy1B, PDFA2B, PDF}
 }
 
 // ProfileByName returns the ready-made profile with the given name, as
