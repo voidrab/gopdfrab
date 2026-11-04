@@ -761,12 +761,12 @@ func fixFontSubsetMetaDict(d pdf.PDFDict, exact bool) bool {
 	return false
 }
 
-// fixType1CharSet synthesizes /CharSet from the glyph names defined in the
-// embedded program -- a raw Type1 program's CharStrings dict (FontFile) or a
-// name-keyed CFF program's charset (FontFile3, "Type1C") -- when CharSet is
-// missing, empty, or omits a glyph the program defines -- or, when exact is
-// set, also lists one it does not -- mirroring the checks in
-// validateFontDict/ValidateType1SubsetCoverage.
+// fixType1CharSet synthesizes /CharSet from the glyph names of the embedded
+// program: the CharStrings of a Type 1 program (FontFile) or the charset of a
+// name-keyed CFF program (FontFile3). It rebuilds the CharSet when it is
+// missing or empty, omits a glyph the program defines, or, when exact is set,
+// lists a glyph the program does not define. This mirrors the checks in
+// validateFontDict and ValidateType1SubsetCoverage.
 func fixType1CharSet(desc pdf.PDFDict, exact bool) bool {
 	var names []string
 	switch {

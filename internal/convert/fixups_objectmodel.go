@@ -12,9 +12,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// objModel is the Arlington model the object-model fixers repair against --
-// the one the target level's verify checks read (Spec.ModelVersion) -- with
-// the tables derived from it.
+// objModel is the Arlington model for the target level, selected by
+// Spec.ModelVersion, with the tables derived from it. The object-model fixers
+// repair against it, as the verify checks do.
 type objModel struct {
 	*arlington.Model
 	// indirectRequiredKeys holds every key name some row requires to be an
@@ -257,10 +257,10 @@ func (constraintFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.ConstraintViolated
 }
 
-// flagWordRule is a flag word that constraintFixer repairs in every
-// dictionary, including direct objects, which no finding can target: the bits
-// that must be clear and, for a trap network annotation, the bits that must be
-// set.
+// flagWordRule describes a flag word that constraintFixer repairs in every
+// dictionary, including direct objects that no finding can target. clear holds
+// the bits that must be clear. set holds the bits that must be set; it is used
+// only for trap network annotations.
 type flagWordRule struct {
 	discKey, discVal, flagKey string
 	clear, set                int64

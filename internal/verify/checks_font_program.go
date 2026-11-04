@@ -20,8 +20,8 @@ import (
 // violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
 // string stands in as the glyph set when the program is unparseable. A level
 // whose subsets may omit the CharSet checks the program alone when the CharSet
-// is absent. A level that wants the exact set (Spec.ExactCharSet) instead
-// compares the whole CharSet with the program, as veraPDF does from Part 2 on.
+// is absent. A level that sets Spec.ExactCharSet instead compares the whole
+// CharSet with the program.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	var charSet map[string]bool
 	if charSetVal, ok := desc.Entries.Lookup("CharSet"); ok {
@@ -69,7 +69,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 				ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, fmt.Sprintf("CharSet does not list glyph /%s defined in the font subset", glyph))
 			}
 		}
-		charSet = nil // Checked whole; the per-code check below covers the program only.
+		charSet = nil // Checked above; the per-code check then skips it.
 	}
 
 	glyphNames, ok := type1SubsetGlyphNames(v, desc, ctx)
@@ -134,9 +134,8 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 }
 
 // charSetMismatch compares a CharSet with the glyph set of its program,
-// .notdef aside in both. ok is false when they differ; glyph is then the first
-// differing name in sorted order, and listed reports whether it is the CharSet
-// that names it.
+// .notdef aside in both. ok is false when they differ. glyph is then one
+// differing name, and listed reports whether it is the CharSet that names it.
 func charSetMismatch(charSet, program map[string]bool) (glyph string, listed, ok bool) {
 	for _, n := range slices.Sorted(maps.Keys(charSet)) {
 		if n != ".notdef" && !program[n] {
