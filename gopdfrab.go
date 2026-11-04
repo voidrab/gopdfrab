@@ -72,8 +72,8 @@ type (
 	// where. It implements error. All fields are unexported; read it through
 	// its methods.
 	//
-	// Methods: Check, Level, Messages, Page, IsDocumentLevel, ObjectRef,
-	// ObjModelDetail, WithObjModelDetail, String, Error, MarshalJSON.
+	// Methods: Check, Level, Clause, Messages, Page, IsDocumentLevel,
+	// ObjectRef, ObjModelDetail, WithObjModelDetail, String, Error, MarshalJSON.
 	PDFError = pdf.PDFError
 
 	// PDFRef is an indirect object reference, returned by PDFError.ObjectRef.

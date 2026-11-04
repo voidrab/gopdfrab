@@ -30,7 +30,8 @@ Everything under `internal/` may change in any release without notice.
   profile, also in `gopdfrab/verify`, and `--profile pdfa2b` on the CLI.
   `Profiles` and `ProfileByName` list it as `pdfa2b`. A file converted to
   PDF/A-2b declares PDF 1.7.
-- `PDFError.Level` returns the conformance level an issue was reported under.
+- `PDFError.Level` returns the conformance level an issue was reported under,
+  and `PDFError.Clause` its clause and subclause under that level.
   An issue's text and JSON, `Result.Summary`, `Result.Checks` and the CLI
   report number each check by the clause of that level, so a PDF/A-2b issue
   gives its ISO 19005-2 clause.

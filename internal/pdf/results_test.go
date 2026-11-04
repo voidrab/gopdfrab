@@ -124,6 +124,9 @@ func TestIssuesNumberedByTheirLevel(t *testing.T) {
 	if got := issues[0].Level(); got != A2B {
 		t.Errorf("stamped Level() = %q, want %q", got, A2B)
 	}
+	if clause, sub := issues[0].Clause(); clause != "6.2.10" || sub != 1 {
+		t.Errorf("stamped Clause() = %s/%d, want 6.2.10/1", clause, sub)
+	}
 	if got := issues[1].String(); !strings.HasPrefix(got, "PDF/A violation (6.2.11.4.1/1)") {
 		t.Errorf("String() = %q, want the Part 2 clause", got)
 	}

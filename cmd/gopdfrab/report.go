@@ -64,7 +64,7 @@ type issueKey struct {
 }
 
 func groupKeyOf(e verify.PDFError) groupKey {
-	clause, subclause := issueClause(e)
+	clause, subclause := e.Clause()
 	return groupKey{
 		clause:    clause,
 		subclause: subclause,
@@ -194,19 +194,9 @@ func compareClause(a, b string) int {
 	return len(as) - len(bs)
 }
 
-// issueClause returns the clause and subclause of e's check under the level e
-// was reported at, or its PDF/A-1 ones when the check is no rule of that level.
-func issueClause(e verify.PDFError) (string, int) {
-	c := e.Check()
-	if clause, subclause, ok := c.ClauseIn(e.Level()); ok {
-		return clause, subclause
-	}
-	return c.Clause(), c.Subclause()
-}
-
 // clauseField renders an issue's clause and subclause, "-" for none.
 func clauseField(e verify.PDFError) string {
-	clause, subclause := issueClause(e)
+	clause, subclause := e.Clause()
 	if clause == "" {
 		clause = "-"
 	}

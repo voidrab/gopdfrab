@@ -117,8 +117,10 @@ func (c Check) ClauseIn(level LevelType) (clause string, subclause int, ok bool)
 	if !c.AppliesTo(level) {
 		return "", 0, false
 	}
-	if ref, ok := part2Clauses[c.name]; ok && partOf(level)&partsA2 != 0 {
-		return ref.clause, ref.subclause, true
+	if partOf(level)&partsA2 != 0 {
+		if ref, ok := part2Clauses[c.name]; ok {
+			return ref.clause, ref.subclause, true
+		}
 	}
 	return c.clause, c.subclause, true
 }

@@ -169,7 +169,7 @@ if err := cr.Save("out.pdf"); err != nil { // atomic; WriteTo(w) streams, Output
 }
 fmt.Println(cr.Iterations, cr.Result.Valid)
 for _, iss := range cr.Residual() { // issues nothing could repair
-    clause, sub, _ := iss.Check().ClauseIn(iss.Level()) // the clause under the target level
+    clause, sub := iss.Clause() // numbered as the target level numbers it
     fmt.Println(clause, sub, iss.Page(), iss.Messages())
 }
 ```

@@ -64,7 +64,7 @@ type pdfErrorJSON struct {
 func (e PDFError) MarshalJSON() ([]byte, error) {
 	out := pdfErrorJSON{
 		Check:         e.check.jsonIn(e.Level()),
-		Page:          e.page,
+		Page:          e.Page(),
 		DocumentLevel: e.IsDocumentLevel(),
 		Messages:      e.Messages(),
 		Text:          e.String(),
