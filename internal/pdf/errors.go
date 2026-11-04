@@ -10,8 +10,8 @@ import (
 type PDFError struct {
 	check Check
 	errs  []error
-	// page is int32 so that part shares its word: an issue list can hold
-	// millions of PDFErrors.
+	// page is an int32 to keep PDFError small, since an issue list can hold
+	// millions of them.
 	page int32
 	// part is the level the violation was reported under, set when a
 	// verification result collects it (see StampLevel); 0 until then.
