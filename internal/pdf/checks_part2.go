@@ -176,6 +176,10 @@ var part2Clauses = map[string]clauseRef{
 	// 6.4.2 XFA forms.
 	"XFA":            {"6.4.2", 1, ""},
 	"NeedsRendering": {"6.4.2", 2, ""},
+	// 6.4.3 Digital signatures.
+	"SignatureByteRange":   {"6.4.3", 1, ""},
+	"SignatureCertificate": {"6.4.3", 2, ""},
+	"SignatureSigners":     {"6.4.3", 3, ""},
 	// 6.5.1 Actions, general.
 	"ForbiddenActionType":   {"6.5.1", 1, "Only the GoTo, GoToR, GoToE, Thread, URI, Named and SubmitForm actions are permitted"},
 	"DisallowedNamedAction": {"6.5.1", 2, ""},

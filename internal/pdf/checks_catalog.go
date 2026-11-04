@@ -437,6 +437,11 @@ type formChecks struct {
 	// NeedsRendering is the catalog's NeedsRendering entry. Only PDF/A-2
 	// checks it.
 	NeedsRendering Check
+	// SignatureByteRange, SignatureCertificate and SignatureSigners are the
+	// digital signatures of signature fields (PDF/A-2 6.4.3).
+	SignatureByteRange   Check
+	SignatureCertificate Check
+	SignatureSigners     Check
 }
 
 // ObjectModelClause is the synthetic clause the generic object-model checks
@@ -1349,6 +1354,15 @@ func init() {
 			NeedsRendering: newPart2Check(190,
 				"NeedsRendering",
 				"The document catalog's NeedsRendering entry, when present, must be false"),
+			SignatureByteRange: newPart2Check(202,
+				"SignatureByteRange",
+				"A signature's ByteRange must cover the whole of its revision except the signature value"),
+			SignatureCertificate: newPart2Check(203,
+				"SignatureCertificate",
+				"A signature's PKCS#7 object must include the signer's X.509 certificate"),
+			SignatureSigners: newPart2Check(204,
+				"SignatureSigners",
+				"A signature's PKCS#7 object must have exactly one signer"),
 		},
 
 		ObjectModel: objectModelChecks{

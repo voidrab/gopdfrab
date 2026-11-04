@@ -561,36 +561,11 @@ func verifyFileTrailer(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 // verifyCrossReferenceTable verifies requirements outlined in 6.1.4 for the
 // current xref section and all prior sections linked via Prev.
 func verifyCrossReferenceTable(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
-	if errs := checkXRefSectionFormat(d, d.XRefOffset(), spec); len(errs) > 0 {
-		return errs
-	}
-
-	visited := map[int64]bool{d.XRefOffset(): true}
-	prev := d.Trailer().Entries.Get("Prev")
-	for {
-		prevInt, ok := prev.(pdf.PDFInteger)
-		if !ok {
-			break
-		}
-		prevOffset := int64(prevInt)
-		if visited[prevOffset] {
-			break
-		}
-		visited[prevOffset] = true
-
-		if errs := checkXRefSectionFormat(d, prevOffset, spec); len(errs) > 0 {
+	for _, off := range d.XRefSectionOffsets() {
+		if errs := checkXRefSectionFormat(d, off, spec); len(errs) > 0 {
 			return errs
 		}
-
-		// Read the trailer only: the reader resolves objects by the table
-		// it built when it opened the file.
-		prevTrailer, err := d.XRefTrailerAt(prevOffset + d.PDFStart())
-		if err != nil {
-			break
-		}
-		prev = prevTrailer.Entries.Get("Prev")
 	}
-
 	return nil
 }
 

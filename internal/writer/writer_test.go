@@ -16,7 +16,8 @@ import (
 func issueClauses(issues []pdf.PDFError) []string {
 	out := make([]string, 0, len(issues))
 	for _, iss := range issues {
-		out = append(out, iss.Check().Clause())
+		clause, _ := iss.Clause()
+		out = append(out, clause)
 	}
 	return out
 }
@@ -213,7 +214,9 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 // still reported fully conformant. Renumbering and verbatim stream pass-through
 // must not corrupt structurally rich documents with cycles, such as
 // Page/Parent references. The pass files cover annotations, forms, optional
-// content and transparency groups.
+// content and transparency groups. A rewrite moves every byte, so a signature
+// cannot cover its revision any more; that one finding is expected of a signed
+// file.
 func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 	fixtures := corpustest.AllFixtures(false)
 	if len(fixtures) == 0 {
@@ -260,8 +263,14 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Verify(rewritten): %v", err)
 			}
-			if !res.Valid {
-				t.Errorf("round-tripped output is no longer PDF/A-1b conformant; issues: %v", issueClauses(res.Issues))
+			var issues []pdf.PDFError
+			for _, iss := range res.Issues {
+				if iss.Check() != pdf.Checks.Form.SignatureByteRange {
+					issues = append(issues, iss)
+				}
+			}
+			if len(issues) > 0 {
+				t.Errorf("round-tripped output is no longer conformant; issues: %v", issueClauses(issues))
 			}
 		})
 	}
