@@ -1,10 +1,14 @@
 package convert
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // fileSpecFixer removes the embedded files and external file references that
@@ -90,4 +94,128 @@ func reportLost(lost *[]pdf.PDFError, c pdf.Check, d pdf.PDFDict, msg string) {
 		ref = &r
 	}
 	*lost = append(*lost, pdf.NewError(c, []error{errors.New(msg)}, 0, ref))
+}
+
+// --- 6.8 Embedded files (PDF/A-2) ---
+
+// embeddedFileFixer repairs the file specifications of embedded files, those
+// found by their Filespec type and those of the EmbeddedFiles name tree, each
+// repair only when its own check was reported. A file specification with an
+// embedded file that does not comply with PDF/A-1b or PDF/A-2b loses its EF
+// entry, and the removal is reported to lost, when non-nil. One that keeps its
+// EF entry but lacks an F or UF string gets the one from the other, or both
+// from its name in the tree, or else a generic name.
+type embeddedFileFixer struct {
+	ctx  context.Context
+	lost *[]pdf.PDFError
+}
+
+func (embeddedFileFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.EmbeddedFileMissingNames || c == pdf.Checks.Structure.EmbeddedFileNotPDFA
+}
+
+func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	root, _ := trailer.Entries.Get("Root").(pdf.PDFDict)
+	reported := reportedChecks(issues)
+	st := pdf.Checks.Structure
+	treeNames := map[pdf.Dict]string{}
+	tree := verify.EmbeddedFilesTree(root)
+	for _, named := range tree {
+		if _, ok := treeNames[named.Spec.Entries]; !ok {
+			treeNames[named.Spec.Entries] = named.Name
+		}
+	}
+	judge := verify.NewEmbeddedFileJudge(f.ctx)
+	dropped := map[pdf.Dict]bool{}
+	changed := false
+	fix := func(fs pdf.PDFDict) {
+		if _, ok := fs.Entries.Lookup("EF"); !ok {
+			return
+		}
+		if reported[st.EmbeddedFileNotPDFA] {
+			for _, ef := range verify.EmbeddedFileStreams(fs) {
+				// A file that could not be judged may comply, so it stays,
+				// and the output is left unconformant.
+				if problem, decided := judge.Problem(ef); decided && problem != "" {
+					reportLost(f.lost, st.EmbeddedFileNotPDFA, fs, embeddedFileName(fs)+" removed: it "+problem)
+					fs.Entries.Del("EF")
+					dropped[fs.Entries] = true
+					changed = true
+					return
+				}
+			}
+		}
+		if reported[st.EmbeddedFileMissingNames] && !verify.HasFileNames(fs) {
+			fillFileNames(fs, treeNames[fs.Entries])
+			changed = true
+		}
+	}
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		if verify.IsFileSpec(d) {
+			fix(d)
+		}
+	})
+	for _, named := range tree {
+		if !verify.IsFileSpec(named.Spec) {
+			fix(named.Spec)
+		}
+	}
+	if len(dropped) > 0 {
+		dropAssociatedFiles(*trailer, dropped)
+	}
+	return changed, nil
+}
+
+// dropAssociatedFiles removes the file specifications in dropped from every
+// AF array, and deletes an AF entry it leaves empty. An associated file must
+// be embedded, so one that lost its embedded file is no longer one.
+func dropAssociatedFiles(trailer pdf.PDFDict, dropped map[pdf.Dict]bool) {
+	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		af, ok := d.Entries.Get("AF").(pdf.PDFArray)
+		if !ok {
+			return
+		}
+		kept := slices.DeleteFunc(slices.Clone(af), func(v pdf.PDFValue) bool {
+			fs, ok := v.(pdf.PDFDict)
+			return ok && dropped[fs.Entries]
+		})
+		switch {
+		case len(kept) == 0:
+			d.Entries.Del("AF")
+		case len(kept) < len(af):
+			d.Entries.Set("AF", kept)
+		}
+	})
+}
+
+// fillFileNames gives the file specification fs the F or UF string it lacks:
+// the other one's text, or else treeName, or else a generic name, for both.
+// UF is a text string and keeps every character; F is a byte string, so a
+// character outside printable ASCII becomes an underscore there.
+func fillFileNames(fs pdf.PDFDict, treeName string) {
+	_, hasF := pdf.StringBytes(fs.Entries.Get("F"))
+	_, hasUF := pdf.StringBytes(fs.Entries.Get("UF"))
+	var name string
+	switch {
+	case hasF:
+		name = pdf.DecodeInfoTextString(fs.Entries.Get("F"))
+	case hasUF:
+		name = pdf.DecodeInfoTextString(fs.Entries.Get("UF"))
+	case treeName != "":
+		name = treeName
+	default:
+		name = "attachment"
+	}
+	if !hasF {
+		ascii := strings.Map(func(r rune) rune {
+			if r < 0x20 || r >= 0x7F {
+				return '_'
+			}
+			return r
+		}, name)
+		fs.Entries.Set("F", pdf.PDFString{Value: ascii})
+	}
+	if !hasUF {
+		fs.Entries.Set("UF", pdf.PDFString{Value: string(pdf.EncodePDFTextString(name))})
+	}
 }

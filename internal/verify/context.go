@@ -121,6 +121,9 @@ type ValidationContext struct {
 	// on the Reader because throwaway contexts have no reader at all.
 	undecodable map[pdf.StreamKey]bool
 
+	// embeddedFiles judges the run's embedded files; nil until the first.
+	embeddedFiles *EmbeddedFileJudge
+
 	// Spec is the conformance level's rules the checks apply. A check that
 	// reads it on a context without one panics: a nil Spec has no rules to
 	// fall back on, and guessing PDF/A-1b's would hide a missing one.
