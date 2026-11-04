@@ -19,10 +19,10 @@
 // [Result], [Profile], [Check], [PDFError] and the other data types are
 // aliases of the very types gopdfrab exposes, so values pass freely between a
 // program's verify-only and converting parts. The profile variables [PDF],
-// [PDFA1B], [Legacy1B] and [PDFA2B] start out as the same profiles as gopdfrab's, but
-// they are separate variables: reassigning one here does not change the
-// default gopdfrab uses, or the other way round. [SetLimits] is process-wide
-// and shared with gopdfrab.
+// [PDFA1B], [Legacy1B] and [PDFA2B] start out as the same profiles as
+// gopdfrab's, but they are separate variables: reassigning one here does not
+// change the default gopdfrab uses, or the other way round. [SetLimits] is
+// process-wide and shared with gopdfrab.
 //
 // # Concurrency
 //

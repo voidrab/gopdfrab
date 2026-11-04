@@ -46,9 +46,10 @@ type (
 	Profile = pdf.Profile
 
 	// LevelType is a conformance level: A1B for PDF/A-1b, A2B for PDF/A-2b,
-	// ObjectModel for the generic ISO 32000 checks, Undefined for none of them. It is Profile.Level and
-	// Result.Type. Verify returns an error for any other level, including
-	// Undefined and the empty level of a zero-value Profile.
+	// ObjectModel for the generic ISO 32000 checks, Undefined for none of
+	// them. It is Profile.Level and Result.Type. Verify returns an error for
+	// any other level, including Undefined and the empty level of a zero-value
+	// Profile.
 	LevelType = pdf.LevelType
 
 	// Check is one named, selectable validation rule, identified by the ISO
@@ -168,8 +169,8 @@ func ObjectModelOnly() *Profile { return pdf.ObjectModelOnly() }
 func Profiles() []*Profile { return pdf.Profiles() }
 
 // ProfileByName returns the ready-made profile with the given name, as
-// [Profile.Name] reports it: "pdfa1b", "legacy1b", "pdfa2b" or "pdf". ok is false for
-// any other name.
+// [Profile.Name] reports it: "pdfa1b", "legacy1b", "pdfa2b" or "pdf". ok is
+// false for any other name.
 func ProfileByName(name string) (p *Profile, ok bool) { return pdf.ProfileByName(name) }
 
 // AllChecks returns every registered check with its name, description, and

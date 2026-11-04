@@ -73,9 +73,9 @@ func TestGroupIssues(t *testing.T) {
 	}
 }
 
-// TestClauseFieldNumbersByIssueLevel verifies that an issue's clause is the
-// one its level gives the check, so a PDF/A-2b issue shows its Part 2 number
-// and a check of Part 2 only shows a clause at all.
+// TestClauseFieldNumbersByIssueLevel verifies that clauseField numbers an issue
+// by its level: a PDF/A-2b issue shows its Part 2 clause, and an unstamped
+// check with no Part 1 clause shows "-".
 func TestClauseFieldNumbersByIssueLevel(t *testing.T) {
 	utf8 := gopdfrab.Checks.Structure.NameNotUTF8
 	part2 := []gopdfrab.PDFError{issue(gray, 1, nil, "a"), issue(utf8, 0, nil, "b")}

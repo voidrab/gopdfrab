@@ -2,10 +2,10 @@
 // conformance.
 //
 // PDF/A-1b (ISO 19005-1 Level B) and PDF/A-2b (ISO 19005-2 Level B) are the
-// archival PDF profiles that keep a document reproducible over time: fonts are embedded, colour is unambiguous,
-// encryption and external dependencies are forbidden, and XMP metadata describes
-// the file. gopdfrab both checks a file against either standard and rewrites
-// a non-conformant file to meet it.
+// archival PDF profiles that keep a document reproducible over time: fonts
+// are embedded, colour is unambiguous, encryption and external dependencies
+// are forbidden, and XMP metadata describes the file. gopdfrab both checks a
+// file against either standard and rewrites a non-conformant file to meet it.
 //
 // # Verifying
 //
