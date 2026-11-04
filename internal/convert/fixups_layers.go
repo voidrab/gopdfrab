@@ -2,6 +2,7 @@ package convert
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -137,4 +138,161 @@ func (l *layerTracker) hidesXObject(x pdf.PDFDict) bool {
 	}
 	l.removed.add(g)
 	return true
+}
+
+// --- 6.9 Optional content (PDF/A-2) ---
+
+// ocConfigFixer repairs the optional content configuration dictionaries of
+// the catalog's OCProperties, each repair only when its check is reported:
+// it names a configuration that has no non-empty Name string and renames
+// one that repeats an earlier name, appends to each Order array the groups
+// it does not list, and deletes AS entries. None of these changes what is
+// shown: the visibility the configurations give is kept.
+type ocConfigFixer struct{}
+
+func (ocConfigFixer) Applies(c pdf.Check) bool {
+	s := pdf.Checks.Structure
+	switch c {
+	case s.OCConfigMissingName, s.OCConfigDuplicateName, s.OCConfigOrderIncomplete, s.OCConfigAutoState:
+		return true
+	}
+	return false
+}
+
+func (ocConfigFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
+	if !ok {
+		return false, nil
+	}
+	props, ok := root.Entries.Get("OCProperties").(pdf.PDFDict)
+	if !ok {
+		return false, nil
+	}
+	reported := reportedChecks(issues)
+	s := pdf.Checks.Structure
+	changed := false
+	if reported[s.OCConfigDuplicateName] {
+		changed = dropRepeatedOCConfigs(props)
+	}
+	configs := verify.OCConfigs(props)
+	if reported[s.OCConfigMissingName] || reported[s.OCConfigDuplicateName] {
+		changed = renameOCConfigs(configs, reported[s.OCConfigMissingName], reported[s.OCConfigDuplicateName]) || changed
+	}
+	if reported[s.OCConfigOrderIncomplete] {
+		changed = completeOCOrders(verify.OCGroups(props), configs) || changed
+	}
+	if reported[s.OCConfigAutoState] {
+		for _, cfg := range configs {
+			if _, ok := cfg.Entries.Lookup("AS"); ok {
+				cfg.Entries.Del("AS")
+				changed = true
+			}
+		}
+	}
+	return changed, nil
+}
+
+// dropRepeatedOCConfigs removes from the Configs array of props each
+// dictionary that is D or an earlier entry. Such an entry repeats its own
+// name, so no renaming can make it unique, and it adds no configuration.
+func dropRepeatedOCConfigs(props pdf.PDFDict) bool {
+	arr, ok := props.Entries.Get("Configs").(pdf.PDFArray)
+	if !ok {
+		return false
+	}
+	seen := map[pdf.Dict]bool{}
+	if d, ok := props.Entries.Get("D").(pdf.PDFDict); ok {
+		seen[d.Entries] = true
+	}
+	kept := make(pdf.PDFArray, 0, len(arr))
+	for _, v := range arr {
+		if cfg, ok := v.(pdf.PDFDict); ok {
+			if seen[cfg.Entries] {
+				continue
+			}
+			seen[cfg.Entries] = true
+		}
+		kept = append(kept, v)
+	}
+	if len(kept) == len(arr) {
+		return false
+	}
+	props.Entries.Set("Configs", kept)
+	return true
+}
+
+// renameOCConfigs gives a fresh name to each of configs that has no non-empty
+// Name string, when missing is set, and to each that repeats an earlier
+// configuration's name, when duplicate is set.
+func renameOCConfigs(configs []pdf.PDFDict, missing, duplicate bool) bool {
+	taken := map[string]bool{}
+	for _, cfg := range configs {
+		if name, ok := verify.OCConfigName(cfg); ok {
+			taken[name] = true
+		}
+	}
+	dup := verify.OCConfigDuplicates(configs)
+	changed := false
+	for i, cfg := range configs {
+		_, named := verify.OCConfigName(cfg)
+		if (named || !missing) && (!dup[i] || !duplicate) {
+			continue
+		}
+		base := "Configuration"
+		if i == 0 {
+			base = "Default"
+		}
+		cfg.Entries.Set("Name", pdf.PDFString{Value: uniqueName(taken, base)})
+		changed = true
+	}
+	return changed
+}
+
+// completeOCOrders appends to the Order array of each of configs the groups
+// it does not list. As the Order check matches groups by name, a group
+// without a Name string first gets one: the value of a name object, or a
+// fresh name.
+func completeOCOrders(groups []pdf.PDFDict, configs []pdf.PDFDict) bool {
+	taken := map[string]bool{}
+	for _, g := range groups {
+		taken[verify.OCGroupName(g)] = true
+	}
+	changed := false
+	for _, g := range groups {
+		if _, ok := g.Entries.Get("Name").(pdf.PDFString); ok {
+			continue
+		}
+		name := "Layer"
+		if n, ok := g.Entries.Get("Name").(pdf.PDFName); ok && n.Value != "" {
+			name = n.Value
+		}
+		g.Entries.Set("Name", pdf.PDFString{Value: string(pdf.EncodePDFTextString(uniqueName(taken, name)))})
+		changed = true
+	}
+	for _, cfg := range configs {
+		missing := verify.OCGroupsMissingFromOrder(cfg, groups)
+		if len(missing) == 0 {
+			continue
+		}
+		// Clip, so that an Order array other configurations share is not
+		// extended in place.
+		order := slices.Clip(cfg.Entries.Get("Order").(pdf.PDFArray))
+		for _, g := range missing {
+			order = append(order, g)
+		}
+		cfg.Entries.Set("Order", order)
+		changed = true
+	}
+	return changed
+}
+
+// uniqueName returns base, or base followed by the smallest number from 2 up
+// that makes it so, when base is taken, and marks the result taken.
+func uniqueName(taken map[string]bool, base string) string {
+	name := base
+	for n := 2; taken[name]; n++ {
+		name = fmt.Sprintf("%s %d", base, n)
+	}
+	taken[name] = true
+	return name
 }

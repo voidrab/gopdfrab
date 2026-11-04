@@ -64,8 +64,19 @@ Everything under `internal/` may change in any release without notice.
   `Checks.Metadata.ExtSchemaDefinitionInvalid` and `ExtSchemaUndefinedField`.
   Under PDF/A-2 a filtered metadata stream is allowed, and the document
   information dictionary need not match the XMP.
+- Four PDF/A-2-only checks for the optional content configuration
+  dictionaries: `Checks.Structure.OCConfigMissingName`,
+  `OCConfigDuplicateName`, `OCConfigOrderIncomplete` and `OCConfigAutoState`.
+  Converting to PDF/A-2b names and renames configurations, adds the groups
+  an Order array leaves out, and removes AS entries; what the configurations
+  show is unchanged.
 
 ### Fixed
+
+- Verify reads the newest revision of an incrementally updated file
+  throughout. The cross-reference check replaced the reader's entries with
+  those of earlier sections as it walked them, so checks that ran after it
+  could see objects as an earlier revision had them.
 
 - Convert replaces a trailer ID that holds no file identifier bytes, such as
   `[<> <>]`, with a synthesized one, as it does a missing ID, instead of

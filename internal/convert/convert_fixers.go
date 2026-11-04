@@ -155,6 +155,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return blendingSpaceFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return postScriptXObjectFixer{} },
 		func(r *fixerRun) Fixer { return optionalContentFixer{lost: r.lost} },
+		func(r *fixerRun) Fixer { return ocConfigFixer{} },
 		func(r *fixerRun) Fixer { return viewerPrefFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return unicodeNameFixer{} },
 		func(r *fixerRun) Fixer { return permissionsFixer{} },

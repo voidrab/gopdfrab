@@ -412,3 +412,26 @@ func TestFileSpecFixerRepairsOnlyReportedChecks(t *testing.T) {
 		}
 	})
 }
+
+// TestOCConfigFixerRepairsOnlyReportedChecks verifies that each optional
+// content configuration repair runs only when its own check was reported.
+func TestOCConfigFixerRepairsOnlyReportedChecks(t *testing.T) {
+	s := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		group := specDict("Type", specName("OCG"))
+		unnamed := specDict("AS", pdf.PDFArray{}, "Order", pdf.PDFArray{})
+		named := specDict("Name", pdf.PDFString{Value: "X"})
+		repeat := specDict("Name", pdf.PDFString{Value: "X"})
+		props := specDict("OCGs", pdf.PDFArray{group}, "D", unnamed, "Configs", pdf.PDFArray{named, repeat})
+		renamed := func(d pdf.PDFDict) func() bool {
+			return func() bool { name, _ := verify.OCConfigName(d); return name != "" && name != "X" }
+		}
+		return trailerWith("OCProperties", props), ocConfigFixer{}, []repairProbe{
+			{s.OCConfigMissingName, "D /Name", renamed(unnamed)},
+			{s.OCConfigDuplicateName, "repeated /Name", renamed(repeat)},
+			{s.OCConfigOrderIncomplete, "/Order", func() bool { return len(unnamed.Entries.Get("Order").(pdf.PDFArray)) == 1 }},
+			{s.OCConfigOrderIncomplete, "group /Name", func() bool { return verify.OCGroupName(group) != "" }},
+			{s.OCConfigAutoState, "/AS", func() bool { return unnamed.Entries.Get("AS") == nil }},
+		}
+	})
+}

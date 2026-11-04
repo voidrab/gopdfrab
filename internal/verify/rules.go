@@ -205,6 +205,8 @@ var (
 		{
 			checks: []pdf.Check{
 				pdf.Checks.Structure.OptionalContent,
+				pdf.Checks.Structure.OCConfigMissingName, pdf.Checks.Structure.OCConfigDuplicateName,
+				pdf.Checks.Structure.OCConfigOrderIncomplete, pdf.Checks.Structure.OCConfigAutoState,
 			},
 			fn: optionalContentRule,
 		},
