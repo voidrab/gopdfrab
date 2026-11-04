@@ -588,3 +588,36 @@ func TestFontRulesWithoutSpec(t *testing.T) {
 		t.Error("UseCMapNotPredefined reported without a spec")
 	}
 }
+
+func TestExactCharSet(t *testing.T) {
+	// The test program defines /A only, and the font shows code 65 (/A).
+	for _, tc := range []struct {
+		charSet  string
+		a1b, a2b string // the reported message, or "" for none
+	}{
+		{"/A", "", ""},
+		{"/.notdef/A", "", ""},
+		{"/A/B", "", "CharSet lists glyph /B, which the embedded font subset does not define"},
+		{"/.notdef", "CharSet does not list used glyph /A defined in the font subset",
+			"CharSet does not list glyph /A defined in the font subset"},
+	} {
+		for _, lc := range []struct {
+			spec *pdfa.Spec
+			want string
+		}{{a1bSpec, tc.a1b}, {a2bSpec, tc.a2b}} {
+			v := buildType1FontDict("ABCDEF+Test")
+			v.Entries.Get("FontDescriptor").(pdf.PDFDict).Entries.Set("CharSet", pdf.PDFString{Value: tc.charSet})
+			ctx := &ValidationContext{Spec: lc.spec}
+			ValidateFontDict(v, ctx)
+			var got string
+			for _, e := range ctx.errs {
+				if e.Check() == pdf.Checks.Font.Type1SubsetCharSet {
+					got = e.Messages()[0]
+				}
+			}
+			if got != lc.want {
+				t.Errorf("CharSet %s, Part %d: reported %q, want %q", tc.charSet, lc.spec.Part, got, lc.want)
+			}
+		}
+	}
+}

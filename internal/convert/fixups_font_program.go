@@ -692,8 +692,9 @@ func fixType3Widths(v pdf.PDFDict) bool {
 // Checks.Font.CIDSubsetCIDSet by synthesizing the missing/incomplete
 // /CharSet or /CIDSet from the glyphs actually present in the embedded
 // program, mirroring validateType1SubsetCoverage's CharSet-presence check
-// and validateCIDSetBitmap (checks_font.go/checks_font_program.go).
-type fontSubsetMetaFixer struct{}
+// and validateCIDSetBitmap (checks_font.go/checks_font_program.go). exact
+// is the level's Spec.ExactCharSet.
+type fontSubsetMetaFixer struct{ exact bool }
 
 func (fontSubsetMetaFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -703,10 +704,10 @@ func (fontSubsetMetaFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if fixFontSubsetMetaDict(d) {
+		if fixFontSubsetMetaDict(d, f.exact) {
 			changed = true
 		}
 	})
@@ -715,13 +716,13 @@ func (fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 
 // fixTargeted regenerates subset metadata only for the font dicts the issues
 // reference, falling back to the full walk when any issue lacks a ref.
-func (fontSubsetMetaFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+func (f fontSubsetMetaFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
 	for _, d := range targets {
-		if fixFontSubsetMetaDict(d) {
+		if fixFontSubsetMetaDict(d, f.exact) {
 			changed = true
 		}
 	}
@@ -730,8 +731,8 @@ func (fontSubsetMetaFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chang
 
 // fixFontSubsetMetaDict synthesizes /CharSet or /CIDSet for a subset font
 // dict; it re-checks the predicate so a stale or already-fixed target is a
-// no-op.
-func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
+// no-op. exact is passed on to fixType1CharSet.
+func fixFontSubsetMetaDict(d pdf.PDFDict, exact bool) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 		return false
 	}
@@ -747,7 +748,7 @@ func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	switch subtype.Value {
 	case "Type1", "MMType1":
-		return fixType1CharSet(desc)
+		return fixType1CharSet(desc, exact)
 	case "CIDFontType0":
 		if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 			return fixCFFCIDSet(desc, ff)
@@ -763,9 +764,10 @@ func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
 // fixType1CharSet synthesizes /CharSet from the glyph names defined in the
 // embedded program -- a raw Type1 program's CharStrings dict (FontFile) or a
 // name-keyed CFF program's charset (FontFile3, "Type1C") -- when CharSet is
-// missing, empty, or lists a glyph the program does not define, mirroring the
-// checks in validateFontDict/ValidateType1SubsetCoverage.
-func fixType1CharSet(desc pdf.PDFDict) bool {
+// missing, empty, or omits a glyph the program defines -- or, when exact is
+// set, also lists one it does not -- mirroring the checks in
+// validateFontDict/ValidateType1SubsetCoverage.
+func fixType1CharSet(desc pdf.PDFDict, exact bool) bool {
 	var names []string
 	switch {
 	case desc.Entries.Get("FontFile") != nil:
@@ -788,7 +790,7 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 	if len(names) == 0 {
 		return false
 	}
-	if current, ok := desc.Entries.Get("CharSet").(pdf.PDFString); ok && current.Value != "" && charSetConsistent(current.Value, names) {
+	if current, ok := desc.Entries.Get("CharSet").(pdf.PDFString); ok && current.Value != "" && charSetConsistent(current.Value, names, exact) {
 		return false
 	}
 	sort.Strings(names)
@@ -802,15 +804,25 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 }
 
 // charSetConsistent reports whether a CharSet string lists every glyph name
-// the embedded program defines (extra names are tolerated, per 6.3.5-2).
-func charSetConsistent(charSet string, programNames []string) bool {
+// the embedded program defines. Extra names are tolerated (6.3.5-2) unless
+// exact is set; .notdef never counts.
+func charSetConsistent(charSet string, programNames []string, exact bool) bool {
 	listed := map[string]bool{".notdef": true}
 	for _, part := range fontprog.SplitCharSetNames(charSet) {
 		listed[part] = true
 	}
+	defined := make(map[string]bool, len(programNames))
 	for _, n := range programNames {
 		if !listed[n] {
 			return false
+		}
+		defined[n] = true
+	}
+	if exact {
+		for n := range listed {
+			if n != ".notdef" && !defined[n] {
+				return false
+			}
 		}
 	}
 	return true
