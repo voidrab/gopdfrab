@@ -40,9 +40,9 @@ func TestDecodeXMPEncoding(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := decodeXMPEncoding(tc.data)
+			got := DecodeXMPEncoding(tc.data)
 			if string(got) != string(tc.want) {
-				t.Errorf("decodeXMPEncoding(%v) = %q, want %q", tc.data, got, tc.want)
+				t.Errorf("DecodeXMPEncoding(%v) = %q, want %q", tc.data, got, tc.want)
 			}
 		})
 	}

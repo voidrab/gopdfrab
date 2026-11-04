@@ -141,6 +141,9 @@ type ValidationContext struct {
 	// uncached.
 	reader *pdf.Reader
 
+	// docXMP caches documentXMP once it is read.
+	docXMP *documentXMP
+
 	// docMDP caches hasDocMDP once it is known.
 	docMDP *bool
 }

@@ -533,7 +533,7 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec})
+	errs := checkNonCatalogXMPStreams(nil, trailer, &ValidationContext{Spec: a1bSpec})
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want a single ObjectXMPNoXPacket", errs)
 	}
@@ -547,12 +547,12 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	root2.Entries.Set("Other", wrapped)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec}); len(errs) != 0 {
+	if errs := checkNonCatalogXMPStreams(nil, trailer2, &ValidationContext{Spec: a1bSpec}); len(errs) != 0 {
 		t.Errorf("unexpected violation for an xpacket-wrapped stream: %v", errs)
 	}
 
 	// Non-dict graphs (e.g. a bare array) are ignored.
-	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{Spec: a1bSpec}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(nil, pdf.PDFArray{}, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Error("checkNonCatalogXMPStreams on a non-dict graph should return nil")
 	}
 }
@@ -759,7 +759,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	trailer.Entries.Set("Root", root)
 
 	ctx := &ValidationContext{Spec: a1bSpec}
-	errs := checkNonCatalogXMPStreams(trailer, ctx)
+	errs := checkNonCatalogXMPStreams(nil, trailer, ctx)
 	for _, e := range errs {
 		if e.Check() == pdf.Checks.Metadata.ObjectXMPNoXPacket {
 			t.Error("an undecodable metadata stream was reported as a missing xpacket wrapper")
@@ -779,7 +779,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	root2.Entries.Set("Other", plain)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec})
+	errs2 := checkNonCatalogXMPStreams(nil, trailer2, &ValidationContext{Spec: a1bSpec})
 	if len(errs2) != 1 || errs2[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("decodable stream without xpacket = %v, want one ObjectXMPNoXPacket", errs2)
 	}
@@ -1301,7 +1301,7 @@ func TestVerifyXMPMetadataUndecodableStream(t *testing.T) {
 func TestCheckNonCatalogXMPStreamsRootNotDictionary(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFArray{})
-	if errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(nil, trailer, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want nil", errs)
 	}
 }

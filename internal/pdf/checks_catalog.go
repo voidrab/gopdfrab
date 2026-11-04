@@ -351,6 +351,10 @@ type metadataChecks struct {
 	ExtFieldInvalid            Check
 	ExtPropertyUndocumented    Check
 	ExtPropertyUndefinedType   Check
+	// ExtSchemaDefinitionInvalid and ExtSchemaUndefinedField are rules of
+	// ISO 19005-2 only, which checks each object of an extension schema.
+	ExtSchemaDefinitionInvalid Check
+	ExtSchemaUndefinedField    Check
 	// 6.7.9 XMP well-formedness
 	XMPStreamUnreadable    Check
 	XMPNotWellFormed       Check
@@ -1206,6 +1210,12 @@ func init() {
 				"ExtPropertyUndefinedType",
 				"Extension schema properties must reference only built-in or explicitly defined value types",
 				"6.7.8", 10),
+			ExtSchemaDefinitionInvalid: newPart2Check(191,
+				"ExtSchemaDefinitionInvalid",
+				"An extension schema must give its schema, namespaceURI and prefix as pdfaSchema Text fields, and its property and valueType as pdfaSchema Seq fields"),
+			ExtSchemaUndefinedField: newPart2Check(192,
+				"ExtSchemaUndefinedField",
+				"An extension schema, property, value type or field may only contain the fields its PDF/A value type defines"),
 			XMPStreamUnreadable: newCheck(141,
 				"XMPStreamUnreadable",
 				"The XMP metadata stream must be readable",

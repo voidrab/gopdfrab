@@ -56,6 +56,14 @@ Everything under `internal/` may change in any release without notice.
   and clears ToggleNoView.
 - A PDF/A-2-only check for the catalog: `Checks.Form.NeedsRendering`, which
   converting to PDF/A-2b repairs by removing the entry.
+- PDF/A-2 metadata checks read the XMP as an RDF data model: every property
+  of every metadata stream must be predefined by XMP 2005 or defined by an
+  extension schema, and have the value type its schema gives it, and each
+  extension schema object is checked against the value types of ISO 19005-2
+  6.6.2.3.3. Two more PDF/A-2-only checks belong to them:
+  `Checks.Metadata.ExtSchemaDefinitionInvalid` and `ExtSchemaUndefinedField`.
+  Under PDF/A-2 a filtered metadata stream is allowed, and the document
+  information dictionary need not match the XMP.
 
 ### Fixed
 

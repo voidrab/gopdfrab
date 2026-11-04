@@ -200,6 +200,8 @@ var stableCheckIDs = map[string]int{
 	"AnnotationFlagsMissing":           188,
 	"ToggleNoViewFlagSet":              189,
 	"NeedsRendering":                   190,
+	"ExtSchemaDefinitionInvalid":       191,
+	"ExtSchemaUndefinedField":          192,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {
