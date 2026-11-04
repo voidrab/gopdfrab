@@ -173,8 +173,9 @@ func (ocConfigFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, err
 	missing, duplicate := reported[s.OCConfigMissingName], reported[s.OCConfigDuplicateName]
 	changed := false
 	if missing || duplicate {
-		// A repeated entry breaks a name rule whatever its name: renaming
-		// the dictionary renames every place it is listed.
+		// A repeated entry is the same dictionary as an earlier one, so
+		// renaming it would rename every place it is listed and could not
+		// make the names unique. Drop the repeats first.
 		changed = dropRepeatedOCConfigs(props)
 	}
 	configs := verify.OCConfigs(props)
@@ -285,9 +286,10 @@ func completeOCOrders(groups []pdf.PDFDict, configs []pdf.PDFDict) bool {
 	return changed
 }
 
-// setFreshName sets the Name of d to a text string no name in taken has,
-// and marks it taken. It is d's current name, the value of a name object
-// or fallback, numbered by uniqueName when that is taken.
+// setFreshName sets the Name of d to a text string that is not in taken, and
+// adds it to taken. The base is the value of d's Name, whether a text string
+// or a name object, or fallback when that value is empty. uniqueName numbers
+// the base when it is taken.
 func setFreshName(d pdf.PDFDict, taken map[string]bool, fallback string) {
 	name := pdf.DecodeInfoTextString(d.Entries.Get("Name"))
 	if n, ok := d.Entries.Get("Name").(pdf.PDFName); ok {

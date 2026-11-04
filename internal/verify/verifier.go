@@ -1453,8 +1453,8 @@ func catalog(d *pdf.Reader) pdf.PDFValue {
 	return root
 }
 
-// verifyOptionalContent verifies requirements outlined in 6.1.13, in a level
-// without optional content.
+// verifyOptionalContent verifies requirements outlined in 6.1.13 of ISO
+// 19005-1, in a level without optional content.
 func verifyOptionalContent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	if spec.OptionalContent {
 		return nil

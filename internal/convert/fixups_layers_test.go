@@ -242,9 +242,9 @@ func TestOCConfigFixerKeepsGivenNames(t *testing.T) {
 	}
 }
 
-// TestOCConfigFixerSharedUnnamedConfig verifies that one pass repairs a D
-// that Configs lists again and that has no Name, when only the missing name
-// is reported.
+// TestOCConfigFixerSharedUnnamedConfig verifies that a D which Configs lists
+// again and which has no Name is left as a single configuration by one Fix
+// call, when only the missing name is reported.
 func TestOCConfigFixerSharedUnnamedConfig(t *testing.T) {
 	d := kv("Order", pdf.PDFArray{})
 	props := kv("D", d, "Configs", pdf.PDFArray{d})

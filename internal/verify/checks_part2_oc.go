@@ -131,9 +131,9 @@ func OCGroupNames(groups []pdf.PDFDict) []string {
 	return names
 }
 
-// OCGroupsMissingFromOrder returns the indices into names, the group names
-// OCGroupNames returns, of the groups that the Order array of the
-// configuration dictionary cfg does not list. As in veraPDF, a group is
+// OCGroupsMissingFromOrder returns the indices into names, as OCGroupNames
+// returns them, of the groups that the Order array of the configuration
+// dictionary cfg does not list. As in veraPDF, a group is
 // listed when a dictionary anywhere in Order, including in nested arrays,
 // has a Name string equal to the group's name; a group without a Name
 // string counts as named with the empty string. A configuration whose Order
@@ -155,9 +155,9 @@ func OCGroupsMissingFromOrder(cfg pdf.PDFDict, names []string) []int {
 }
 
 // collectOrderNames adds to listed the Name string of each dictionary in
-// arr and in the arrays nested in it. seen holds the arrays already visited,
-// by pdf.ArrayPointer, so an array reached twice, or from within itself, is
-// read once.
+// arr and in the arrays nested in it. seen records the arrays already
+// visited, so that an array reached twice, or from within itself, is read
+// once.
 func collectOrderNames(arr pdf.PDFArray, listed map[string]bool, seen map[uintptr]bool, depth int) {
 	if depth > maxOrderDepth || seen[pdf.ArrayPointer(arr)] {
 		return
