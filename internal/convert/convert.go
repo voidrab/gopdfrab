@@ -181,7 +181,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	// Objects the reader degraded to null were serialized as null: their
 	// content is lost. The final verify ran on the output bytes, where the
 	// loss is invisible, so it is recorded here instead -- as loss, not as
-	// non-conformance. The file that was written really does meet PDF/A-1b;
+	// non-conformance. The file that was written really does meet its level;
 	// what it no longer holds is a separate fact, and one a caller wants
 	// separately. (Recovered objects are not carried: the rewrite emits a
 	// correct xref, genuinely fixing them.)
@@ -190,6 +190,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 			cr.LostObjects = append(cr.LostObjects, e)
 		}
 	}
+	pdf.StampLevel(cr.LostObjects, p.Level)
 
 	// The run is over, so the input's decoded and tokenized streams are dead
 	// weight. They matter for a caller who keeps the Document open past
@@ -331,7 +332,7 @@ func (r *run) serializeAndVerify() (err error) {
 	if loopDoc != nil {
 		sw.grow(int(loopDoc.Size()))
 	}
-	order, err := writer.WriteDocumentIndexed(&sw, trailer, r.objHint)
+	order, err := writer.WriteDocumentIndexed(&sw, trailer, r.objHint, r.spec.ModelVersion)
 	if err != nil {
 		sw.abort()
 		return err

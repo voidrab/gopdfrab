@@ -10,12 +10,13 @@ Verify and convert PDF documents with a small, predictable open source library.
 
 - PDF/A-1b verification and conversion, passing the full Isartor and veraPDF
   conformance suites
+- PDF/A-2b verification and conversion, passing the veraPDF PDF/A-2b suite
 - PDF structural verification and repair against the Arlington object model
 - Decryption of encrypted PDFs (RC4 40/128, AES-128, AES-256)
 - A CLI and two WebAssembly builds
 
 The API is **stable as of 1.0**; [CHANGELOG.md](CHANGELOG.md) states the
-versioning policy. PDF/A-2, -3 and -4 come next.
+versioning policy. PDF/A-2u, PDF/A-3 and PDF/A-4 come next.
 
 ## Command-line tool
 
@@ -25,6 +26,7 @@ go install github.com/voidrab/gopdfrab/cmd/gopdfrab@latest
 gopdfrab verify docs/                     # verify every PDF under a directory
 gopdfrab verify --json report.pdf         # machine-readable output
 gopdfrab convert in.pdf out.pdf           # rewrite towards PDF/A-1b
+gopdfrab convert --profile pdfa2b in.pdf  # or towards PDF/A-2b
 gopdfrab convert --dpi 300 in.pdf         # tune the raster fallback
 ```
 
@@ -66,7 +68,7 @@ summary: pass=1 fail=1 error=1 files=3
 
 | Flag                | Meaning                                                                                 |
 | ------------------- | --------------------------------------------------------------------------------------- |
-| `--profile`         | `pdfa1b` (default), `legacy1b`, or `pdf`                                                |
+| `--profile`         | `pdfa1b` (default), `legacy1b`, `pdfa2b`, or `pdf`                                      |
 | `--password`        | password for an encrypted input; visible in `ps`, so prefer `$GOPDFRAB_PASSWORD`        |
 | `--max-decoded-mb`  | cap a single stream's decoded output in MB (0 = default 256)                            |
 | `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64)                              |
@@ -167,7 +169,8 @@ if err := cr.Save("out.pdf"); err != nil { // atomic; WriteTo(w) streams, Output
 }
 fmt.Println(cr.Iterations, cr.Result.Valid)
 for _, iss := range cr.Residual() { // issues nothing could repair
-    fmt.Println(iss.Check().Clause(), iss.Page(), iss.Messages())
+    clause, sub := iss.Clause() // numbered as the target level numbers it
+    fmt.Println(clause, sub, iss.Page(), iss.Messages())
 }
 ```
 
@@ -264,10 +267,11 @@ valid.
 
 ## Profiles and checks
 
-`PDFA1B`, `Legacy1B` and `PDF` are the ready-made profiles, named `pdfa1b`,
-`legacy1b` and `pdf` as the CLI's `--profile` takes them (`ProfileByName`,
-`Profiles`, `Profile.Name`). Use `Legacy1B` if you need the verdicts of the
-older Isartor suite. A profile is immutable: `AddCheck`, `RemoveCheck` and
+`PDFA1B`, `Legacy1B`, `PDFA2B` and `PDF` are the ready-made profiles, named
+`pdfa1b`, `legacy1b`, `pdfa2b` and `pdf` as the CLI's `--profile` takes them
+(`ProfileByName`, `Profiles`, `Profile.Name`). Use `Legacy1B` if you need the
+verdicts of the older Isartor suite. A PDF/A-2b conversion writes a PDF 1.7
+file. A profile is immutable: `AddCheck`, `RemoveCheck` and
 `Clear` return a clone. The package variables are not, so reassigning one
 changes the default for the whole process.
 
@@ -301,8 +305,11 @@ An eleventh group, `Checks.LogicalStructure` (6.8.x), is PDF/A-1a only, so
 `AllChecks()` returns 201 checks over all eleven groups, 196 over the ten above.
 A clause names a check only within a conformance level, so lookups take one:
 `CheckByClauseIn(gopdfrab.A1B, "6.3.4", 1)`, `ChecksForClauseIn` and
-`check.ClauseIn(level)`. The older `CheckByClause` and `ChecksForClause` read
-PDF/A-1 clauses and are deprecated.
+`check.ClauseIn(level)`. The registry fields above list PDF/A-1 clauses;
+PDF/A-2 numbers many of the same rules differently. An issue knows the level
+it was reported under (`PDFError.Level`), so its text, its JSON, `Summary` and
+the CLI give the clause of that level. The older `CheckByClause` and
+`ChecksForClause` read PDF/A-1 clauses and are deprecated.
 
 ### PDF object-model conformance
 

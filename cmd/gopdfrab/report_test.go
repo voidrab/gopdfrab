@@ -62,7 +62,7 @@ func TestGroupIssues(t *testing.T) {
 	}
 	for i, w := range wants {
 		g := got[i]
-		have := want{clauseField(g.first.Check()), g.first.Messages()[0], g.count, pageRanges(g.pages), g.objs}
+		have := want{clauseField(g.first), g.first.Messages()[0], g.count, pageRanges(g.pages), g.objs}
 		if have != w {
 			t.Errorf("group %d = %+v, want %+v", i, have, w)
 		}
@@ -70,6 +70,45 @@ func TestGroupIssues(t *testing.T) {
 
 	if got := groupIssues(nil); len(got) != 0 {
 		t.Errorf("groupIssues(nil) = %+v, want empty", got)
+	}
+}
+
+// TestClauseFieldNumbersByIssueLevel verifies that clauseField numbers an issue
+// by its level: a PDF/A-2b issue shows its Part 2 clause, and an unstamped
+// check with no Part 1 clause shows "-".
+func TestClauseFieldNumbersByIssueLevel(t *testing.T) {
+	utf8 := gopdfrab.Checks.Structure.NameNotUTF8
+	part2 := []gopdfrab.PDFError{issue(gray, 1, nil, "a"), issue(utf8, 0, nil, "b")}
+	pdf.StampLevel(part2, gopdfrab.A2B)
+	for _, tc := range []struct {
+		e    gopdfrab.PDFError
+		want string
+	}{
+		{issue(gray, 1, nil, "a"), "6.2.3.3/2"},
+		{issue(utf8, 0, nil, "b"), "-"},
+		{part2[0], "6.2.4.3"},
+		{part2[1], "6.1.8/1"},
+	} {
+		if got := clauseField(tc.e); got != tc.want {
+			t.Errorf("clauseField(%s at %s) = %q, want %q", tc.e.Check().Name(), tc.e.Level(), got, tc.want)
+		}
+	}
+}
+
+// TestGroupIssuesKeepsChecksSharingAClauseApart verifies that two checks
+// numbered alike under a level stay on separate lines even when they report
+// the same message.
+func TestGroupIssuesKeepsChecksSharingAClauseApart(t *testing.T) {
+	issues := []gopdfrab.PDFError{
+		issue(gopdfrab.Checks.Structure.StreamLengthMismatch, 1, nil, "same"),
+		issue(gopdfrab.Checks.Structure.StreamLengthIncludesEOL, 1, nil, "same"),
+	}
+	pdf.StampLevel(issues, gopdfrab.A2B)
+	if got := groupIssues(issues); len(got) != 2 {
+		t.Errorf("groupIssues gave %d groups, want 2: %+v", len(got), got)
+	}
+	if got := foldIssues(issues); len(got) != 2 {
+		t.Errorf("foldIssues gave %d issues, want 2: %+v", len(got), got)
 	}
 }
 

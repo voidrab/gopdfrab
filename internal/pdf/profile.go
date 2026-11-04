@@ -94,9 +94,9 @@ func init() {
 	PDF.name = "pdf"
 }
 
-// Profiles returns the ready-made profiles: PDFA1B, Legacy1B and PDF.
+// Profiles returns the ready-made profiles: PDFA1B, Legacy1B, PDFA2B and PDF.
 func Profiles() []*Profile {
-	return []*Profile{PDFA1B, Legacy1B, PDF}
+	return []*Profile{PDFA1B, Legacy1B, PDFA2B, PDF}
 }
 
 // ProfileByName returns the ready-made profile with the given name, as
@@ -229,9 +229,9 @@ func (p *Profile) Allows(clause string, subclause int) bool {
 	return p.enabled[c.ID()]
 }
 
-// Name returns the name of a ready-made profile: "pdfa1b", "legacy1b" or
-// "pdf". It is empty for any other profile, including one derived from a
-// ready-made profile by Clone, Clear, AddCheck or RemoveCheck.
+// Name returns the name of a ready-made profile: "pdfa1b", "legacy1b",
+// "pdfa2b" or "pdf". It is empty for any other profile, including one
+// derived from a ready-made profile by Clone, Clear, AddCheck or RemoveCheck.
 func (p *Profile) Name() string { return p.name }
 
 // String returns a human-readable summary of the profile.

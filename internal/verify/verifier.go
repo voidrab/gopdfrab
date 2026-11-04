@@ -46,12 +46,7 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
-	issues = filterByProfile(issues, p)
-
-	if len(issues) > 0 {
-		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}, nil
-	}
-	return pdf.Result{Type: p.Level, Valid: true}, nil
+	return ResultFromIssues(p, filterByProfile(issues, p)), nil
 }
 
 // LevelSpec returns the rules of p's level, rejecting a profile there is
@@ -142,9 +137,10 @@ func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 }
 
 // ResultFromIssues builds the Result Verify would return for an
-// already-filtered issue list.
+// already-filtered issue list, stamping each issue with p's level.
 func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
 	if len(issues) > 0 {
+		pdf.StampLevel(issues, p.Level)
 		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}
 	}
 	return pdf.Result{Type: p.Level, Valid: true}

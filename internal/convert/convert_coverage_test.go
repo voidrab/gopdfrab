@@ -40,7 +40,7 @@ func onePageTrailer() pdf.PDFDict {
 func openTrailer(t *testing.T, trailer pdf.PDFDict) *pdf.Reader {
 	t.Helper()
 	var buf bytes.Buffer
-	if _, err := writer.WriteDocumentIndexed(&buf, trailer, 0); err != nil {
+	if _, err := writer.WriteDocumentIndexed(&buf, trailer, 0, "1.4"); err != nil {
 		t.Fatalf("WriteDocumentIndexed: %v", err)
 	}
 	doc, err := pdf.OpenBytes(buf.Bytes())

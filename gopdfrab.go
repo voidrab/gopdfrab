@@ -36,7 +36,8 @@ type (
 	// Profile is the set of checks a Verify or Convert applies. A profile is
 	// immutable -- AddCheck, RemoveCheck and Clear each return a clone -- so one
 	// profile may be shared by concurrent Verify or Convert calls. PDFA1B,
-	// Legacy1B and PDF are the ready-made ones; NewProfile returns an empty one.
+	// Legacy1B, PDFA2B and PDF are the ready-made ones; NewProfile returns an
+	// empty one.
 	//
 	// Fields:
 	//
@@ -48,10 +49,11 @@ type (
 	// OnlyObjectModelChecks, Allows, Name, String.
 	Profile = pdf.Profile
 
-	// LevelType is a conformance level: A1B for PDF/A-1b, ObjectModel for the
-	// generic ISO 32000 checks, Undefined for neither. It is Profile.Level and
-	// Result.Type. Verify and Convert return an error for any other level,
-	// including Undefined and the empty level of a zero-value Profile.
+	// LevelType is a conformance level: A1B for PDF/A-1b, A2B for PDF/A-2b,
+	// ObjectModel for the generic ISO 32000 checks, Undefined for none of
+	// them. It is Profile.Level and Result.Type. Verify and Convert return an
+	// error for any other level, including Undefined and the empty level of a
+	// zero-value Profile.
 	LevelType = pdf.LevelType
 
 	// Check is one named, selectable validation rule, identified by the ISO
@@ -70,8 +72,8 @@ type (
 	// where. It implements error. All fields are unexported; read it through
 	// its methods.
 	//
-	// Methods: Check, Messages, Page, IsDocumentLevel, ObjectRef,
-	// ObjModelDetail, WithObjModelDetail, String, Error, MarshalJSON.
+	// Methods: Check, Level, Clause, Messages, Page, IsDocumentLevel,
+	// ObjectRef, ObjModelDetail, WithObjModelDetail, String, Error, MarshalJSON.
 	PDFError = pdf.PDFError
 
 	// PDFRef is an indirect object reference, returned by PDFError.ObjectRef.
@@ -146,6 +148,7 @@ type (
 // PDF conformance levels.
 const (
 	A1B       = pdf.A1B
+	A2B       = pdf.A2B
 	Undefined = pdf.Undefined
 	// ObjectModel is a reporting-only level for the generic ISO 32000
 	// object-model checks.
@@ -163,6 +166,8 @@ var (
 	// Legacy1B is stricter in some areas and compatible with the original
 	// Isartor PDF/A-1b test suite.
 	Legacy1B = pdf.Legacy1B
+	// PDFA2B is the canonical PDF/A-2b profile.
+	PDFA2B = pdf.PDFA2B
 )
 
 // Checks is the registry of every selectable PDF/A check, grouped by area. The
@@ -228,7 +233,7 @@ func (o Options) convert() convert.Options {
 }
 
 // NewProfile returns an empty profile for the given conformance level, which
-// must be A1B or ObjectModel for Verify and Convert to accept it.
+// must be A1B, A2B or ObjectModel for Verify and Convert to accept it.
 func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 
 // ObjectModelOnly returns a fresh profile equal to [PDF]: only the generic ISO
@@ -237,12 +242,13 @@ func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 // caller wants a profile nothing else shares.
 func ObjectModelOnly() *Profile { return pdf.ObjectModelOnly() }
 
-// Profiles returns the ready-made profiles: [PDFA1B], [Legacy1B] and [PDF].
+// Profiles returns the ready-made profiles: [PDFA1B], [Legacy1B], [PDFA2B]
+// and [PDF].
 func Profiles() []*Profile { return pdf.Profiles() }
 
 // ProfileByName returns the ready-made profile with the given name, as
-// [Profile.Name] reports it: "pdfa1b", "legacy1b" or "pdf". ok is false for
-// any other name.
+// [Profile.Name] reports it: "pdfa1b", "legacy1b", "pdfa2b" or "pdf". ok is
+// false for any other name.
 func ProfileByName(name string) (p *Profile, ok bool) { return pdf.ProfileByName(name) }
 
 // AllChecks returns every registered check with its name, description, and

@@ -48,6 +48,20 @@ func partOf(level LevelType) parts {
 	return 0
 }
 
+// levelOf returns the level a part stands for, the inverse of partOf, or
+// Undefined for none.
+func levelOf(p parts) LevelType {
+	switch p {
+	case partA1B:
+		return A1B
+	case partA2B:
+		return A2B
+	case partObjectModel:
+		return ObjectModel
+	}
+	return Undefined
+}
+
 // familyOf returns the set of levels in the ISO 19005 part that level belongs
 // to. The Part 1 family includes PDF/A-1a, so a Part 1 profile also enables
 // the Level A requirements.
@@ -103,10 +117,31 @@ func (c Check) ClauseIn(level LevelType) (clause string, subclause int, ok bool)
 	if !c.AppliesTo(level) {
 		return "", 0, false
 	}
-	if ref, ok := part2Clauses[c.name]; ok && partOf(level)&partsA2 != 0 {
-		return ref.clause, ref.subclause, true
+	if partOf(level)&partsA2 != 0 {
+		if ref, ok := part2Clauses[c.name]; ok {
+			return ref.clause, ref.subclause, true
+		}
 	}
 	return c.clause, c.subclause, true
+}
+
+// numberIn returns the clause and subclause that number c in a report under
+// the given level: ClauseIn's, or the Part 1 ones when c is no rule of that
+// level, as for a level-less PDFError.
+func (c Check) numberIn(level LevelType) (clause string, subclause int) {
+	if clause, subclause, ok := c.ClauseIn(level); ok {
+		return clause, subclause
+	}
+	return c.clause, c.subclause
+}
+
+// formatClause renders a clause and subclause as "clause/subclause", or the
+// clause alone when the subclause is 0.
+func formatClause(clause string, subclause int) string {
+	if subclause > 0 {
+		return clause + "/" + strconv.Itoa(subclause)
+	}
+	return clause
 }
 
 // --- Check group types --------------------------------------------------

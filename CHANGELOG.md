@@ -26,6 +26,15 @@ Everything under `internal/` may change in any release without notice.
 
 ### Added
 
+- PDF/A-2b verification and conversion: the `A2B` level and the `PDFA2B`
+  profile, also in `gopdfrab/verify`, and `--profile pdfa2b` on the CLI.
+  `Profiles` and `ProfileByName` list it as `pdfa2b`. A file converted to
+  PDF/A-2b declares PDF 1.7.
+- `PDFError.Level` returns the conformance level an issue was reported under,
+  and `PDFError.Clause` its clause and subclause under that level.
+  An issue's text and JSON, `Result.Summary`, `Result.Checks` and the CLI
+  report number each check by the clause of that level, so a PDF/A-2b issue
+  gives its ISO 19005-2 clause.
 - `Check.DescriptionIn` describes a check's rule as a given conformance level
   words it.
 - Seven checks for rules that only PDF/A-2 sets: `Checks.Structure.NameNotUTF8`,
@@ -84,6 +93,8 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- `Result.Summary` leaves out the subclause of a check that has none, rather
+  than printing `/0`.
 - Verify reads the newest revision of an incrementally updated file
   throughout. The cross-reference check replaced the reader's entries with
   those of earlier sections as it walked them, so checks that ran after it

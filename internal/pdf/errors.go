@@ -10,7 +10,12 @@ import (
 type PDFError struct {
 	check Check
 	errs  []error
-	page  int
+	// page is an int32 to keep PDFError small, since an issue list can hold
+	// millions of them.
+	page int32
+	// part is the level the violation was reported under, set when a
+	// verification result collects it (see StampLevel); 0 until then.
+	part parts
 
 	objectRef *PDFRef
 	objModel  *ObjModelDetail
@@ -31,7 +36,16 @@ type ObjModelDetail struct {
 // NewError constructs a PDFError reporting a violation of c, found on page
 // (0 for document-level) and optionally tied to a specific indirect object.
 func NewError(c Check, errs []error, page int, ref *PDFRef) PDFError {
-	return PDFError{check: c, errs: errs, page: page, objectRef: ref}
+	return PDFError{check: c, errs: errs, page: int32(page), objectRef: ref}
+}
+
+// StampLevel records in place that issues were reported under level, so each
+// renders its clause as that level numbers it.
+func StampLevel(issues []PDFError, level LevelType) {
+	part := partOf(level)
+	for i := range issues {
+		issues[i].part = part
+	}
 }
 
 // WithObjModelDetail returns a copy of e carrying the Arlington schema
@@ -47,13 +61,8 @@ func (e PDFError) String() string {
 	var b strings.Builder
 
 	b.WriteString("PDF/A violation")
-	if e.check.clause != "" {
-		b.WriteString(" (")
-		b.WriteString(e.check.clause)
-		if e.check.subclause > 0 {
-			fmt.Fprintf(&b, "/%d", e.check.subclause)
-		}
-		b.WriteString(")")
+	if clause, subclause := e.Clause(); clause != "" {
+		b.WriteString(" (" + formatClause(clause, subclause) + ")")
 	}
 
 	if e.page > 0 {
@@ -88,7 +97,7 @@ func (e PDFError) Error() string {
 // Page returns the 1-based page number this violation was found on, or 0 if
 // the violation is document-level (see IsDocumentLevel).
 func (e PDFError) Page() int {
-	return e.page
+	return int(e.page)
 }
 
 // IsDocumentLevel reports whether this violation applies to the document as a
@@ -119,6 +128,20 @@ func (e PDFError) Messages() []string {
 // Check returns the registered Check this violation corresponds to.
 func (e PDFError) Check() Check {
 	return e.check
+}
+
+// Level returns the conformance level this violation was reported under, or
+// Undefined for a PDFError that no Verify or Convert result produced. The
+// violation's clause under that level is Check().ClauseIn(Level()).
+func (e PDFError) Level() LevelType {
+	return levelOf(e.part)
+}
+
+// Clause returns the clause and subclause that number this violation under
+// its Level: Check().ClauseIn(Level()), or the check's PDF/A-1 clause when
+// the check is no rule of that level, as for an Undefined one.
+func (e PDFError) Clause() (clause string, subclause int) {
+	return e.check.numberIn(e.Level())
 }
 
 // ObjModelDetail returns the Arlington schema location this object-model

@@ -45,10 +45,12 @@ type foldedIssue struct {
 	count int
 }
 
-// groupKey identifies an issue for grouping: its check and its messages.
+// groupKey identifies an issue for grouping: its check and its messages. The
+// clause alone does not identify the check, as several checks may share one.
 type groupKey struct {
 	clause    string
 	subclause int
+	check     string
 	messages  string
 }
 
@@ -62,10 +64,11 @@ type issueKey struct {
 }
 
 func groupKeyOf(e verify.PDFError) groupKey {
-	c := e.Check()
+	clause, subclause := e.Clause()
 	return groupKey{
-		clause:    c.Clause(),
-		subclause: c.Subclause(),
+		clause:    clause,
+		subclause: subclause,
+		check:     e.Check().Name(),
 		// NUL cannot be confused with text inside a message, so ["a; b"] and
 		// ["a", "b"] stay distinct.
 		messages: strings.Join(e.Messages(), "\x00"),
@@ -159,6 +162,9 @@ func compareGroupKeys(a, b groupKey) int {
 	if c := a.subclause - b.subclause; c != 0 {
 		return c
 	}
+	if c := strings.Compare(a.check, b.check); c != 0 {
+		return c
+	}
 	return strings.Compare(a.messages, b.messages)
 }
 
@@ -188,14 +194,14 @@ func compareClause(a, b string) int {
 	return len(as) - len(bs)
 }
 
-// clauseField renders a check's clause and subclause, "-" for none.
-func clauseField(c verify.Check) string {
-	clause := c.Clause()
+// clauseField renders an issue's clause and subclause, "-" for none.
+func clauseField(e verify.PDFError) string {
+	clause, subclause := e.Clause()
 	if clause == "" {
 		clause = "-"
 	}
-	if c.Subclause() > 0 {
-		clause += "/" + strconv.Itoa(c.Subclause())
+	if subclause > 0 {
+		clause += "/" + strconv.Itoa(subclause)
 	}
 	return clause
 }
@@ -233,7 +239,7 @@ func writeGroups(w io.Writer, groups []issueGroup) {
 	rows := make([][]string, len(groups))
 	for i, g := range groups {
 		rows[i] = []string{
-			clauseField(g.first.Check()),
+			clauseField(g.first),
 			"count=" + strconv.Itoa(g.count),
 			"pages=" + pageRanges(g.pages),
 			"objs=" + strconv.Itoa(g.objs),
@@ -257,7 +263,7 @@ func writeIssues(w io.Writer, issues []foldedIssue) {
 			obj = fmt.Sprintf("obj=%d.%d", ref.ObjNum, ref.GenNum)
 		}
 		rows[i] = []string{
-			clauseField(e.Check()),
+			clauseField(e),
 			page,
 			obj,
 			"count=" + strconv.Itoa(f.count),

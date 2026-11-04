@@ -17,7 +17,7 @@ const fuzzInputCap = 512 << 10 // 512 KiB
 // fuzzProfiles are the profiles a fuzz input's selector byte picks from. A
 // profile for a new conformance level is added here, so every target that
 // takes a selector covers it.
-var fuzzProfiles = []*gopdfrab.Profile{gopdfrab.PDFA1B, gopdfrab.Legacy1B}
+var fuzzProfiles = []*gopdfrab.Profile{gopdfrab.PDFA1B, gopdfrab.Legacy1B, gopdfrab.PDFA2B}
 
 // fuzzProfile returns the profile a selector byte picks.
 func fuzzProfile(sel byte) *gopdfrab.Profile {

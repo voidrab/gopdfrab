@@ -24,7 +24,7 @@ func (errWriter) Write([]byte) (int, error) { return 0, errors.New("write failed
 // TestProfileNames verifies that profileNames lists the ready-made profile
 // names in the comma-separated form used by the flag help.
 func TestProfileNames(t *testing.T) {
-	if got, want := profileNames(), "pdfa1b, legacy1b, or pdf"; got != want {
+	if got, want := profileNames(), "pdfa1b, legacy1b, pdfa2b, or pdf"; got != want {
 		t.Errorf("profileNames() = %q, want %q", got, want)
 	}
 }
