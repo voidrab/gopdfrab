@@ -9,9 +9,9 @@ import "slices"
 // The expected range is derived from the file's bytes, as veraPDF does: it
 // starts at offset 0, skips exactly the signature dictionary's Contents
 // string, and ends after the first %%EOF that follows the next
-// cross-reference section, plus at most one EOL marker unless that marker ends
-// the file. A signature dictionary that cannot be located in the file -- held
-// in an object stream, say -- covers nothing, and neither does one whose
+// cross-reference section (or the Contents string, when no section follows),
+// plus at most one EOL marker unless that marker ends the file. A signature dictionary that cannot be located in the file, such
+// as one held in an object stream, covers nothing. Neither does one whose
 // Contents is a reference, which veraPDF cannot follow.
 func (d *Reader) ByteRangeCoversRevision(sig PDFRef, byteRange [4]int64) bool {
 	start, end, ok := d.contentsSpan(sig)

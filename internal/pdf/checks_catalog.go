@@ -437,7 +437,7 @@ type formChecks struct {
 	// NeedsRendering is the catalog's NeedsRendering entry. Only PDF/A-2
 	// checks it.
 	NeedsRendering Check
-	// SignatureByteRange, SignatureCertificate and SignatureSigners are the
+	// SignatureByteRange, SignatureCertificate and SignatureSigners check the
 	// digital signatures of signature fields (PDF/A-2 6.4.3).
 	SignatureByteRange   Check
 	SignatureCertificate Check

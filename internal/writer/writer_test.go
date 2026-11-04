@@ -214,9 +214,9 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 // still reported fully conformant. Renumbering and verbatim stream pass-through
 // must not corrupt structurally rich documents with cycles, such as
 // Page/Parent references. The pass files cover annotations, forms, optional
-// content and transparency groups. A rewrite moves every byte, so a signature
-// cannot cover its revision any more; that one finding is expected of a signed
-// file.
+// content and transparency groups. A rewrite moves every byte, so no signature
+// in the output can cover its revision. That one finding is expected for a
+// signed file and is excluded from the check.
 func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 	fixtures := corpustest.AllFixtures(false)
 	if len(fixtures) == 0 {

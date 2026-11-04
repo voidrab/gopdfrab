@@ -12,9 +12,9 @@ var signaturePerms = []string{"DocMDP", "UR", "UR3"}
 // dropSignatures removes the digital signatures of trailer's document when p
 // checks that a signature's ByteRange covers its revision (PDF/A-2 6.4.3).
 // Converting rewrites the file, so no ByteRange can cover the output, and the
-// signature would no longer verify anyway. Each signature field loses its
-// value and stays as an unsigned field, its widget untouched; the signatures
-// of the catalog's Perms go too. Every removal is reported in lost.
+// signature would not verify in the output either. Each signature field loses
+// its value and stays as an unsigned field, its widget untouched; the
+// signatures of the catalog's Perms go too. Every removal is reported in lost.
 //
 // It runs before the fix loop, whose verify reads the input's bytes, where
 // the signatures are still intact.
