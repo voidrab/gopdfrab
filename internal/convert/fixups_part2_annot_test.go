@@ -119,7 +119,7 @@ func TestConstraintFixerSetsTrapNetFlags(t *testing.T) {
 			ref := pdf.PDFRef{ObjNum: 4}
 			pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: d}}
 			issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, tc.typeName, tc.key)}
-			if _, _, err := (constraintFixer{}).fixTargeted(pass, issues); err != nil {
+			if _, _, err := (constraintFixer{m: om14}).fixTargeted(pass, issues); err != nil {
 				t.Fatalf("fixTargeted: %v", err)
 			}
 			if got := d.Entries.Get(tc.key); got != pdf.PDFInteger(tc.want) {
@@ -144,7 +144,7 @@ func TestMissingRequiredKeyFixerTrapNetDefaults(t *testing.T) {
 			ref := pdf.PDFRef{ObjNum: 2}
 			pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{2: d}}
 			issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, &ref, tc.typeName, tc.key)}
-			changed, _, err := missingRequiredKeyFixer{}.fixTargeted(pass, issues)
+			changed, _, err := missingRequiredKeyFixer{m: om14}.fixTargeted(pass, issues)
 			if err != nil || !changed {
 				t.Fatalf("fixTargeted = %v, %v; want changed", changed, err)
 			}
@@ -261,7 +261,7 @@ func TestAnnotationFlagsFixerRealF(t *testing.T) {
 func TestConstraintFixerSetsDirectTrapNetFlags(t *testing.T) {
 	annot := kv("Type", nm("Annot"), "Subtype", nm("TrapNet"), "F", pdf.PDFInteger(1|4))
 	trailer := trailerWith("Annot", annot)
-	if changed, err := (constraintFixer{}).Fix(&trailer, nil); err != nil || !changed {
+	if changed, err := (constraintFixer{m: om14}).Fix(&trailer, nil); err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want changed", changed, err)
 	}
 	if got := annot.Entries.Get("F"); got != pdf.PDFInteger(4|64) {

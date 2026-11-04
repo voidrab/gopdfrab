@@ -497,7 +497,7 @@ func lzwPDF() []byte {
 func replacedFixers(mk func(pdf.Check) Fixer) repairs {
 	rs := standardRepairs
 	rs.fixers = nil
-	for c := range standardRepairs.fixersFor(&fixerRun{}) {
+	for c := range standardRepairs.fixersFor(&fixerRun{spec: a1bSpec}) {
 		rs.fixers = append(rs.fixers, func(*fixerRun) Fixer { return mk(c) })
 	}
 	return rs

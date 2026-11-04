@@ -167,7 +167,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
-	fixers := standardRepairs.fixersFor(&fixerRun{})
+	fixers := standardRepairs.fixersFor(&fixerRun{spec: a1bSpec})
 
 	var tested, cleared int
 	for _, f := range fixtures {
