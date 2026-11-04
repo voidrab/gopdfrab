@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -21,35 +22,31 @@ func verifyOCConfigs(root pdf.PDFDict) []pdf.PDFError {
 		return nil
 	}
 	var errs []pdf.PDFError
-	report := func(c pdf.Check, cfg pdf.PDFDict, format string, args ...any) {
-		ref := refOf(cfg)
-		if ref == nil {
-			ref = refOf(root)
-		}
-		subject := "a direct optional content configuration"
+	report := func(c pdf.Check, cfg pdf.PDFDict, msg string) {
+		subject, ref := "a direct optional content configuration", refOf(root)
 		if r, ok := cfg.Ref(); ok {
-			subject = fmt.Sprintf("optional content configuration %d %d R", r.ObjNum, r.GenNum)
+			subject, ref = fmt.Sprintf("optional content configuration %d %d R", r.ObjNum, r.GenNum), &r
 		}
-		errs = append(errs, pdf.NewError(c, []error{fmt.Errorf("%s "+format, append([]any{subject}, args...)...)}, 0, ref))
+		errs = append(errs, pdf.NewError(c, []error{errors.New(subject + " " + msg)}, 0, ref))
 	}
 	configs := OCConfigs(props)
-	groups := OCGroups(props)
-	for i, dup := range OCConfigDuplicates(configs) {
-		cfg := configs[i]
+	dups := OCConfigDuplicates(configs)
+	groupNames := OCGroupNames(OCGroups(props))
+	for i, cfg := range configs {
 		name, named := OCConfigName(cfg)
 		if !named {
 			report(pdf.Checks.Structure.OCConfigMissingName, cfg, "has no non-empty Name string")
 		}
-		if dup {
-			report(pdf.Checks.Structure.OCConfigDuplicateName, cfg, "repeats the Name %q", name)
+		if dups[i] {
+			report(pdf.Checks.Structure.OCConfigDuplicateName, cfg, fmt.Sprintf("repeats the Name %q", name))
 		}
-		if missing := OCGroupsMissingFromOrder(cfg, groups); len(missing) > 0 {
-			names := make([]string, len(missing))
+		if missing := OCGroupsMissingFromOrder(cfg, groupNames); len(missing) > 0 {
+			quoted := make([]string, len(missing))
 			for j, g := range missing {
-				names[j] = fmt.Sprintf("%q", OCGroupName(g))
+				quoted[j] = fmt.Sprintf("%q", groupNames[g])
 			}
 			report(pdf.Checks.Structure.OCConfigOrderIncomplete, cfg,
-				"has an Order that does not list the group(s) %s", strings.Join(names, ", "))
+				"has an Order that does not list the group(s) "+strings.Join(quoted, ", "))
 		}
 		if _, ok := cfg.Entries.Lookup("AS"); ok {
 			report(pdf.Checks.Structure.OCConfigAutoState, cfg, "contains an AS entry")
@@ -66,13 +63,20 @@ func OCConfigs(props pdf.PDFDict) []pdf.PDFDict {
 	if d, ok := props.Entries.Get("D").(pdf.PDFDict); ok {
 		configs = append(configs, d)
 	}
-	arr, _ := props.Entries.Get("Configs").(pdf.PDFArray)
-	for _, v := range arr {
-		if cfg, ok := v.(pdf.PDFDict); ok {
-			configs = append(configs, cfg)
+	return append(configs, dictsOf(props.Entries.Get("Configs"))...)
+}
+
+// dictsOf returns the dictionaries among the elements of v, when it is an
+// array.
+func dictsOf(v pdf.PDFValue) []pdf.PDFDict {
+	arr, _ := v.(pdf.PDFArray)
+	var dicts []pdf.PDFDict
+	for _, e := range arr {
+		if d, ok := e.(pdf.PDFDict); ok {
+			dicts = append(dicts, d)
 		}
 	}
-	return configs
+	return dicts
 }
 
 // textEntry returns the decoded text of d's key entry and reports whether
@@ -114,40 +118,37 @@ func OCConfigDuplicates(configs []pdf.PDFDict) []bool {
 // OCGroups returns the optional content group dictionaries that the OCGs
 // array of props, an OCProperties dictionary, lists.
 func OCGroups(props pdf.PDFDict) []pdf.PDFDict {
-	arr, _ := props.Entries.Get("OCGs").(pdf.PDFArray)
-	var groups []pdf.PDFDict
-	for _, v := range arr {
-		if g, ok := v.(pdf.PDFDict); ok {
-			groups = append(groups, g)
-		}
+	return dictsOf(props.Entries.Get("OCGs"))
+}
+
+// OCGroupNames returns the Name string of each of groups, or the empty
+// string for a group that has none.
+func OCGroupNames(groups []pdf.PDFDict) []string {
+	names := make([]string, len(groups))
+	for i, g := range groups {
+		names[i], _ = textEntry(g, "Name")
 	}
-	return groups
+	return names
 }
 
-// OCGroupName returns the Name string of the group dictionary g, or the empty
-// string when it has none.
-func OCGroupName(g pdf.PDFDict) string {
-	name, _ := textEntry(g, "Name")
-	return name
-}
-
-// OCGroupsMissingFromOrder returns the groups that the Order array of the
+// OCGroupsMissingFromOrder returns the indices into names, the group names
+// OCGroupNames returns, of the groups that the Order array of the
 // configuration dictionary cfg does not list. As in veraPDF, a group is
 // listed when a dictionary anywhere in Order, including in nested arrays,
 // has a Name string equal to the group's name; a group without a Name
 // string counts as named with the empty string. A configuration whose Order
 // is absent or not an array is treated as listing every group.
-func OCGroupsMissingFromOrder(cfg pdf.PDFDict, groups []pdf.PDFDict) []pdf.PDFDict {
+func OCGroupsMissingFromOrder(cfg pdf.PDFDict, names []string) []int {
 	order, ok := cfg.Entries.Get("Order").(pdf.PDFArray)
-	if !ok || len(groups) == 0 {
+	if !ok || len(names) == 0 {
 		return nil
 	}
 	listed := map[string]bool{}
-	collectOrderNames(order, listed, map[*pdf.PDFValue]bool{}, 0)
-	var missing []pdf.PDFDict
-	for _, g := range groups {
-		if !listed[OCGroupName(g)] {
-			missing = append(missing, g)
+	collectOrderNames(order, listed, map[uintptr]bool{}, 0)
+	var missing []int
+	for i, name := range names {
+		if !listed[name] {
+			missing = append(missing, i)
 		}
 	}
 	return missing
@@ -155,12 +156,13 @@ func OCGroupsMissingFromOrder(cfg pdf.PDFDict, groups []pdf.PDFDict) []pdf.PDFDi
 
 // collectOrderNames adds to listed the Name string of each dictionary in
 // arr and in the arrays nested in it. seen holds the arrays already visited,
-// so an array reached twice, or from within itself, is read once.
-func collectOrderNames(arr pdf.PDFArray, listed map[string]bool, seen map[*pdf.PDFValue]bool, depth int) {
-	if len(arr) == 0 || depth > maxOrderDepth || seen[&arr[0]] {
+// by pdf.ArrayPointer, so an array reached twice, or from within itself, is
+// read once.
+func collectOrderNames(arr pdf.PDFArray, listed map[string]bool, seen map[uintptr]bool, depth int) {
+	if depth > maxOrderDepth || seen[pdf.ArrayPointer(arr)] {
 		return
 	}
-	seen[&arr[0]] = true
+	seen[pdf.ArrayPointer(arr)] = true
 	for _, v := range arr {
 		switch v := v.(type) {
 		case pdf.PDFArray:

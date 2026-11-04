@@ -61,7 +61,7 @@ func TestVerifyOCConfigs(t *testing.T) {
 			}
 			defer d.Close()
 			var got []pdf.Check
-			for _, e := range verifyOptionalContent(d, *a2bSpec) {
+			for _, e := range ocConfigRule(d, nil, nil) {
 				got = append(got, e.Check())
 			}
 			if !reflect.DeepEqual(got, tc.want) {
@@ -80,7 +80,7 @@ func TestVerifyOCConfigsGroupWithoutName(t *testing.T) {
 		t.Fatalf("OpenBytes: %v", err)
 	}
 	defer d.Close()
-	errs := verifyOptionalContent(d, *a2bSpec)
+	errs := ocConfigRule(d, nil, nil)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.OCConfigOrderIncomplete {
 		t.Fatalf("errs = %v, want OCConfigOrderIncomplete", errs)
 	}
@@ -96,7 +96,7 @@ func TestVerifyOCConfigsCatalogNotADict(t *testing.T) {
 		t.Fatalf("OpenBytes: %v", err)
 	}
 	defer d.Close()
-	if errs := verifyOptionalContent(d, *a2bSpec); errs != nil {
+	if errs := ocConfigRule(d, nil, nil); errs != nil {
 		t.Errorf("verifyOptionalContent = %v, want nil", errs)
 	}
 }
@@ -107,7 +107,7 @@ func TestCollectOrderNamesDepth(t *testing.T) {
 		order = pdf.PDFArray{order}
 	}
 	listed := map[string]bool{}
-	collectOrderNames(order, listed, map[*pdf.PDFValue]bool{}, 0)
+	collectOrderNames(order, listed, map[uintptr]bool{}, 0)
 	if listed["deep"] {
 		t.Error("a name nested beyond maxOrderDepth was collected")
 	}

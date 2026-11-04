@@ -185,7 +185,7 @@ func TestOCConfigFixerRepairsEveryRule(t *testing.T) {
 		if _, ok := cfg.Entries.Lookup("AS"); ok {
 			t.Errorf("configuration %d kept AS", i)
 		}
-		if missing := verify.OCGroupsMissingFromOrder(cfg, verify.OCGroups(props)); len(missing) != 0 {
+		if missing := verify.OCGroupsMissingFromOrder(cfg, verify.OCGroupNames(verify.OCGroups(props))); len(missing) != 0 {
 			t.Errorf("configuration %d Order misses %d groups", i, len(missing))
 		}
 	}
@@ -195,10 +195,7 @@ func TestOCConfigFixerRepairsEveryRule(t *testing.T) {
 	if slices.Contains(verify.OCConfigDuplicates(configs), true) {
 		t.Error("a name is still repeated")
 	}
-	var groupNames []string
-	for _, g := range verify.OCGroups(props) {
-		groupNames = append(groupNames, verify.OCGroupName(g))
-	}
+	groupNames := verify.OCGroupNames(verify.OCGroups(props))
 	if want := []string{"A", "B", "Layer"}; !slices.Equal(groupNames, want) {
 		t.Errorf("group names = %q, want %q", groupNames, want)
 	}

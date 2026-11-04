@@ -430,7 +430,7 @@ func TestOCConfigFixerRepairsOnlyReportedChecks(t *testing.T) {
 			{s.OCConfigMissingName, "D /Name", renamed(unnamed)},
 			{s.OCConfigDuplicateName, "repeated /Name", renamed(repeat)},
 			{s.OCConfigOrderIncomplete, "/Order", func() bool { return len(unnamed.Entries.Get("Order").(pdf.PDFArray)) == 1 }},
-			{s.OCConfigOrderIncomplete, "group /Name", func() bool { return verify.OCGroupName(group) != "" }},
+			{s.OCConfigOrderIncomplete, "group /Name", func() bool { return verify.OCGroupNames([]pdf.PDFDict{group})[0] != "" }},
 			{s.OCConfigAutoState, "/AS", func() bool { return unnamed.Entries.Get("AS") == nil }},
 		}
 	})
