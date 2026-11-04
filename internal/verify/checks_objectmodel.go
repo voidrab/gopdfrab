@@ -743,10 +743,13 @@ func linkGroupMatchesKind(val pdf.PDFValue, valueTypes []arlington.ValueType) bo
 			if _, ok := val.(pdf.PDFArray); ok {
 				return true
 			}
-		case arlington.Dictionary, arlington.NameTree, arlington.NumberTree:
+		case arlington.Dictionary:
 			if d, ok := val.(pdf.PDFDict); ok && !d.IsStream() {
 				return true
 			}
+		case arlington.NameTree, arlington.NumberTree:
+			// A tree's link names the type of its leaves, not of the node
+			// the key holds, so it gives that node no type.
 		case arlington.Stream:
 			if d, ok := val.(pdf.PDFDict); ok && d.IsStream() {
 				return true

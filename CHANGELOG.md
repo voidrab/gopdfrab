@@ -78,6 +78,9 @@ Everything under `internal/` may change in any release without notice.
   throughout. The cross-reference check replaced the reader's entries with
   those of earlier sections as it walked them, so checks that ran after it
   could see objects as an earlier revision had them.
+- Verify no longer checks the node that a name tree entry holds, such as the
+  EmbeddedFiles entry of the name dictionary, against the type of the tree's
+  leaves. It reported such a node as a file specification missing its F key.
 
 - Convert replaces a trailer ID that holds no file identifier bytes, such as
   `[<> <>]`, with a synthesized one, as it does a missing ID, instead of

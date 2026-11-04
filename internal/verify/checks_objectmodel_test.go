@@ -1570,3 +1570,16 @@ func TestEnumString(t *testing.T) {
 		})
 	}
 }
+
+// TestObjectModelNameTreeNode verifies that the node a name tree key holds is
+// not checked against the type of the tree's leaves.
+func TestObjectModelNameTreeNode(t *testing.T) {
+	doc := catalogDoc("/Names << /EmbeddedFiles << /Names [(a) << /Type /Filespec /F (a) >>] >> /Dests << /Names [] >> >>")
+	res, err := VerifyBytes(doc, pdf.PDF, nil)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if len(res.Issues) > 0 {
+		t.Errorf("issues = %v, want none", res.Issues)
+	}
+}
