@@ -45,11 +45,11 @@ func main() {
 //	  lostObjects: Issue[]
 //	}>
 //
-// profile names the target profile as gopdfrabVerify's does, defaulting to
-// "pdfa1b". The input is verified against it before conversion so the caller
-// can be told which of its original defects were resolved -- ConvertResult
-// only reports what is left over. jsapi.Issue and jsapi.DocInfo document the Issue and DocInfo
-// shapes.
+// profile names the target profile, as gopdfrabVerify's does, and defaults
+// to "pdfa1b". The input is verified against profile before conversion, so
+// the caller can tell which of its original defects were resolved;
+// ConvertResult reports only what is left over. jsapi.Issue and
+// jsapi.DocInfo document the Issue and DocInfo shapes.
 func jsConvert(_ js.Value, args []js.Value) any {
 	return jsapi.NewPromise(func() (any, error) {
 		if len(args) < 1 {
