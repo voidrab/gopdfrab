@@ -189,7 +189,7 @@ func TestOCConfigFixerRepairsEveryRule(t *testing.T) {
 			t.Errorf("configuration %d Order misses %d groups", i, len(missing))
 		}
 	}
-	if want := []string{"Default", "X", "Configuration"}; !slices.Equal(names, want) {
+	if want := []string{"Default", "X", "X 2"}; !slices.Equal(names, want) {
 		t.Errorf("names = %q, want %q", names, want)
 	}
 	if slices.Contains(verify.OCConfigDuplicates(configs), true) {
@@ -224,6 +224,40 @@ func TestOCConfigFixerNoOp(t *testing.T) {
 		if changed, err := (ocConfigFixer{}).Fix(&trailer, all); changed || err != nil {
 			t.Errorf("Fix(%v) = %v, %v, want no change", trailer, changed, err)
 		}
+	}
+}
+
+// TestOCConfigFixerKeepsGivenNames verifies that a hex-string name is kept,
+// and that a name object's value becomes the new Name string.
+func TestOCConfigFixerKeepsGivenNames(t *testing.T) {
+	hex := kv("Type", name("OCG"), "Name", pdf.PDFHexString{Value: "FEFF004D"})
+	cfg := kv("Name", name("Print"), "Order", pdf.PDFArray{})
+	trailer := trailerWith("OCProperties", kv("OCGs", pdf.PDFArray{hex}, "D", cfg))
+	s := pdf.Checks.Structure
+	if _, err := (ocConfigFixer{}).Fix(&trailer, issuesOf(s.OCConfigMissingName, s.OCConfigOrderIncomplete)); err != nil {
+		t.Fatal(err)
+	}
+	if hex.Entries.Get("Name") != (pdf.PDFHexString{Value: "FEFF004D"}) {
+		t.Errorf("group Name = %v, want the hex string kept", hex.Entries.Get("Name"))
+	}
+	if name, _ := verify.OCConfigName(cfg); name != "Print" {
+		t.Errorf("configuration Name = %q, want Print", name)
+	}
+}
+
+// TestOCConfigFixerSharedUnnamedConfig verifies that one pass repairs a D
+// that Configs lists again and that has no Name, when only the missing name
+// is reported.
+func TestOCConfigFixerSharedUnnamedConfig(t *testing.T) {
+	d := kv("Order", pdf.PDFArray{})
+	props := kv("D", d, "Configs", pdf.PDFArray{d})
+	trailer := trailerWith("OCProperties", props)
+	if _, err := (ocConfigFixer{}).Fix(&trailer, issuesOf(pdf.Checks.Structure.OCConfigMissingName)); err != nil {
+		t.Fatal(err)
+	}
+	configs := verify.OCConfigs(props)
+	if len(configs) != 1 || slices.Contains(verify.OCConfigDuplicates(configs), true) {
+		t.Errorf("configs = %v, want D alone", configs)
 	}
 }
 

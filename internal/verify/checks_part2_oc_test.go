@@ -38,6 +38,7 @@ func TestVerifyOCConfigs(t *testing.T) {
 		{"D missing Name", "<< /OCGs [10 0 R] /D << >> >>", []pdf.Check{s.OCConfigMissingName}},
 		{"empty Name", "<< /OCGs [10 0 R] /D << /Name () >> >>", []pdf.Check{s.OCConfigMissingName}},
 		{"UTF-16 empty Name", "<< /OCGs [10 0 R] /D << /Name <FEFF> >> >>", []pdf.Check{s.OCConfigMissingName}},
+		{"hex-string Names", "<< /OCGs [<< /Type /OCG /Name <FEFF0041> >>] /D << /Name <FEFF0044> /Order [<< /Name (A) >>] >> >>", nil},
 		{"Name a name object", "<< /OCGs [10 0 R] /D << /Name /Default >> >>", []pdf.Check{s.OCConfigMissingName}},
 		{"Configs entry missing Name", "<< /OCGs [10 0 R] /D << /Name (D) >> /Configs [1 << >>] >>", []pdf.Check{s.OCConfigMissingName}},
 		{

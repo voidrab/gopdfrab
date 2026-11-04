@@ -586,9 +586,9 @@ func verifyCrossReferenceTable(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 			return errs
 		}
 
-		// Fill in only: an older section's entries must not replace the
-		// newer ones the reader resolves objects by.
-		prevTrailer, err := d.ParseXRefSectionAt(prevOffset+d.PDFStart(), true)
+		// Read the trailer only: the reader resolves objects by the table
+		// it built when it opened the file.
+		prevTrailer, err := d.XRefTrailerAt(prevOffset + d.PDFStart())
 		if err != nil {
 			break
 		}

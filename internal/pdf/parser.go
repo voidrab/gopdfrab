@@ -35,7 +35,7 @@ func xrefEntryOffset(field []byte, trimPadding bool) int64 {
 // the document's table, strictly: see readXRefSection.
 func (d *Reader) parseXRefTable(offset int64) error {
 	d.xrefTable = make(map[int]int64)
-	_, err := d.readXRefSection(offset, true, false)
+	_, err := d.readXRefSection(offset, true, false, d.xrefTable)
 	return err
 }
 
@@ -43,7 +43,19 @@ func (d *Reader) parseXRefTable(offset int64) error {
 // If fillIn is true, only entries not already in d.xrefTable are added,
 // preserving newer revisions.
 func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) {
-	c, err := d.readXRefSection(offset, false, fillIn)
+	return d.parseXRefSectionAt(offset, fillIn, d.xrefTable)
+}
+
+// XRefTrailerAt parses the xref section at offset as ParseXRefSectionAt does
+// and returns its trailer dict, leaving d.xrefTable unchanged.
+func (d *Reader) XRefTrailerAt(offset int64) (PDFDict, error) {
+	return d.parseXRefSectionAt(offset, false, nil)
+}
+
+// parseXRefSectionAt reads the section at offset into table, which may be
+// nil, and parses the trailer dict that follows it.
+func (d *Reader) parseXRefSectionAt(offset int64, fillIn bool, table map[int]int64) (PDFDict, error) {
+	c, err := d.readXRefSection(offset, false, fillIn, table)
 	if err != nil {
 		return PDFDict{}, err
 	}
@@ -58,12 +70,13 @@ func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) 
 }
 
 // readXRefSection reads the subsections of the classic cross-reference
-// section at offset into d.xrefTable, and returns a cursor just past them.
+// section at offset into table, unless it is nil, and returns a cursor just
+// past them.
 // When strict, a section the file ends inside is an error, and an entry's
 // offset must be ten digits. Otherwise reading stops at the first damage
 // without error, and an offset padded with spaces is read. When fillIn, an
 // object the table already holds keeps its entry, as a newer revision's.
-func (d *Reader) readXRefSection(offset int64, strict, fillIn bool) (*SectionCursor, error) {
+func (d *Reader) readXRefSection(offset int64, strict, fillIn bool, table map[int]int64) (*SectionCursor, error) {
 	c := d.SectionAt(offset)
 	line, ok := c.ReadLine()
 	if !ok {
@@ -106,10 +119,10 @@ func (d *Reader) readXRefSection(offset int64, strict, fillIn bool) (*SectionCur
 				}
 				break
 			}
-			if entry[17] == 'n' { // 'n' = used entry
+			if entry[17] == 'n' && table != nil { // 'n' = used entry
 				objNum := startObjID + i
-				if !fillIn || d.xrefTable[objNum] == 0 {
-					d.xrefTable[objNum] = xrefEntryOffset(entry[:10], !strict) + d.pdfStart
+				if !fillIn || table[objNum] == 0 {
+					table[objNum] = xrefEntryOffset(entry[:10], !strict) + d.pdfStart
 				}
 			}
 		}

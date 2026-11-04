@@ -171,7 +171,9 @@ func (ocConfigFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, err
 	reported := reportedChecks(issues)
 	s := pdf.Checks.Structure
 	changed := false
-	if reported[s.OCConfigDuplicateName] {
+	// A repeated entry breaks a name rule whatever its name: renaming the
+	// dictionary renames every place it is listed.
+	if reported[s.OCConfigMissingName] || reported[s.OCConfigDuplicateName] {
 		changed = dropRepeatedOCConfigs(props)
 	}
 	configs := verify.OCConfigs(props)
@@ -239,11 +241,11 @@ func renameOCConfigs(configs []pdf.PDFDict, missing, duplicate bool) bool {
 		if (named || !missing) && (!dup[i] || !duplicate) {
 			continue
 		}
-		base := "Configuration"
+		fallback := "Configuration"
 		if i == 0 {
-			base = "Default"
+			fallback = "Default"
 		}
-		cfg.Entries.Set("Name", pdf.PDFString{Value: uniqueName(taken, base)})
+		setFreshName(cfg, taken, fallback)
 		changed = true
 	}
 	return changed
@@ -251,8 +253,7 @@ func renameOCConfigs(configs []pdf.PDFDict, missing, duplicate bool) bool {
 
 // completeOCOrders appends to the Order array of each of configs the groups
 // it does not list. As the Order check matches groups by name, a group
-// without a Name string first gets one: the value of a name object, or a
-// fresh name.
+// without a Name string first gets one, by setFreshName.
 func completeOCOrders(groups []pdf.PDFDict, configs []pdf.PDFDict) bool {
 	taken := map[string]bool{}
 	for _, g := range groups {
@@ -260,15 +261,10 @@ func completeOCOrders(groups []pdf.PDFDict, configs []pdf.PDFDict) bool {
 	}
 	changed := false
 	for _, g := range groups {
-		if _, ok := g.Entries.Get("Name").(pdf.PDFString); ok {
-			continue
+		if _, ok := pdf.StringBytes(g.Entries.Get("Name")); !ok {
+			setFreshName(g, taken, "Layer")
+			changed = true
 		}
-		name := "Layer"
-		if n, ok := g.Entries.Get("Name").(pdf.PDFName); ok && n.Value != "" {
-			name = n.Value
-		}
-		g.Entries.Set("Name", pdf.PDFString{Value: string(pdf.EncodePDFTextString(uniqueName(taken, name)))})
-		changed = true
 	}
 	for _, cfg := range configs {
 		missing := verify.OCGroupsMissingFromOrder(cfg, groups)
@@ -285,6 +281,21 @@ func completeOCOrders(groups []pdf.PDFDict, configs []pdf.PDFDict) bool {
 		changed = true
 	}
 	return changed
+}
+
+// setFreshName sets the Name of d to a text string no name in taken has,
+// and marks it taken. It is d's current name, the value of a name object
+// or fallback, numbered by uniqueName when that is taken.
+func setFreshName(d pdf.PDFDict, taken map[string]bool, fallback string) {
+	base, _ := pdf.StringBytes(d.Entries.Get("Name"))
+	name := pdf.DecodePDFTextString(base)
+	if n, ok := d.Entries.Get("Name").(pdf.PDFName); ok {
+		name = n.Value
+	}
+	if name == "" {
+		name = fallback
+	}
+	d.Entries.Set("Name", pdf.PDFString{Value: string(pdf.EncodePDFTextString(uniqueName(taken, name)))})
 }
 
 // uniqueName returns base, or base followed by the smallest number from 2 up

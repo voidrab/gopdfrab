@@ -76,13 +76,14 @@ func OCConfigs(props pdf.PDFDict) []pdf.PDFDict {
 }
 
 // textEntry returns the decoded text of d's key entry and reports whether
-// that entry is a string. A name object is not a string.
+// that entry is a string, literal or hexadecimal. A name object is not a
+// string.
 func textEntry(d pdf.PDFDict, key string) (string, bool) {
-	s, ok := d.Entries.Get(key).(pdf.PDFString)
+	raw, ok := pdf.StringBytes(d.Entries.Get(key))
 	if !ok {
 		return "", false
 	}
-	return pdf.DecodePDFTextString([]byte(s.Value)), true
+	return pdf.DecodePDFTextString(raw), true
 }
 
 // OCConfigName returns the Name of the configuration dictionary cfg and
