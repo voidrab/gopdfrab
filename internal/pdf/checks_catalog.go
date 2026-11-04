@@ -133,6 +133,15 @@ func (c Check) numberIn(level LevelType) (clause string, subclause int) {
 	return c.clause, c.subclause
 }
 
+// formatClause renders a clause and subclause as "clause/subclause", or the
+// clause alone when the subclause is 0.
+func formatClause(clause string, subclause int) string {
+	if subclause > 0 {
+		return clause + "/" + strconv.Itoa(subclause)
+	}
+	return clause
+}
+
 // --- Check group types --------------------------------------------------
 
 type structureChecks struct {

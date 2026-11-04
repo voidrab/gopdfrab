@@ -181,7 +181,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	// Objects the reader degraded to null were serialized as null: their
 	// content is lost. The final verify ran on the output bytes, where the
 	// loss is invisible, so it is recorded here instead -- as loss, not as
-	// non-conformance. The file that was written really does meet PDF/A-1b;
+	// non-conformance. The file that was written really does meet its level;
 	// what it no longer holds is a separate fact, and one a caller wants
 	// separately. (Recovered objects are not carried: the rewrite emits a
 	// correct xref, genuinely fixing them.)

@@ -95,6 +95,23 @@ func TestClauseFieldNumbersByIssueLevel(t *testing.T) {
 	}
 }
 
+// TestGroupIssuesKeepsChecksSharingAClauseApart verifies that two checks
+// numbered alike under a level stay on separate lines even when they report
+// the same message.
+func TestGroupIssuesKeepsChecksSharingAClauseApart(t *testing.T) {
+	issues := []gopdfrab.PDFError{
+		issue(gopdfrab.Checks.Structure.StreamLengthMismatch, 1, nil, "same"),
+		issue(gopdfrab.Checks.Structure.StreamLengthIncludesEOL, 1, nil, "same"),
+	}
+	pdf.StampLevel(issues, gopdfrab.A2B)
+	if got := groupIssues(issues); len(got) != 2 {
+		t.Errorf("groupIssues gave %d groups, want 2: %+v", len(got), got)
+	}
+	if got := foldIssues(issues); len(got) != 2 {
+		t.Errorf("foldIssues gave %d issues, want 2: %+v", len(got), got)
+	}
+}
+
 func TestFoldIssues(t *testing.T) {
 	ref4 := &gopdfrab.PDFRef{ObjNum: 4}
 	ref4gen1 := &gopdfrab.PDFRef{ObjNum: 4, GenNum: 1}

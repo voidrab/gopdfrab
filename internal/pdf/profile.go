@@ -229,8 +229,8 @@ func (p *Profile) Allows(clause string, subclause int) bool {
 	return p.enabled[c.ID()]
 }
 
-// Name returns the name of a ready-made profile: "pdfa1b", "legacy1b" or
-// "pdf". It is empty for any other profile, including one derived from a
+// Name returns the name of a ready-made profile: "pdfa1b", "legacy1b",
+// "pdfa2b" or "pdf". It is empty for any other profile, including one derived from a
 // ready-made profile by Clone, Clear, AddCheck or RemoveCheck.
 func (p *Profile) Name() string { return p.name }
 

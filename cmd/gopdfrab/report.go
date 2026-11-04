@@ -45,10 +45,12 @@ type foldedIssue struct {
 	count int
 }
 
-// groupKey identifies an issue for grouping: its check and its messages.
+// groupKey identifies an issue for grouping: its check and its messages. The
+// clause alone does not identify the check, as several checks may share one.
 type groupKey struct {
 	clause    string
 	subclause int
+	check     string
 	messages  string
 }
 
@@ -66,6 +68,7 @@ func groupKeyOf(e verify.PDFError) groupKey {
 	return groupKey{
 		clause:    clause,
 		subclause: subclause,
+		check:     e.Check().Name(),
 		// NUL cannot be confused with text inside a message, so ["a; b"] and
 		// ["a", "b"] stay distinct.
 		messages: strings.Join(e.Messages(), "\x00"),
@@ -157,6 +160,9 @@ func compareGroupKeys(a, b groupKey) int {
 		return c
 	}
 	if c := a.subclause - b.subclause; c != 0 {
+		return c
+	}
+	if c := strings.Compare(a.check, b.check); c != 0 {
 		return c
 	}
 	return strings.Compare(a.messages, b.messages)

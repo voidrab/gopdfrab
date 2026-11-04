@@ -1,5 +1,5 @@
-// Command gopdfrab verifies and converts PDFs for PDF/A-1b conformance from
-// the command line. It is a thin wrapper over the public API: the verify
+// Command gopdfrab verifies and converts PDFs for PDF/A-1b and PDF/A-2b
+// conformance from the command line. It is a thin wrapper over the public API: the verify
 // subcommand and the shared reporting use gopdfrab/verify, and only convert
 // uses gopdfrab.
 //
@@ -60,7 +60,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `gopdfrab -- verify and convert PDFs for PDF/A-1b conformance
+	fmt.Fprint(w, `gopdfrab -- verify and convert PDFs for PDF/A-1b and PDF/A-2b conformance
 
 usage:
   gopdfrab verify  [flags] <path-or-dir>...   verify conformance (dirs walked recursively)

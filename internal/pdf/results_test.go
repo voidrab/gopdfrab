@@ -169,3 +169,25 @@ func TestLevelOfInvertsPartOf(t *testing.T) {
 		t.Errorf("Level() after stamping an unknown level = %q, want %q", got, Undefined)
 	}
 }
+
+// TestResultChecksBreaksSharedClauseTiesByName verifies that checks sharing a
+// clause and subclause under a level sort by name, whatever order their
+// issues were reported in.
+func TestResultChecksBreaksSharedClauseTiesByName(t *testing.T) {
+	a := Checks.Structure.StreamLengthIncludesEOL
+	b := Checks.Structure.StreamLengthMismatch
+	ca, sa, _ := a.ClauseIn(A2B)
+	cb, sb, _ := b.ClauseIn(A2B)
+	if ca != cb || sa != sb {
+		t.Fatalf("%s is %s/%d and %s is %s/%d under A2B, want one shared pair", a.Name(), ca, sa, b.Name(), cb, sb)
+	}
+	for _, issues := range [][]PDFError{
+		{NewError(a, nil, 0, nil), NewError(b, nil, 0, nil)},
+		{NewError(b, nil, 0, nil), NewError(a, nil, 0, nil)},
+	} {
+		r := Result{Type: A2B, Issues: issues}
+		if checks := r.Checks(); len(checks) != 2 || checks[0] != a || checks[1] != b {
+			t.Errorf("Checks() = %v, want [%s, %s]", checks, a.Name(), b.Name())
+		}
+	}
+}

@@ -60,12 +60,7 @@ func (e PDFError) String() string {
 
 	b.WriteString("PDF/A violation")
 	if clause, subclause := e.check.numberIn(e.Level()); clause != "" {
-		b.WriteString(" (")
-		b.WriteString(clause)
-		if subclause > 0 {
-			fmt.Fprintf(&b, "/%d", subclause)
-		}
-		b.WriteString(")")
+		b.WriteString(" (" + formatClause(clause, subclause) + ")")
 	}
 
 	if e.page > 0 {

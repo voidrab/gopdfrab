@@ -34,7 +34,8 @@ func (r Result) Count() int {
 
 // Checks returns the distinct Checks violated in r.Issues, sorted by their
 // clause under r.Type in numeric (dotted-segment) order, e.g. "6.2.9" before
-// "6.2.10", then by subclause.
+// "6.2.10", then by subclause and by name, as checks may share a clause and
+// subclause.
 func (r Result) Checks() []Check {
 	seen := make(map[Check]bool)
 	var out []Check
@@ -51,7 +52,10 @@ func (r Result) Checks() []Check {
 		if ci != cj {
 			return ClauseLess(ci, cj)
 		}
-		return si < sj
+		if si != sj {
+			return si < sj
+		}
+		return out[i].name < out[j].name
 	})
 	return out
 }
@@ -127,12 +131,7 @@ func (r Result) Summary() string {
 
 	byCheck := r.IssuesByCheck()
 	for _, c := range r.Checks() {
-		clause, subclause := c.numberIn(r.Type)
-		b.WriteString("\n  " + clause)
-		if subclause > 0 {
-			fmt.Fprintf(&b, "/%d", subclause)
-		}
-		fmt.Fprintf(&b, " %s: %d", c.Name(), len(byCheck[c]))
+		fmt.Fprintf(&b, "\n  %s %s: %d", formatClause(c.numberIn(r.Type)), c.Name(), len(byCheck[c]))
 	}
 	return b.String()
 }
