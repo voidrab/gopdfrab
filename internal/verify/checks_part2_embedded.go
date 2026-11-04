@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -13,13 +14,25 @@ import (
 // 6.8 Embedded files (ISO 19005-2)
 
 // maxEmbedDepth bounds how deeply embedded files are verified inside one
-// another. Each level decodes and verifies a whole document, and a file can
-// embed a copy of itself.
-const maxEmbedDepth = 4
+// another, and maxEmbedVerifies how many embedded files one verify run
+// verifies in all, at every depth. Each one decodes and verifies a whole
+// document, and a file can embed a copy of itself, so without both a file of
+// many small attachments, each with as many of its own, would cost a number
+// of verifies exponential in its depth.
+const (
+	maxEmbedDepth    = 4
+	maxEmbedVerifies = 64
+)
 
-// embedDepthKey is the context key under which a nested verify records how
-// many embedded files enclose the document it verifies.
-type embedDepthKey struct{}
+// embedState is what a verify run and the verifies of the files it embeds
+// share: the depth of the document being verified, and the verifies left.
+type embedState struct {
+	depth int
+	left  *atomic.Int32
+}
+
+// embedStateKey is the context key of a nested verify's embedState.
+type embedStateKey struct{}
 
 // verifyEmbedded verifies an embedded file. It is VerifyContext, set in init
 // because the rule tables VerifyContext reads refer back to it.
@@ -104,22 +117,29 @@ func HasFileNames(fs pdf.PDFDict) bool {
 // with PDF/A-1b or PDF/A-2b, as test 5 of ISO 19005-2 6.8 requires, or
 // returns "" when it does. As veraPDF judges it, the file must claim one of
 // the two levels in its XMP metadata and pass every check of the level it
-// claims. run is the context of the run that found ef, or nil for none.
-func EmbeddedFileProblem(run context.Context, ef pdf.PDFDict) string {
+// claims. decided is false when the file could not be judged: it is nested
+// too deeply, the run has verified as many embedded files as it may, or run
+// was cancelled. The problem then says so, and the file may comply. run is
+// the context of the run that found ef, or nil for none.
+func EmbeddedFileProblem(run context.Context, ef pdf.PDFDict) (problem string, decided bool) {
 	if run == nil {
 		run = context.Background()
 	}
-	depth, _ := run.Value(embedDepthKey{}).(int)
-	if depth >= maxEmbedDepth {
-		return fmt.Sprintf("is embedded more than %d levels deep, too deep to verify", maxEmbedDepth)
+	state, ok := run.Value(embedStateKey{}).(embedState)
+	if !ok {
+		state.left = new(atomic.Int32)
+		state.left.Store(maxEmbedVerifies)
+	}
+	if state.depth >= maxEmbedDepth {
+		return fmt.Sprintf("is embedded more than %d levels deep, too deep to verify", maxEmbedDepth), false
 	}
 	data, err := pdf.DecodeStream(ef)
 	if err != nil {
-		return "cannot be decoded: " + err.Error()
+		return "cannot be decoded: " + err.Error(), true
 	}
 	doc, err := pdf.OpenBytes(data)
 	if err != nil {
-		return "is not a readable PDF file"
+		return "is not a readable PDF file", true
 	}
 	defer doc.Close()
 	part, conformance, _ := doc.ClaimedConformance()
@@ -131,16 +151,24 @@ func EmbeddedFileProblem(run context.Context, ef pdf.PDFDict) string {
 	case "2B":
 		p = pdf.PDFA2B
 	default:
-		return "does not claim PDF/A-1b or PDF/A-2b"
+		return "does not claim PDF/A-1b or PDF/A-2b", true
 	}
-	res, err := verifyEmbedded(context.WithValue(run, embedDepthKey{}, depth+1), doc, p)
+	if state.left.Add(-1) < 0 {
+		return fmt.Sprintf("was not verified: a document verifies at most %d embedded files", maxEmbedVerifies), false
+	}
+	nested := embedState{depth: state.depth + 1, left: state.left}
+	res, err := verifyEmbedded(context.WithValue(run, embedStateKey{}, nested), doc, p)
 	if err != nil {
-		return "cannot be verified: " + err.Error()
+		return "cannot be verified: " + err.Error(), false
 	}
 	if !res.Valid {
-		return fmt.Sprintf("claims PDF/A-%s but fails %d of its checks", strings.ToLower(claim), len(res.Issues))
+		failed := map[pdf.Check]bool{}
+		for _, is := range res.Issues {
+			failed[is.Check()] = true
+		}
+		return fmt.Sprintf("claims PDF/A-%s but fails %d of its checks", strings.ToLower(claim), len(failed)), true
 	}
-	return ""
+	return "", true
 }
 
 // validateFileSpec checks a file specification dictionary, found by its type,
@@ -195,7 +223,7 @@ func (ctx *ValidationContext) embeddedFileProblem(ef pdf.PDFDict) string {
 	if ctx.embeddedFiles == nil {
 		ctx.embeddedFiles = map[uintptr]string{}
 	}
-	problem := EmbeddedFileProblem(ctx.run, ef)
+	problem, _ := EmbeddedFileProblem(ctx.run, ef)
 	ctx.embeddedFiles[ptr] = problem
 	return problem
 }

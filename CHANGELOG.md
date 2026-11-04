@@ -76,8 +76,9 @@ Everything under `internal/` may change in any release without notice.
   `EmbeddedFileNotPDFA`, `AlternatePresentations`, `PresentationSteps` and
   `CatalogRequirements`. An embedded file must claim PDF/A-1b or PDF/A-2b and
   pass every check of the level it claims; verify decodes and verifies it,
-  four levels deep at most. Converting to PDF/A-2b removes each embedded file
-  that does not comply, reporting it in `LostObjects`, gives the file
+  four levels deep and 64 files per document at most. Converting to PDF/A-2b
+  removes each embedded file that does not comply, reporting it in
+  `LostObjects`, but keeps one it could not judge within those limits, gives the file
   specification of each one it keeps the F or UF string it lacks, and deletes
   the presentation and requirements entries.
 

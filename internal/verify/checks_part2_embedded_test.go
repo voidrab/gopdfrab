@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -147,24 +148,31 @@ func TestEmbeddedFileProblem(t *testing.T) {
 	ok2B := readFile(t, compliant2B)
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
+	state := func(depth int, left int32) context.Context {
+		st := embedState{depth: depth, left: new(atomic.Int32)}
+		st.left.Store(left)
+		return context.WithValue(context.Background(), embedStateKey{}, st)
+	}
 	for _, tc := range []struct {
-		name string
-		run  context.Context
-		ef   pdf.PDFDict
-		want string
+		name    string
+		run     context.Context
+		ef      pdf.PDFDict
+		want    string
+		decided bool
 	}{
-		{"compliant", nil, stream(ok2B), ""},
-		{"undecodable", nil, brokenStreamDict(), "cannot be decoded"},
-		{"no claim", nil, stream(catalogDoc("")), "does not claim PDF/A-1b or PDF/A-2b"},
-		{"claims PDF/A-2u", nil, stream([]byte(strings.Replace(string(ok2B), `pdfaid:conformance="B"`, `pdfaid:conformance="U"`, 1))), "does not claim"},
-		{"too deep", context.WithValue(context.Background(), embedDepthKey{}, maxEmbedDepth), stream(ok2B), "too deep to verify"},
-		{"cancelled", cancelled, stream(ok2B), "cannot be verified"},
-		{"fails its checks", nil, stream(readFile(t, failing2B)), "claims PDF/A-2b but fails"},
+		{"compliant", nil, stream(ok2B), "", true},
+		{"undecodable", nil, brokenStreamDict(), "cannot be decoded", true},
+		{"no claim", nil, stream(catalogDoc("")), "does not claim PDF/A-1b or PDF/A-2b", true},
+		{"claims PDF/A-2u", nil, stream([]byte(strings.Replace(string(ok2B), `pdfaid:conformance="B"`, `pdfaid:conformance="U"`, 1))), "does not claim", true},
+		{"too deep", state(maxEmbedDepth, 1), stream(ok2B), "too deep to verify", false},
+		{"over budget", state(0, 0), stream(ok2B), "at most 64 embedded files", false},
+		{"cancelled", cancelled, stream(ok2B), "cannot be verified", false},
+		{"fails its checks", nil, stream(readFile(t, failing2B)), "claims PDF/A-2b but fails 1 of its checks", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := EmbeddedFileProblem(tc.run, tc.ef)
-			if tc.want == "" && got != "" || !strings.Contains(got, tc.want) {
-				t.Errorf("EmbeddedFileProblem = %q, want it to contain %q", got, tc.want)
+			got, decided := EmbeddedFileProblem(tc.run, tc.ef)
+			if tc.want == "" && got != "" || !strings.Contains(got, tc.want) || decided != tc.decided {
+				t.Errorf("EmbeddedFileProblem = %q, %v; want it to contain %q, %v", got, decided, tc.want, tc.decided)
 			}
 		})
 	}

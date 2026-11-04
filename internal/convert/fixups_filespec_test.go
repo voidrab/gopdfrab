@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -155,8 +156,8 @@ func TestEmbeddedFileFixerFillsFileNames(t *testing.T) {
 		f, uf string
 	}{
 		{"only F", onlyF, "f.txt", "f.txt"},
-		{"only UF", onlyUF, "\xfe\xff\x00\xe4", "ä"},
-		{"neither, in the tree", neither, "\xfe\xff\x00\xf6", "ö"},
+		{"only UF", onlyUF, "_", "ä"},
+		{"neither, in the tree", neither, "_", "ö"},
 		{"neither, outside the tree", untyped, "attachment", "attachment"},
 	} {
 		f, _ := pdf.StringBytes(tc.fs.Entries.Get("F"))
@@ -204,5 +205,24 @@ func TestPresentationFixer(t *testing.T) {
 	empty := pdf.NewPDFDict()
 	if changed, _ := (presentationFixer{}).Fix(&empty, everyCheck(presentationFixer{})); changed {
 		t.Error("Fix changed a trailer without a catalog")
+	}
+}
+
+// TestEmbeddedFileFixerKeepsUndecidedFiles verifies that an embedded file
+// that could not be judged, here because the run was cancelled, is kept.
+func TestEmbeddedFileFixerKeepsUndecidedFiles(t *testing.T) {
+	ok2B, err := os.ReadFile(compliant2B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "a"}, "UF", pdf.PDFString{Value: "a"},
+		"EF", specDict("F", pdf.NewStreamDict(nil, ok2B)))
+	trailer := trailerWith("X", fs)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	var lost []pdf.PDFError
+	changed, err := embeddedFileFixer{ctx: cancelled, lost: &lost}.Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA))
+	if err != nil || changed || len(lost) != 0 || fs.Entries.Get("EF") == nil {
+		t.Errorf("Fix = %v, %v, lost %v; want the file kept", changed, err, lost)
 	}
 }

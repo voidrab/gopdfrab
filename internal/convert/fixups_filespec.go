@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -135,7 +136,12 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 			for _, ef := range verify.EmbeddedFileStreams(fs) {
 				problem, ok := problems[ef.Entries]
 				if !ok {
-					problem = verify.EmbeddedFileProblem(f.ctx, ef)
+					// A file that could not be judged may comply, so it
+					// stays, and the output is left unconformant.
+					var decided bool
+					if problem, decided = verify.EmbeddedFileProblem(f.ctx, ef); !decided {
+						problem = ""
+					}
 					problems[ef.Entries] = problem
 				}
 				if problem != "" {
@@ -190,6 +196,8 @@ func dropAssociatedFiles(trailer pdf.PDFDict, dropped map[pdf.Dict]bool) {
 
 // fillFileNames gives the file specification fs the F or UF string it lacks:
 // the other one's text, or else treeName, or else a generic name, for both.
+// UF is a text string and keeps every character; F is a byte string, so a
+// character outside printable ASCII becomes an underscore there.
 func fillFileNames(fs pdf.PDFDict, treeName string) {
 	f, hasF := pdf.StringBytes(fs.Entries.Get("F"))
 	uf, hasUF := pdf.StringBytes(fs.Entries.Get("UF"))
@@ -204,11 +212,16 @@ func fillFileNames(fs pdf.PDFDict, treeName string) {
 	default:
 		name = "attachment"
 	}
-	text := pdf.PDFString{Value: string(pdf.EncodePDFTextString(name))}
 	if !hasF {
-		fs.Entries.Set("F", text)
+		ascii := strings.Map(func(r rune) rune {
+			if r < 0x20 || r >= 0x7F {
+				return '_'
+			}
+			return r
+		}, name)
+		fs.Entries.Set("F", pdf.PDFString{Value: ascii})
 	}
 	if !hasUF {
-		fs.Entries.Set("UF", text)
+		fs.Entries.Set("UF", pdf.PDFString{Value: string(pdf.EncodePDFTextString(name))})
 	}
 }
