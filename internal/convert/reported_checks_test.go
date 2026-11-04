@@ -436,8 +436,8 @@ func TestOCConfigFixerRepairsOnlyReportedChecks(t *testing.T) {
 	})
 }
 
-// TestEmbeddedFileFixerRepairsOnlyReportedChecks verifies that the embedded
-// file repairs each run only when their own check was reported.
+// TestEmbeddedFileFixerRepairsOnlyReportedChecks verifies that each embedded
+// file repair runs only when its own check was reported.
 func TestEmbeddedFileFixerRepairsOnlyReportedChecks(t *testing.T) {
 	s := pdf.Checks.Structure
 	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {

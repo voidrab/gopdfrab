@@ -690,8 +690,6 @@ func (f viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 // presentationFixer deletes the AlternatePresentations entry of the name
 // dictionary, the PresSteps entry of each page of the page tree and the
 // catalog's Requirements entry, each only when its own check was reported.
-// A viewer then shows the pages without their slide show steps and opens the
-// document without checking what it requires.
 type presentationFixer struct{}
 
 func (presentationFixer) Applies(c pdf.Check) bool {

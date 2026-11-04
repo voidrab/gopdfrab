@@ -31,7 +31,8 @@ func readFile(t *testing.T, path string) []byte {
 
 // embedDoc returns a PDF whose catalog has the extra entries catalog and
 // whose page 3 0 R has the extra entries page. Object 4 is the stream holding
-// file, for objs, the objects numbered from 5, to embed.
+// file, and objs maps the object numbers from 5 onward to the objects that
+// follow it.
 func embedDoc(catalog, page string, file []byte, objs map[int]string) []byte {
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R "+catalog+" >>")
