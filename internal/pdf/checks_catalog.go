@@ -176,6 +176,12 @@ type structureChecks struct {
 	StreamFilterNotAllowed      Check
 	InlineImageFilterNotAllowed Check
 	RealTooCloseToZero          Check
+	// 6.9 Optional content, a clause of PDF/A-2 alone: the configuration
+	// dictionaries of the catalog's OCProperties.
+	OCConfigMissingName     Check
+	OCConfigDuplicateName   Check
+	OCConfigOrderIncomplete Check
+	OCConfigAutoState       Check
 }
 
 type colourChecks struct {
@@ -725,6 +731,18 @@ func init() {
 			RealTooCloseToZero: newPart2Check(166,
 				"RealTooCloseToZero",
 				"Nonzero real values must have an absolute value of at least 1.175 x 10^-38"),
+			OCConfigMissingName: newPart2Check(193,
+				"OCConfigMissingName",
+				"Each optional content configuration dictionary must have a non-empty Name string"),
+			OCConfigDuplicateName: newPart2Check(194,
+				"OCConfigDuplicateName",
+				"The Name of each optional content configuration dictionary must be unique"),
+			OCConfigOrderIncomplete: newPart2Check(195,
+				"OCConfigOrderIncomplete",
+				"An optional content configuration dictionary's Order array must list every optional content group"),
+			OCConfigAutoState: newPart2Check(196,
+				"OCConfigAutoState",
+				"Optional content configuration dictionaries must not contain an AS entry"),
 		},
 
 		Colour: colourChecks{

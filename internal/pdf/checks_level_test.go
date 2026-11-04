@@ -202,6 +202,10 @@ var stableCheckIDs = map[string]int{
 	"NeedsRendering":                   190,
 	"ExtSchemaDefinitionInvalid":       191,
 	"ExtSchemaUndefinedField":          192,
+	"OCConfigMissingName":              193,
+	"OCConfigDuplicateName":            194,
+	"OCConfigOrderIncomplete":          195,
+	"OCConfigAutoState":                196,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {

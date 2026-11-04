@@ -204,4 +204,9 @@ var part2Clauses = map[string]clauseRef{
 	"PDFAPartNumber":          {"6.6.4", 2, "The pdfaid:part value must be 2"},
 	"PDFAConformanceLevel":    {"6.6.4", 3, "The pdfaid:conformance value must be A, B or U"},
 	"PDFAIdentifierNamespace": {"6.6.4", 0, "The PDF/A identification properties must use the pdfaid prefix"},
+	// 6.9 Optional content.
+	"OCConfigMissingName":     {"6.9", 1, ""},
+	"OCConfigDuplicateName":   {"6.9", 2, ""},
+	"OCConfigOrderIncomplete": {"6.9", 3, ""},
+	"OCConfigAutoState":       {"6.9", 4, ""},
 }

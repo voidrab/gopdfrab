@@ -210,6 +210,13 @@ var (
 		},
 		{
 			checks: []pdf.Check{
+				pdf.Checks.Structure.OCConfigMissingName, pdf.Checks.Structure.OCConfigDuplicateName,
+				pdf.Checks.Structure.OCConfigOrderIncomplete, pdf.Checks.Structure.OCConfigAutoState,
+			},
+			fn: ocConfigRule,
+		},
+		{
+			checks: []pdf.Check{
 				pdf.Checks.Colour.ICCBasedComponentsMismatch,
 				pdf.Checks.Colour.OutputIntentICCVersion, pdf.Checks.Colour.OutputIntentInvalidN,
 				pdf.Checks.Colour.OutputIntentInvalidProfile,
@@ -337,6 +344,14 @@ func docInfoRule(_ *pdf.Reader, graph pdf.PDFValue, _ *ValidationContext) []pdf.
 
 func optionalContentRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
 	return verifyOptionalContent(d, *ctx.Spec)
+}
+
+func ocConfigRule(d *pdf.Reader, _ pdf.PDFValue, _ *ValidationContext) []pdf.PDFError {
+	root, ok := catalog(d).(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	return verifyOCConfigs(root)
 }
 
 func outputIntentRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {

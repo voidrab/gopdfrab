@@ -1499,6 +1499,30 @@ func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
 	})
 }
 
+// TestVerifyCrossReferenceTableKeepsNewerEntries verifies that walking an
+// earlier section leaves the reader resolving objects by the newer entries:
+// the earlier section points at an older revision of the catalog.
+func TestVerifyCrossReferenceTableKeepsNewerEntries(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	older := b.Len()
+	b.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Older true >>\nendobj\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
+	prev := b.Len()
+	b.WriteString(fmt.Sprintf("xref\n1 1\n%010d 00000 n \ntrailer\n<< /Size 2 >>\n", older))
+	d, err := pdf.OpenBytes(b.FinishClassic(fmt.Sprintf("<< /Size 3 /Root 1 0 R /Prev %d >>", prev)))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer d.Close()
+	if errs := verifyCrossReferenceTable(d, *a1bSpec); len(errs) != 0 {
+		t.Fatalf("verifyCrossReferenceTable = %v, want no findings", errs)
+	}
+	if v, err := d.ResolveGraphByPath([]string{"Root", "Older"}); err == nil {
+		t.Errorf("Root /Older = %v after the walk: the older catalog revision is read", v)
+	}
+}
+
 // TestVerifyCrossReferenceTablePrevSectionFindings checks that a defect in an
 // earlier section is reported, and that an earlier section whose format passes
 // but whose trailer cannot be parsed ends the walk quietly.
