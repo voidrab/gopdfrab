@@ -7,17 +7,16 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// deviceNColorantsFixer remediates Checks.Structure.DeviceNColorants: a
-// DeviceN colour-space array listing more colorants than the level allows
-// (validateColourSpaceArray, checks_colour.go), reported against the array
-// itself rather than any particular use of it. Truncating the colorant list
-// would leave it shorter than its own tint-transform function's declared
-// input arity, so the only lossless fix is to make the array unreachable from
-// the trailer
-// instead: resolve every use of it to a literal RGB colour -- reusing
-// ResolveColor/resolveSeparation (colorspace.go), which already evaluates a
-// DeviceN space's tint transform -- and delete the resource entries that
-// named it.
+// deviceNColorantsFixer remediates Checks.Structure.DeviceNColorants, which
+// reports a DeviceN colour-space array that lists more colorants than the
+// level allows (validateColourSpaceArray in internal/verify/checks_colour.go).
+// The report is against the array itself, so the fix replaces every use of
+// the array with a literal RGB colour and deletes the resource entries that
+// name it, making the array unreachable from the trailer. Truncating the
+// colorant list would leave fewer names than the tint transform's declared
+// input arity, so it is not used. Colours are resolved with ResolveColor,
+// which evaluates the DeviceN tint transform through resolveSeparation in
+// internal/pdf/colorspace.go.
 //
 // limit is the most colorants the level allows. Spaces within it stay.
 type deviceNColorantsFixer struct{ limit int }

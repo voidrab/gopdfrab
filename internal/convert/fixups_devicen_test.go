@@ -291,8 +291,9 @@ func TestDeviceNRewriteRestoresSpaceAtQ(t *testing.T) {
 	}
 }
 
-// TestDeviceNColorantsFixerKeepsSpacesWithinTheLimit pins that a DeviceN space
-// legal at the level survives, whatever a larger one elsewhere got reported.
+// TestDeviceNColorantsFixerKeepsSpacesWithinTheLimit verifies that a DeviceN
+// space of 9 colorants, used by a page's content, is left unchanged under a
+// limit of 32.
 func TestDeviceNColorantsFixerKeepsSpacesWithinTheLimit(t *testing.T) {
 	dn := oversizedDeviceN()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
