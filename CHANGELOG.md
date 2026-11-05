@@ -114,6 +114,10 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- The PDF/A-2b overprint rule missed DeviceCMYK under an ICCBased DefaultCMYK
+  and overprint state inherited by a form XObject, took stroked text for filled,
+  and went on treating a colour space as ICCBased CMYK after a device colour
+  operator replaced it.
 - A form XObject or Type 3 font without resources of its own was excused from
   the device colour rules by the page's Default colour spaces, which apply only
   in the resources that define them. Verify now reports such a stream, and

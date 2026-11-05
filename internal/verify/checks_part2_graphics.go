@@ -123,11 +123,18 @@ func deviceColourWithoutPDFAIntentRule(d *pdf.Reader, _ pdf.PDFValue, ctx *Valid
 
 // overprint is the part of the graphics state the ICCBased CMYK overprint
 // rule reads: whether the stroking and nonstroking colour spaces are ICCBased
-// CMYK, the two overprint flags and the overprint mode.
+// CMYK, the two overprint flags, the overprint mode and the text rendering mode.
 type overprint struct {
 	strokeCMYK, fillCMYK bool
 	op, opFill           bool
 	mode                 int
+	textMode             int
+}
+
+// overprintScan is a form XObject together with the state it was drawn in.
+type overprintScan struct {
+	form  uintptr
+	state overprint
 }
 
 // overprintTracker follows the overprint state through one content stream.
@@ -136,11 +143,13 @@ type overprintTracker struct {
 	saved []overprint
 }
 
-// fillOps and strokeOps are the painting operators that use the nonstroking
-// and the stroking colour.
+// fillOps and strokeOps are the path-painting operators that use the
+// nonstroking and the stroking colour; textOps show text, which uses the colours
+// its rendering mode selects.
 var (
-	fillOps   = map[string]bool{"f": true, "F": true, "f*": true, "B": true, "B*": true, "b": true, "b*": true, "Tj": true, "TJ": true, "'": true, "\"": true}
+	fillOps   = map[string]bool{"f": true, "F": true, "f*": true, "B": true, "B*": true, "b": true, "b*": true}
 	strokeOps = map[string]bool{"S": true, "s": true, "B": true, "B*": true, "b": true, "b*": true}
+	textOps   = map[string]bool{"Tj": true, "TJ": true, "'": true, "\"": true}
 )
 
 // step applies op and reports a painting operator that overprints an
@@ -158,6 +167,20 @@ func (t *overprintTracker) step(op string, operands []pdf.PDFValue, resources pd
 		s.strokeCMYK = len(operands) > 0 && isICCBasedCMYK(operands[len(operands)-1], resources)
 	case "cs":
 		s.fillCMYK = len(operands) > 0 && isICCBasedCMYK(operands[len(operands)-1], resources)
+	case "K":
+		s.strokeCMYK = isICCBasedCMYK(deviceCMYK, resources)
+	case "k":
+		s.fillCMYK = isICCBasedCMYK(deviceCMYK, resources)
+	case "G", "RG":
+		s.strokeCMYK = false
+	case "g", "rg":
+		s.fillCMYK = false
+	case "Tr":
+		if len(operands) > 0 {
+			if m, ok := operands[len(operands)-1].(pdf.PDFInteger); ok {
+				s.textMode = int(m)
+			}
+		}
 	case "gs":
 		if len(operands) == 0 {
 			return
@@ -177,19 +200,65 @@ func (t *overprintTracker) step(op string, operands []pdf.PDFValue, resources pd
 		if m, ok := gs.Entries.Get("OPM").(pdf.PDFInteger); ok {
 			s.mode = int(m)
 		}
+	case "Do":
+		t.enterForm(operands, resources, ctx)
 	}
 	if s.mode != 1 {
 		return
 	}
-	if (fillOps[op] && s.fillCMYK && s.opFill) || (strokeOps[op] && s.strokeCMYK && s.op) {
+	fills, strokes := fillOps[op], strokeOps[op]
+	if textOps[op] {
+		fills, strokes = pdf.TextRenderPaints(s.textMode)
+	}
+	if (fills && s.fillCMYK && s.opFill) || (strokes && s.strokeCMYK && s.op) {
 		ctx.Report(pdf.Checks.Colour.ICCBasedCMYKOverprint, obj,
 			"an ICCBased CMYK colour is painted with overprinting on and overprint mode 1")
 	}
 }
 
-// isICCBasedCMYK reports whether a colour space operand names an ICCBased
-// colour space of four components.
+// enterForm checks the form XObject a Do operand names in the state it inherits
+// (ISO 32000-1 8.10.1). The walk checks every form from the initial state as
+// well, so a form drawn in that state needs no second look. Each form is read
+// once per inherited state, which also ends a cycle of forms drawing each other.
+func (t *overprintTracker) enterForm(operands []pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) {
+	if t.state == (overprint{}) || len(operands) == 0 {
+		return
+	}
+	name, _ := operands[len(operands)-1].(pdf.PDFName)
+	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
+	form, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+	if !ok || !form.IsStream() || form.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) {
+		return
+	}
+	key := overprintScan{form: pdf.ValuePointer(form.Entries), state: t.state}
+	if ctx.overprintScans[key] {
+		return
+	}
+	if ctx.overprintScans == nil {
+		ctx.overprintScans = map[overprintScan]bool{}
+	}
+	ctx.overprintScans[key] = true
+	formResources, own := form.Entries.Get("Resources").(pdf.PDFDict)
+	if !own {
+		formResources = resources
+	}
+	inner := overprintTracker{state: t.state}
+	// A stream that does not decode is reported where the walk reaches it.
+	_ = scanContent(ctx.reader, form, func(op string, operands []pdf.PDFValue) {
+		inner.step(op, operands, formResources, form, ctx)
+	})
+}
+
+// deviceCMYK is the colour space the k and K operators select.
+var deviceCMYK = pdf.PDFName{Value: "DeviceCMYK"}
+
+// isICCBasedCMYK reports whether a colour space operand selects an ICCBased
+// colour space of four components: one it names in resources, or DeviceCMYK when
+// resources define such a DefaultCMYK.
 func isICCBasedCMYK(name pdf.PDFValue, resources pdf.PDFDict) bool {
+	if name == deviceCMYK {
+		name = pdf.PDFName{Value: "DefaultCMYK"}
+	}
 	arr, ok := namedColourSpace(name, resources).(pdf.PDFArray)
 	if !ok || len(arr) < 2 || arr[0] != (pdf.PDFName{Value: "ICCBased"}) {
 		return false

@@ -46,6 +46,9 @@ type ValidationContext struct {
 	// transparency is the 6.2.10 transparency analysis, kept for the whole
 	// document so content that several pages draw is scanned once.
 	transparency *transparencyScan
+	// overprintScans records the forms the overprint rule has read in an
+	// inherited state.
+	overprintScans map[overprintScan]bool
 
 	// ReachableXObjectPtrs is the set of Entries-map pointers of Form XObjects
 	// that are actually invoked (via Do) from page or other reachable content
