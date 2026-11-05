@@ -351,7 +351,7 @@ func TestArlingtonElementType(t *testing.T) {
 
 func TestResolveLinkGroups(t *testing.T) {
 	// A group whose ValueTypes doesn't match val's kind is skipped entirely.
-	next, _ := arlington.Type("ActionGoTo")
+	next, _ := arlington.ModelFor("1.4").Type("ActionGoTo")
 	var nextKey *arlington.KeyDef
 	for i := range next.Keys {
 		if next.Keys[i].Name == "Next" {

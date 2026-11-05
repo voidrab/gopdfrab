@@ -234,3 +234,86 @@ func TestCheckSignatureMalformedEntries(t *testing.T) {
 		}
 	}
 }
+
+// sigRevisionDoc returns a document whose object 2 is sigBody, followed by tail
+// after its final %%EOF, and the ByteRange that covers the document's one
+// revision, computed from the first "<abcd>" in sigBody, the Contents string.
+func sigRevisionDoc(t *testing.T, sigBody, tail string) (*pdf.Reader, [4]int64) {
+	t.Helper()
+	b := pdfgen.NewBuilder("%PDF-1.7\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 3 0 R >>")
+	b.Obj(2, sigBody)
+	b.Obj(3, "<< /Type /Pages /Count 0 /Kids [] >>")
+	data := append(bytes.Clone(b.FinishClassic("<< /Size 4 /Root 1 0 R >>")), tail...)
+	start := int64(bytes.Index(data, []byte("<abcd>")))
+	end := start + int64(len("<abcd>"))
+	eof := int64(bytes.LastIndex(data, []byte("%%EOF"))) + int64(len("%%EOF"))
+	r, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close() })
+	return r, [4]int64{0, start, end, eof - end}
+}
+
+func TestByteRangeCoversRevision(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, tail string
+		shift            int64 // added to the last ByteRange element
+		want             bool
+	}{
+		{"plain", "<< /Contents <abcd> >>", "", 0, true},
+		{"every value kind before Contents",
+			"<< /A [1 2] /B << /C 1 >> /D 1 0 R /E 1 /F 1.5 /G true /H (s) /I <00> /J /N /K null /Contents <abcd> >>",
+			"", 0, true},
+		{"literal Contents", "<< /Contents (abcd) >>", "", 0, false},
+		{"Contents too short", "<< /Contents <abcd> >>", "", -1, false},
+		{"LF after %%EOF", "<< /Contents <abcd> >>", "\n", 1, true},
+		{"LF left out", "<< /Contents <abcd> >>", "\n", 0, false},
+		{"CR LF after %%EOF", "<< /Contents <abcd> >>", "\r\n", 2, true},
+		{"CR after %%EOF", "<< /Contents <abcd> >>", "\r", 1, true},
+		{"CR LF partly left out before more bytes", "<< /Contents <abcd> >>", "\r\njunk", 1, true},
+		{"too long before more bytes", "<< /Contents <abcd> >>", "\njunk", 2, false},
+		{"Contents by reference", "<< /Contents 4 0 R >>", "", 0, false},
+		{"not a dictionary", "42", "", 0, false},
+		{"key not a name", "<< 1 /Contents <abcd> >>", "", 0, false},
+		{"no Contents", "<< /A 1 >>", "", 0, false},
+		{"bad array value", "<< /A [ /Contents <abcd> >>", "", 0, false},
+		{"bad dictionary value", "<< /A << 1 >> /Contents <abcd> >>", "", 0, false},
+		{"keyword value", "<< /A foo /Contents <abcd> >>", "", 0, true},
+		{"stray delimiter", "<< /A ] /Contents <abcd> >>", "", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, br := sigRevisionDoc(t, tc.body, tc.tail)
+			br[3] += tc.shift
+			if got := byteRangeCoversRevision(r, pdf.PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()); got != tc.want {
+				t.Errorf("byteRangeCoversRevision(%v) = %v, want %v", br, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestByteRangeRejectsNonZeroStart(t *testing.T) {
+	r, br := sigRevisionDoc(t, "<< /Contents <abcd> >>", "")
+	br[0] = 1
+	if byteRangeCoversRevision(r, pdf.PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()) {
+		t.Error("a range not starting at 0 covers its revision")
+	}
+}
+
+func TestNextXRefSection(t *testing.T) {
+	for _, tc := range []struct {
+		sections      []int64
+		pdfStart, off int64
+		want          int64
+	}{
+		{nil, 0, 10, 10},
+		{[]int64{5, 40, 20}, 0, 10, 20},
+		{[]int64{5, 40, 20}, 3, 30, 43},
+		{[]int64{5}, 0, 10, 10},
+	} {
+		if got := nextXRefSection(tc.sections, tc.pdfStart, tc.off); got != tc.want {
+			t.Errorf("nextXRefSection(%v, %d, %d) = %d, want %d", tc.sections, tc.pdfStart, tc.off, got, tc.want)
+		}
+	}
+}

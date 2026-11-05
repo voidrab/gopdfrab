@@ -52,14 +52,10 @@ func main() {
 // jsapi.DocInfo document the Issue and DocInfo shapes.
 func jsConvert(_ js.Value, args []js.Value) any {
 	return jsapi.NewPromise(func() (any, error) {
-		if len(args) < 1 {
-			return nil, fmt.Errorf("gopdfrabConvert: expected 1 or 2 arguments")
-		}
-		profile, err := jsapi.ProfileArg("gopdfrabConvert", args)
+		data, profile, err := jsapi.InputArgs("gopdfrabConvert", args)
 		if err != nil {
 			return nil, err
 		}
-		data := jsapi.CopyBytes(args[0])
 
 		// One parse serves both the document facts and the pre-conversion
 		// verify. A file too damaged to open still converts: Convert does its

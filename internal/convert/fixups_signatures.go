@@ -18,7 +18,8 @@ var signaturePerms = []string{"DocMDP", "UR", "UR3"}
 // once in lost, also when both a field and Perms hold it.
 //
 // It runs before the fix loop, whose verify reads the input's bytes, where
-// the signatures are still intact.
+// the signatures are still intact. It is no pre-emptive step of repairs because
+// it needs the profile and lost, which those steps do not receive.
 func dropSignatures(trailer pdf.PDFDict, p *pdf.Profile, lost *[]pdf.PDFError) {
 	if !p.Has(pdf.Checks.Form.SignatureByteRange) {
 		return
@@ -27,7 +28,7 @@ func dropSignatures(trailer pdf.PDFDict, p *pdf.Profile, lost *[]pdf.PDFError) {
 	root, _ := trailer.Entries.Get("Root").(pdf.PDFDict)
 	dropped := map[uintptr]bool{}
 	for _, f := range verify.SignatureFields(root) {
-		if v, ok := f.Entries.Lookup("V"); ok && v != nil {
+		if v := f.Entries.Get("V"); v != nil {
 			if sig, ok := v.(pdf.PDFDict); ok {
 				dropped[pdf.ValuePointer(sig.Entries)] = true
 			}
@@ -36,7 +37,7 @@ func dropSignatures(trailer pdf.PDFDict, p *pdf.Profile, lost *[]pdf.PDFError) {
 		}
 	}
 	perms, ok := root.Entries.Get("Perms").(pdf.PDFDict)
-	if !ok || perms.Entries == nil {
+	if !ok {
 		return
 	}
 	for _, k := range signaturePerms {

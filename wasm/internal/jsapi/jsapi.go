@@ -58,18 +58,14 @@ func Ready(module string) {
 //	}>
 //
 // profile names a ready-made profile as the CLI's --profile flag does, and
-// defaults to "pdfa1b"; see ProfileArg. See Issue for the Issue shape and
+// defaults to "pdfa1b"; see InputArgs. See Issue for the Issue shape and
 // DocInfo for DocInfo.
 func Verify(_ js.Value, args []js.Value) any {
 	return NewPromise(func() (any, error) {
-		if len(args) < 1 {
-			return nil, fmt.Errorf("gopdfrabVerify: expected 1 or 2 arguments")
-		}
-		profile, err := ProfileArg("gopdfrabVerify", args)
+		data, profile, err := InputArgs("gopdfrabVerify", args)
 		if err != nil {
 			return nil, err
 		}
-		data := CopyBytes(args[0])
 		result, err := verify.VerifyBytes(data, profile)
 		if err != nil {
 			return nil, fmt.Errorf("verify: %w", err)
@@ -86,11 +82,24 @@ func Verify(_ js.Value, args []js.Value) any {
 	})
 }
 
-// ProfileArg returns the profile named by args[1], the optional second
+// InputArgs returns the arguments of the function called fn: a copy of the
+// input bytes in args[0], and the profile named by the optional args[1].
+func InputArgs(fn string, args []js.Value) ([]byte, *verify.Profile, error) {
+	if len(args) < 1 {
+		return nil, nil, fmt.Errorf("%s: expected 1 or 2 arguments", fn)
+	}
+	profile, err := profileArg(fn, args)
+	if err != nil {
+		return nil, nil, err
+	}
+	return CopyBytes(args[0]), profile, nil
+}
+
+// profileArg returns the profile named by args[1], the optional second
 // argument of the function called fn: the name of a ready-made profile
 // ("pdfa1b", "legacy1b", "pdfa2b" or "pdf"). A missing, undefined or null
 // argument selects PDFA1B; any other value is an error.
-func ProfileArg(fn string, args []js.Value) (*verify.Profile, error) {
+func profileArg(fn string, args []js.Value) (*verify.Profile, error) {
 	if len(args) < 2 || args[1].IsUndefined() || args[1].IsNull() {
 		return verify.PDFA1B, nil
 	}

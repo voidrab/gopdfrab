@@ -62,12 +62,8 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		return // Without a CharSet or a readable program, nothing can be checked.
 	}
 	if haveProgram && charSet != nil && ctx.exactCharSet() {
-		if glyph, listed, ok := CharSetMismatch(charSet, glyphSet); !ok {
-			if listed {
-				ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, fmt.Sprintf("CharSet lists glyph /%s, which the embedded font subset does not define", glyph))
-			} else {
-				ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, fmt.Sprintf("CharSet does not list glyph /%s defined in the font subset", glyph))
-			}
+		if msg := CharSetMismatch(charSet, glyphSet); msg != "" {
+			ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, msg)
 		}
 		charSet = nil // Checked above; the per-code check then skips it.
 	}
@@ -134,20 +130,28 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 }
 
 // CharSetMismatch compares a CharSet with the glyph set of its program,
-// .notdef aside in both. ok is false when they differ. glyph is then one
-// differing name, and listed reports whether it is the CharSet that names it.
-func CharSetMismatch(charSet, program map[string]bool) (glyph string, listed, ok bool) {
-	for _, n := range slices.Sorted(maps.Keys(charSet)) {
-		if n != ".notdef" && !program[n] {
-			return n, true, false
+// .notdef aside in both. It returns a description of the first difference, or
+// "" when they agree.
+func CharSetMismatch(charSet, program map[string]bool) string {
+	if n := firstMissing(charSet, program); n != "" {
+		return fmt.Sprintf("CharSet lists glyph /%s, which the embedded font subset does not define", n)
+	}
+	if n := firstMissing(program, charSet); n != "" {
+		return fmt.Sprintf("CharSet does not list glyph /%s defined in the font subset", n)
+	}
+	return ""
+}
+
+// firstMissing returns the smallest name of names, .notdef aside, that other
+// lacks, or "" when there is none.
+func firstMissing(names, other map[string]bool) string {
+	first := ""
+	for n := range names {
+		if n != ".notdef" && !other[n] && (first == "" || n < first) {
+			first = n
 		}
 	}
-	for _, n := range slices.Sorted(maps.Keys(program)) {
-		if n != ".notdef" && !charSet[n] {
-			return n, false, false
-		}
-	}
-	return "", false, true
+	return first
 }
 
 // validateType1CMetrics checks that PDF Widths entries match the advance

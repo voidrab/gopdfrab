@@ -1,39 +1,11 @@
 package pdf
 
-// ByteRangeCoversRevision reports whether byteRange, the ByteRange of the
-// signature dictionary that is object sig, covers the revision that dictionary
-// was written in, apart from the signature value itself (PDF/A-2 6.4.3).
-//
-// The expected range is derived from the file's bytes, as veraPDF does: it
-// starts at offset 0, skips exactly the signature dictionary's Contents
-// string, and ends after the first %%EOF that follows the next
-// cross-reference section (or the Contents string, when no section follows),
-// plus at most one EOL marker unless that marker ends the file. A signature
-// dictionary that cannot be located in the file, such as one held in an object
-// stream, covers nothing. Neither does one whose Contents is a reference, which
-// veraPDF cannot follow.
-//
-// sections holds the file's cross-reference sections, as XRefSectionOffsets
-// returns them.
-func (d *Reader) ByteRangeCoversRevision(sig PDFRef, byteRange [4]int64, sections []int64) bool {
-	start, end, ok := d.contentsSpan(sig)
-	if !ok {
-		return false
-	}
-	if byteRange[0] != 0 || byteRange[1] != start || byteRange[2] != end {
-		return false
-	}
-	eof, slack, atEnd := d.revisionEnd(d.nextXRefSection(sections, end))
-	want := eof - end
-	if atEnd {
-		return byteRange[3] == want
-	}
-	return byteRange[3] >= want-int64(slack) && byteRange[3] <= want
-}
-
-// contentsSpan returns the offsets of the first byte of the direct Contents
-// string of the dictionary that is object sig, and of the byte after it.
-func (d *Reader) contentsSpan(sig PDFRef) (start, end int64, ok bool) {
+// ContentsSpan returns the offsets of the first byte of the direct Contents
+// string of the dictionary that is object sig, and of the byte after it. ok is
+// false when the dictionary cannot be located in the file, such as one held in
+// an object stream, and when its Contents is a reference, which veraPDF cannot
+// follow either.
+func (d *Reader) ContentsSpan(sig PDFRef) (start, end int64, ok bool) {
 	l, ok := d.objectBodyLexer(sig.ObjNum)
 	if !ok || l.NextToken().Type != TokenDictStart {
 		return 0, 0, false
@@ -86,119 +58,49 @@ func skipValue(l *Lexer) bool {
 	return err == nil
 }
 
-// XRefSectionOffsets returns the offsets, relative to the PDF header, of the
-// cross-reference section that startxref names and of every earlier one its
-// trailers' Prev entries chain to, in chain order. A Prev that repeats an
-// offset, or a trailer that cannot be read, ends the chain.
-func (d *Reader) XRefSectionOffsets() []int64 {
-	offsets := []int64{d.xrefOffset}
-	seen := map[int64]bool{d.xrefOffset: true}
-	prev := d.Trailer().Entries.Get("Prev")
-	for {
-		p, ok := prev.(PDFInteger)
-		if !ok || seen[int64(p)] {
-			return offsets
-		}
-		seen[int64(p)] = true
-		offsets = append(offsets, int64(p))
-		trailer, err := d.XRefTrailerAt(int64(p) + d.pdfStart)
-		if err != nil {
-			return offsets
-		}
-		prev = trailer.Entries.Get("Prev")
-	}
-}
-
-// nextXRefSection returns the smallest of sections, each offset by pdfStart,
-// that lies after off, or off when none does.
-func (d *Reader) nextXRefSection(sections []int64, off int64) int64 {
-	next := int64(-1)
-	for _, o := range sections {
-		if o += d.pdfStart; o > off && (next < 0 || o < next) {
-			next = o
-		}
-	}
-	if next < 0 {
-		return off
-	}
-	return next
-}
-
-// revisionEnd scans from off for the %%EOF that ends the revision: the first
-// one alone on its line, outside any stream body. eof is the offset after it
-// and the EOL marker (LF, CR or CR LF) that may follow; slack is that marker's
-// length. atEnd reports whether nothing follows, which is also the case when
-// no %%EOF is found and eof is the file size.
-func (d *Reader) revisionEnd(off int64) (eof int64, slack int, atEnd bool) {
-	s := byteScanner{d: d, pos: off}
-	inStream := false
-	for ; s.ok(); s.pos++ {
+// RevisionEnd scans from off for the %%EOF that ends a revision: the first one
+// alone on its line, outside any stream body. The keywords are matched as bare
+// bytes, as veraPDF does. eof is the offset after the %%EOF and the EOL marker
+// (LF, CR or CR LF) that may follow. slack is that marker's length, or 0 when
+// nothing follows it. With no such %%EOF, eof is the file size and slack is 0.
+func (d *Reader) RevisionEnd(off int64) (eof, slack int64) {
+	l := d.src.lexer(off)
+	for ; l.pos < d.Size(); l.pos++ {
 		switch {
-		case inStream:
-			if s.hasPrefix("endstream") {
-				inStream = false
-				s.pos += int64(len("endstream")) - 1
+		case l.hasPrefix("stream"):
+			end, ok := d.indexFrom(l.pos+int64(len("stream")), endstreamKeyword)
+			if !ok {
+				return d.Size(), 0
 			}
-		case s.hasPrefix("stream"):
-			inStream = true
-			s.pos += int64(len("stream")) - 1
-		case s.hasPrefix("%%EOF") && s.aloneOnLine():
-			eof = s.pos + int64(len("%%EOF"))
-			switch {
-			case s.at(eof) == '\n':
-				eof, slack = eof+1, 1
-			case s.at(eof) == '\r' && s.at(eof+1) == '\n':
-				eof, slack = eof+2, 2
-			case s.at(eof) == '\r':
-				eof, slack = eof+1, 1
+			l.pos = end + int64(len(endstreamKeyword)) - 1
+		case l.hasPrefix("%%EOF") && l.aloneOnLine():
+			l.pos += int64(len("%%EOF"))
+			eof = l.pos
+			_ = l.skipEOL()
+			if l.pos >= d.Size() {
+				return l.pos, 0
 			}
-			return eof, slack, eof >= d.Size()
+			return l.pos, l.pos - eof
 		}
 	}
-	return d.Size(), 0, true
+	return d.Size(), 0
 }
 
-// byteScanner reads a Reader's bytes through a sliding window, so a scan
-// never loads more of the file than the window holds.
-type byteScanner struct {
-	d    *Reader
-	pos  int64
-	buf  []byte
-	base int64
-}
-
-const scanWindow = 64 << 10
-
-// at returns the byte at off, which must not be negative, or 0 past the end
-// of the file.
-func (s *byteScanner) at(off int64) byte {
-	if off < s.base || off >= s.base+int64(len(s.buf)) {
-		// A window past the end of the file is empty.
-		if s.buf, s.base = s.d.windowAt(off, scanWindow), off; len(s.buf) == 0 {
-			return 0
-		}
-	}
-	return s.buf[off-s.base]
-}
-
-// ok reports whether pos is inside the file.
-func (s *byteScanner) ok() bool { return s.pos >= 0 && s.pos < s.d.Size() }
-
-// hasPrefix reports whether the bytes at pos start with p.
-func (s *byteScanner) hasPrefix(p string) bool {
+// hasPrefix reports whether the bytes at the lexer's position start with p.
+func (l *Lexer) hasPrefix(p string) bool {
 	for i := range len(p) {
-		if s.at(s.pos+int64(i)) != p[i] {
+		if b, ok := l.byteAt(l.pos + int64(i)); !ok || b != p[i] {
 			return false
 		}
 	}
 	return true
 }
 
-// aloneOnLine reports whether only spaces stand between pos and the EOL
-// marker before it. The start of the file counts as no line.
-func (s *byteScanner) aloneOnLine() bool {
-	for i := s.pos - 1; i >= 0; i-- {
-		switch s.at(i) {
+// aloneOnLine reports whether only spaces stand between the lexer's position
+// and the EOL marker before it. The start of the file counts as no line.
+func (l *Lexer) aloneOnLine() bool {
+	for i := l.pos - 1; i >= 0; i-- {
+		switch b, _ := l.byteAt(i); b {
 		case '\n', '\r':
 			return true
 		case ' ':

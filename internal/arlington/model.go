@@ -87,18 +87,6 @@ func (m *Model) SelfIdentified(typeVal, subtypeVal string) string {
 	return m.selfIdentified[[2]string{typeVal, ""}]
 }
 
-// Types returns every type of the PDF 1.4 model; see [Model.Types].
-func Types() map[string]ObjectType { return pdf14.Types() }
-
-// Type looks up a type of the PDF 1.4 model by name; see [Model.Type].
-func Type(name string) (ObjectType, bool) { return pdf14.Type(name) }
-
-// SelfIdentified returns the PDF 1.4 type a /Type and /Subtype pair
-// identifies; see [Model.SelfIdentified].
-func SelfIdentified(typeVal, subtypeVal string) string {
-	return pdf14.SelfIdentified(typeVal, subtypeVal)
-}
-
 // encoder writes the body and interns strings; the table is written last
 // but placed first.
 type encoder struct {

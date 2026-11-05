@@ -28,55 +28,17 @@ func sigDoc(t *testing.T, sigBody, tail string) (*Reader, [4]int64) {
 	return r, [4]int64{0, start, end, eof - end}
 }
 
-func TestByteRangeCoversRevision(t *testing.T) {
-	for _, tc := range []struct {
-		name, body, tail string
-		shift            int64 // added to the last ByteRange element
-		want             bool
-	}{
-		{"plain", "<< /Contents <abcd> >>", "", 0, true},
-		{"every value kind before Contents",
-			"<< /A [1 2] /B << /C 1 >> /D 1 0 R /E 1 /F 1.5 /G true /H (s) /I <00> /J /N /K null /Contents <abcd> >>",
-			"", 0, true},
-		{"literal Contents", "<< /Contents (abcd) >>", "", 0, false},
-		{"Contents too short", "<< /Contents <abcd> >>", "", -1, false},
-		{"LF after %%EOF", "<< /Contents <abcd> >>", "\n", 1, true},
-		{"LF left out", "<< /Contents <abcd> >>", "\n", 0, false},
-		{"CR LF after %%EOF", "<< /Contents <abcd> >>", "\r\n", 2, true},
-		{"CR after %%EOF", "<< /Contents <abcd> >>", "\r", 1, true},
-		{"CR LF partly left out before more bytes", "<< /Contents <abcd> >>", "\r\njunk", 1, true},
-		{"too long before more bytes", "<< /Contents <abcd> >>", "\njunk", 2, false},
-		{"Contents by reference", "<< /Contents 4 0 R >>", "", 0, false},
-		{"not a dictionary", "42", "", 0, false},
-		{"key not a name", "<< 1 /Contents <abcd> >>", "", 0, false},
-		{"no Contents", "<< /A 1 >>", "", 0, false},
-		{"bad array value", "<< /A [ /Contents <abcd> >>", "", 0, false},
-		{"bad dictionary value", "<< /A << 1 >> /Contents <abcd> >>", "", 0, false},
-		{"keyword value", "<< /A foo /Contents <abcd> >>", "", 0, true},
-		{"stray delimiter", "<< /A ] /Contents <abcd> >>", "", 0, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r, br := sigDoc(t, tc.body, tc.tail)
-			br[3] += tc.shift
-			if got := r.ByteRangeCoversRevision(PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()); got != tc.want {
-				t.Errorf("ByteRangeCoversRevision(%v) = %v, want %v", br, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestByteRangeCoversRevisionRejects(t *testing.T) {
+func TestContentsSpanRejects(t *testing.T) {
 	r, br := sigDoc(t, "<< /Contents <abcd> >>", "")
-	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 9}, br, r.XRefSectionOffsets()) {
-		t.Error("an object missing from the xref table covers its revision")
+	if start, end, ok := r.ContentsSpan(PDFRef{ObjNum: 2}); !ok || start != br[1] || end != br[2] {
+		t.Errorf("ContentsSpan = %d, %d, %v, want %d, %d, true", start, end, ok, br[1], br[2])
+	}
+	if _, _, ok := r.ContentsSpan(PDFRef{ObjNum: 9}); ok {
+		t.Error("an object missing from the xref table has a Contents span")
 	}
 	r.xrefTable[9] = r.xrefTable[2]
-	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 9}, br, r.XRefSectionOffsets()) {
-		t.Error("an xref entry pointing at another object covers its revision")
-	}
-	br[0] = 1
-	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()) {
-		t.Error("a range not starting at 0 covers its revision")
+	if _, _, ok := r.ContentsSpan(PDFRef{ObjNum: 9}); ok {
+		t.Error("an xref entry pointing at another object has a Contents span")
 	}
 }
 
@@ -99,18 +61,29 @@ func TestRevisionEnd(t *testing.T) {
 		// From the end of the file no %%EOF is found.
 		{int64(len(data)), int64(len(data))},
 	} {
-		if got, _, _ := r.revisionEnd(tc.from); got != tc.want {
-			t.Errorf("revisionEnd(%d) = %d, want %d", tc.from, got, tc.want)
+		if got, _ := r.RevisionEnd(tc.from); got != tc.want {
+			t.Errorf("RevisionEnd(%d) = %d, want %d", tc.from, got, tc.want)
 		}
 	}
-	if next := r.nextXRefSection(r.XRefSectionOffsets(), int64(len(data))); next != int64(len(data)) {
-		t.Errorf("nextXRefSection past every section = %d, want its argument", next)
+}
+
+// TestRevisionEndUnterminatedStream verifies that a stream with no endstream
+// runs to the end of the file.
+func TestRevisionEndUnterminatedStream(t *testing.T) {
+	r, _ := sigDoc(t, "<< /Contents <abcd> >>", "\nstream\n%%EOF\n")
+	data, err := r.FullBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := int64(bytes.LastIndex(data, []byte("stream")))
+	if eof, slack := r.RevisionEnd(from); eof != int64(len(data)) || slack != 0 {
+		t.Errorf("RevisionEnd = %d, %d, want %d, 0", eof, slack, len(data))
 	}
 }
 
 func TestAloneOnLineAtFileStart(t *testing.T) {
 	r, _ := sigDoc(t, "<< /Contents <abcd> >>", "")
-	if s := (byteScanner{d: r}); s.aloneOnLine() {
+	if l := r.src.lexer(0); l.aloneOnLine() {
 		t.Error("the first byte of the file is alone on its line")
 	}
 }

@@ -1492,7 +1492,7 @@ func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
 
 	t.Run("Prev pointing back at the current section", func(t *testing.T) {
 		d := xrefChainDoc(t, func(int64) string { return "" })
-		d.Trailer().Entries.Set("Prev", pdf.PDFInteger(d.XRefOffset()))
+		d.Trailer().Entries.Set("Prev", pdf.PDFInteger(d.XRefSectionOffsets()[0]))
 		if errs := verifyCrossReferenceTable(d, *a1bSpec); len(errs) != 0 {
 			t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
 		}

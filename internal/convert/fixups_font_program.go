@@ -822,8 +822,7 @@ func charSetConsistent(charSet string, programNames []string, exact bool) bool {
 		for _, n := range programNames {
 			defined[n] = true
 		}
-		_, _, ok := verify.CharSetMismatch(listed, defined)
-		return ok
+		return verify.CharSetMismatch(listed, defined) == ""
 	}
 	for _, n := range programNames {
 		if !listed[n] {

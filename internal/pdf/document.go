@@ -977,12 +977,6 @@ func (d *Reader) PDFStart() int64 {
 	return d.pdfStart
 }
 
-// XRefOffset returns the byte offset of the main cross-reference section, as
-// recorded by the trailer's startxref.
-func (d *Reader) XRefOffset() int64 {
-	return d.xrefOffset
-}
-
 // XRefTable returns the object number -> byte offset map built while parsing
 // the cross-reference table(s).
 func (d *Reader) XRefTable() map[int]int64 {
