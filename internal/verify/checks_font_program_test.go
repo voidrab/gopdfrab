@@ -1859,6 +1859,45 @@ func TestSimpleTrueTypeSubsetWidthsFallback(t *testing.T) {
 // the hmtx comparison passes over -- non-numeric, zero, unmapped by any cmap,
 // or in a font with no usable horizontal metrics -- each followed by a genuine
 // mismatch on 'A' that must still be found.
+// TestSimpleTrueTypeMetricsCodeOutsideWidths verifies that a shown code outside
+// /Widths is compared through /MissingWidth, which defaults to 0.
+func TestSimpleTrueTypeMetricsCodeOutsideWidths(t *testing.T) {
+	ttf := loadTTF(t)
+	tables, _ := fontprog.ParseSfnt(ttf)
+	gidA := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['A']
+	widthA := int(fontprog.TTAdvanceWidth(tables, int(gidA)))
+	ff := streamDict(string(ttf))
+
+	for _, tc := range []struct {
+		desc    string
+		missing int
+		shown   int
+		want    bool
+	}{
+		{"no MissingWidth", 0, 'A', true},
+		{"MissingWidth differs", widthA + 500, 'A', true},
+		{"MissingWidth matches", widthA, 'A', false},
+		{"no glyph for the code", 0, 1, false},
+		{"code inside Widths", 0, 'B', false},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			desc := kv()
+			if tc.missing != 0 {
+				desc.Entries.Set("MissingWidth", pdf.PDFInteger(tc.missing))
+			}
+			v := kv("Encoding", name("WinAnsiEncoding"), "FontDescriptor", desc)
+			ctx := &ValidationContext{Spec: a1bSpec, UsedCharCodes: map[uintptr]map[int]bool{
+				pdf.ValuePointer(v.Entries): {tc.shown: true},
+			}}
+			// /Widths holds only B, with its correct width.
+			validateSimpleTrueTypeMetrics(v, ff, 'B', pdf.PDFArray{pdf.PDFInteger(fontprog.TTAdvanceWidth(tables, int(fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['B'])))}, ctx)
+			if got := hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch); got != tc.want {
+				t.Errorf("AdvanceWidthMismatch reported = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSimpleTrueTypeMetricsSkipsWhatItCannotCompare(t *testing.T) {
 	ttf := loadTTF(t)
 	tables, _ := fontprog.ParseSfnt(ttf)

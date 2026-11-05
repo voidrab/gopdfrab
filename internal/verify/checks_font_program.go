@@ -768,6 +768,26 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 	knownUsage := false
 	if fontDict, ok := obj.(pdf.PDFDict); ok {
 		shown, knownUsage = ctx.usedCodesFor(fontDict)
+		// A shown code outside /Widths takes its width from /MissingWidth,
+		// which defaults to 0.
+		if knownUsage {
+			desc, _ := fontDict.Entries.Get("FontDescriptor").(pdf.PDFDict)
+			missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+			for _, cc := range slices.Sorted(maps.Keys(shown)) {
+				if cc >= firstChar && cc < firstChar+len(widths) {
+					continue
+				}
+				gid, known := codeToGID(cc)
+				if !known {
+					continue
+				}
+				if fontWidth := fontprog.TTAdvanceWidth(tables, gid); fontWidth >= 0 && math.Abs(fontWidth-float64(missing)) > 1 {
+					ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %s",
+						cc, missing, formatWidth(fontWidth)))
+					return
+				}
+			}
+		}
 	}
 	for i, w := range widths {
 		var pdfWidth int

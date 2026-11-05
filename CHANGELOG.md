@@ -114,6 +114,12 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- A font used only by the glyph procedures of a shown Type 3 font did not count
+  as used, so an unembedded one passed verify. Verify now reports it and convert
+  embeds a substitute.
+- A code shown by a simple TrueType font outside its `/Widths` was not compared
+  with the embedded program. Verify now compares it through `/MissingWidth`, and
+  convert extends `/Widths` over the shown code.
 - The PDF/A-2b overprint rule missed DeviceCMYK under an ICCBased DefaultCMYK
   and overprint state inherited by a form XObject, took stroked text for filled,
   and went on treating a colour space as ICCBased CMYK after a device colour

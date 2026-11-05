@@ -301,14 +301,25 @@ func (fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 }
 
 // fixTargeted repairs only the font dicts the issues reference; the verifier
-// reports every mismatching font per pass, so this covers all violations.
+// reports every mismatching font per pass, so this covers all violations. A
+// simple TrueType font also gets /Widths entries for the shown codes outside it.
 func (fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
+	var used map[uintptr]map[int]bool
 	for _, d := range targets {
 		if fixFontMetricsDict(d) {
+			changed = true
+		}
+		if d.Entries.Get("Subtype") != (pdf.PDFName{Value: "TrueType"}) {
+			continue
+		}
+		if used == nil {
+			_, _, used, _, _, _ = verify.ComputeContentUsage(*p.trailer, verify.NewContext(nil))
+		}
+		if growTrueTypeWidths(d, used[pdf.ValuePointer(d.Entries)]) {
 			changed = true
 		}
 	}
@@ -404,6 +415,45 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	return changed
 }
 
+// growTrueTypeWidths extends the /Widths of a simple TrueType font over the
+// codes in shown whose width would come from /MissingWidth, which the embedded
+// program disagrees with. A code outside /Widths that is not shown says nothing
+// about what gets rendered, so it stays out.
+func growTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
+	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
+	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
+	desc, _ := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, ffOK := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	if !fcOK || !wOK || !ffOK {
+		return false
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return false
+	}
+	tables, ok := fontprog.ParseSfnt(data)
+	if !ok {
+		return false
+	}
+	r := fontprog.NewSimpleTrueTypeCmaps(v.Entries.Get("Encoding"), tables)
+	programWidth := func(cc int) (float64, bool) {
+		if !shown[cc] {
+			return 0, false
+		}
+		gid, tried, found := r.Windows(cc)
+		if !tried {
+			gid, found = r.Fallback(cc)
+		}
+		if !found {
+			return 0, false
+		}
+		w := fontprog.TTAdvanceWidth(tables, gid)
+		return w, w >= 0
+	}
+	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+	return growWidths(v, missing, programWidth, int(firstChar), widths)
+}
+
 // fixType1Widths rewrites mismatched /Widths entries to the embedded Type1
 // program's advance width, mirroring validateType1Metrics
 // (checks_font_program.go).
@@ -456,7 +506,7 @@ func fixType1Widths(v pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, encoding pd
 // reads as "no width declared" and never compares.
 func growType1Widths(v pdf.PDFDict, desc pdf.PDFDict, enc [256]string, glyphWidths map[string]float64, firstChar int, widths pdf.PDFArray) bool {
 	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
-	if missing == 0 || len(widths) == 0 {
+	if missing == 0 {
 		return false
 	}
 	programWidth := func(cc int) (float64, bool) {
@@ -466,7 +516,16 @@ func growType1Widths(v pdf.PDFDict, desc pdf.PDFDict, enc [256]string, glyphWidt
 		w, ok := glyphWidths[enc[cc]]
 		return w, ok
 	}
+	return growWidths(v, missing, programWidth, firstChar, widths)
+}
 
+// growWidths extends /Widths over the codes outside it whose program width
+// differs from missing, the width those codes take from /MissingWidth. A code
+// programWidth does not know keeps missing.
+func growWidths(v pdf.PDFDict, missing int, programWidth func(cc int) (float64, bool), firstChar int, widths pdf.PDFArray) bool {
+	if len(widths) == 0 || firstChar < 0 || firstChar+len(widths) > 256 {
+		return false
+	}
 	lo, hi := firstChar, firstChar+len(widths)-1
 	newLo, newHi := lo, hi
 	for cc := 0; cc < 256; cc++ {

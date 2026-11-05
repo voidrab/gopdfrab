@@ -296,6 +296,91 @@ func TestFixCIDTrueTypeWidths(t *testing.T) {
 	}
 }
 
+// TestGrowTrueTypeWidths verifies that /Widths grows over the shown codes whose
+// program width differs from /MissingWidth, and over nothing else.
+func TestGrowTrueTypeWidths(t *testing.T) {
+	ttf := streamOf(fontsubst.LiberationSansRegular)
+	font := func(first int, widths pdf.PDFArray, program pdf.PDFValue) pdf.PDFDict {
+		return dictOf(map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"},
+			"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": program}),
+			"FirstChar":      pdf.PDFInteger(first), "Widths": widths,
+			"Encoding": pdf.PDFName{Value: "WinAnsiEncoding"},
+		})
+	}
+	d := font(66, ints(667), ttf)
+	if !growTrueTypeWidths(d, map[int]bool{'A': true, 'C': true, 0x81: true}) {
+		t.Fatal("growTrueTypeWidths = false, want true")
+	}
+	if got, want := widthsOf(t, d), []int{667, 667, 722}; !equalInts(got, want) {
+		t.Errorf("Widths = %v, want %v", got, want)
+	}
+	if d.Entries.Get("FirstChar") != pdf.PDFInteger(65) || d.Entries.Get("LastChar") != pdf.PDFInteger(67) {
+		t.Errorf("FirstChar/LastChar = %v/%v, want 65/67", d.Entries.Get("FirstChar"), d.Entries.Get("LastChar"))
+	}
+	if growTrueTypeWidths(d, map[int]bool{'A': true}) {
+		t.Error("second pass grew the widths again")
+	}
+
+	for name, d := range map[string]pdf.PDFDict{
+		"undecodable":       font(66, ints(667), undecodableStream()),
+		"not sfnt":          font(66, ints(667), streamOf([]byte("garbage"))),
+		"no program":        font(66, ints(667), pdf.PDFInteger(1)),
+		"range past a byte": font(255, ints(1, 2), ttf),
+		"negative range":    font(-1, ints(1), ttf),
+		"no widths":         font(66, nil, ttf),
+	} {
+		if growTrueTypeWidths(d, map[int]bool{'A': true}) {
+			t.Errorf("%s: growTrueTypeWidths = true, want false", name)
+		}
+	}
+}
+
+// TestFontMetricFixerGrowsTrueTypeWidthsForShownCode verifies that the targeted
+// repair of a simple TrueType font covers a shown code outside /Widths, and that
+// other fonts keep their /Widths range.
+func TestFontMetricFixerGrowsTrueTypeWidthsForShownCode(t *testing.T) {
+	ttf := streamOf(fontsubst.LiberationSansRegular)
+	font := dictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"},
+		"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": ttf}),
+		"FirstChar":      pdf.PDFInteger(66), "Widths": ints(667),
+		"Encoding": pdf.PDFName{Value: "WinAnsiEncoding"},
+	})
+	font.SetRef(pdf.PDFRef{ObjNum: 7})
+	other := dictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type3"},
+		"FirstChar": pdf.PDFInteger(66), "Widths": ints(667),
+	})
+	other.SetRef(pdf.PDFRef{ObjNum: 8})
+	page := dictOf(map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": dictOf(map[string]pdf.PDFValue{"Font": dictOf(map[string]pdf.PDFValue{"F": font, "G": other})}),
+		"Contents":  streamOf([]byte("BT /F 10 Tf (A) Tj /G 10 Tf (A) Tj ET")),
+	})
+	trailer := dictOf(map[string]pdf.PDFValue{"Root": dictOf(map[string]pdf.PDFValue{"Page": page})})
+
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{7: font, 8: other}}
+	fontRef, otherRef := pdf.PDFRef{ObjNum: 7}, pdf.PDFRef{ObjNum: 8}
+	issues := []pdf.PDFError{
+		pdf.NewError(pdf.Checks.Font.AdvanceWidthMismatch, nil, 0, &fontRef),
+		pdf.NewError(pdf.Checks.Font.AdvanceWidthMismatch, nil, 0, &otherRef),
+	}
+	changed, handled, err := fontMetricFixer{}.fixTargeted(pass, issues)
+	if err != nil || !handled || !changed {
+		t.Fatalf("fixTargeted = %v, %v, %v; want true, true, nil", changed, handled, err)
+	}
+	if got, want := widthsOf(t, font), []int{667, 667}; !equalInts(got, want) {
+		t.Errorf("Widths = %v, want %v", got, want)
+	}
+	if font.Entries.Get("FirstChar") != pdf.PDFInteger(65) {
+		t.Errorf("FirstChar = %v, want 65", font.Entries.Get("FirstChar"))
+	}
+	if other.Entries.Get("FirstChar") != pdf.PDFInteger(66) {
+		t.Errorf("a Type 3 font's /Widths range changed: FirstChar = %v", other.Entries.Get("FirstChar"))
+	}
+}
+
 // TestFixCIDTrueTypeWidthsReadsCIDToGIDMap verifies that a width is taken from
 // the glyph a stream CIDToGIDMap selects, so a correct /W stays as it is.
 func TestFixCIDTrueTypeWidthsReadsCIDToGIDMap(t *testing.T) {
