@@ -292,10 +292,16 @@ func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits, hex bool) (fixed pdf.PD
 			return pdf.PDFString{Value: val.Value[:l.MaxStringBytes]}, true
 		}
 	case pdf.PDFHexString:
-		if !hex {
-			break
+		repaired := val.Value
+		if hex {
+			repaired = fixHexStringValue(repaired)
 		}
-		if repaired := fixHexStringValue(val.Value); repaired != val.Value {
+		if l.MaxStringBytes > 0 {
+			if digits := fixHexStringValue(repaired); len(digits) > 2*l.MaxStringBytes {
+				repaired = digits[:2*l.MaxStringBytes]
+			}
+		}
+		if repaired != val.Value {
 			return pdf.PDFHexString{Value: repaired}, true
 		}
 	case pdf.PDFArray:

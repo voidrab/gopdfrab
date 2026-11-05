@@ -2463,6 +2463,7 @@ func TestArchitecturalLimitsScalarsAndDicts(t *testing.T) {
 		{"real above 32767", pdf.PDFReal(32768.5), pdf.Checks.Structure.RealOutOfRange},
 		{"real below -32767", pdf.PDFReal(-40000), pdf.Checks.Structure.RealOutOfRange},
 		{"string over 65535 bytes", pdf.PDFString{Value: strings.Repeat("a", 65536)}, pdf.Checks.Structure.StringTooLong},
+		{"hex string over 65535 bytes", pdf.PDFHexString{Value: strings.Repeat("ab", 65536)}, pdf.Checks.Structure.StringTooLong},
 		{"dictionary over 4095 entries", big, pdf.Checks.Structure.DictTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

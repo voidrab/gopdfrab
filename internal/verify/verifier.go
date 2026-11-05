@@ -1309,6 +1309,18 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 	return complete
 }
 
+// hexStringBytes returns the number of bytes a hexadecimal string encodes,
+// counting an odd final digit as a whole byte and ignoring anything else.
+func hexStringBytes(v pdf.PDFHexString) int {
+	digits := 0
+	for i := 0; i < len(v.Value); i++ {
+		if pdf.IsHexDigit(v.Value[i]) {
+			digits++
+		}
+	}
+	return (digits + 1) / 2
+}
+
 // validateHexString validates requirements outlined in 6.1.6, reporting
 // against owner (the enclosing dict or content stream) so fixers can resolve
 // the violation by ref.
@@ -1406,6 +1418,10 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 		}
 	case pdf.PDFString:
 		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
+		}
+	case pdf.PDFHexString:
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(hexStringBytes(v), limit) {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
 		}
 	case pdf.PDFDict:

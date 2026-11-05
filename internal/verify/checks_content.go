@@ -161,6 +161,9 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 	case pdf.PDFHexString:
 		// 6.1.6: hex string operands must be valid hex digits, even count.
 		validateHexString(v, obj, ctx)
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(hexStringBytes(v), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("string in content stream exceeds maximum length of %d bytes", limit))
+		}
 	case pdf.PDFArray:
 		for _, e := range v {
 			checkOperandLimits(e, obj, ctx)

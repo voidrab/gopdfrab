@@ -194,6 +194,12 @@ func TestCheckOperandLimits(t *testing.T) {
 		t.Error("expected StringTooLong for an over-long string operand")
 	}
 
+	ctxHex := &ValidationContext{Spec: a1bSpec}
+	checkOperandLimits(pdf.PDFHexString{Value: strings.Repeat("ab", 70000)}, pdf.PDFDict{}, ctxHex)
+	if !hasCheck(ctxHex, pdf.Checks.Structure.StringTooLong) {
+		t.Error("expected StringTooLong for an over-long hex string operand")
+	}
+
 	// Recurses into arrays (e.g. TJ's positioning array).
 	ctx4 := &ValidationContext{Spec: a1bSpec}
 	checkOperandLimits(pdf.PDFArray{pdf.PDFInteger(3000000000)}, pdf.PDFDict{}, ctx4)

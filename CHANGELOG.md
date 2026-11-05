@@ -114,6 +114,9 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- The string length limit was not applied to hexadecimal strings, in the
+  document or in content streams. Verify now reports them and convert truncates
+  them.
 - The width and glyph coverage checks of a CIDFontType2 font read a CID as a
   glyph index and ignored a CIDToGIDMap stream. Verify reported a correct `/W`
   as mismatched, and convert replaced it with the widths of other glyphs. Both
