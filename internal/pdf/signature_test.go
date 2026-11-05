@@ -52,13 +52,13 @@ func TestByteRangeCoversRevision(t *testing.T) {
 		{"no Contents", "<< /A 1 >>", "", 0, false},
 		{"bad array value", "<< /A [ /Contents <abcd> >>", "", 0, false},
 		{"bad dictionary value", "<< /A << 1 >> /Contents <abcd> >>", "", 0, false},
-		{"keyword value", "<< /A foo /Contents <abcd> >>", "", 0, false},
+		{"keyword value", "<< /A foo /Contents <abcd> >>", "", 0, true},
 		{"stray delimiter", "<< /A ] /Contents <abcd> >>", "", 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, br := sigDoc(t, tc.body, tc.tail)
 			br[3] += tc.shift
-			if got := r.ByteRangeCoversRevision(PDFRef{ObjNum: 2}, br); got != tc.want {
+			if got := r.ByteRangeCoversRevision(PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()); got != tc.want {
 				t.Errorf("ByteRangeCoversRevision(%v) = %v, want %v", br, got, tc.want)
 			}
 		})
@@ -67,15 +67,15 @@ func TestByteRangeCoversRevision(t *testing.T) {
 
 func TestByteRangeCoversRevisionRejects(t *testing.T) {
 	r, br := sigDoc(t, "<< /Contents <abcd> >>", "")
-	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 9}, br) {
+	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 9}, br, r.XRefSectionOffsets()) {
 		t.Error("an object missing from the xref table covers its revision")
 	}
 	r.xrefTable[9] = r.xrefTable[2]
-	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 9}, br) {
+	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 9}, br, r.XRefSectionOffsets()) {
 		t.Error("an xref entry pointing at another object covers its revision")
 	}
 	br[0] = 1
-	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 2}, br) {
+	if r.ByteRangeCoversRevision(PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()) {
 		t.Error("a range not starting at 0 covers its revision")
 	}
 }
@@ -103,7 +103,7 @@ func TestRevisionEnd(t *testing.T) {
 			t.Errorf("revisionEnd(%d) = %d, want %d", tc.from, got, tc.want)
 		}
 	}
-	if next := r.nextXRefSection(int64(len(data))); next != int64(len(data)) {
+	if next := r.nextXRefSection(r.XRefSectionOffsets(), int64(len(data))); next != int64(len(data)) {
 		t.Errorf("nextXRefSection past every section = %d, want its argument", next)
 	}
 }

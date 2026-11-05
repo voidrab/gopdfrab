@@ -62,7 +62,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		return // Without a CharSet or a readable program, nothing can be checked.
 	}
 	if haveProgram && charSet != nil && ctx.exactCharSet() {
-		if glyph, listed, ok := charSetMismatch(charSet, glyphSet); !ok {
+		if glyph, listed, ok := CharSetMismatch(charSet, glyphSet); !ok {
 			if listed {
 				ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, fmt.Sprintf("CharSet lists glyph /%s, which the embedded font subset does not define", glyph))
 			} else {
@@ -133,10 +133,10 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	}
 }
 
-// charSetMismatch compares a CharSet with the glyph set of its program,
+// CharSetMismatch compares a CharSet with the glyph set of its program,
 // .notdef aside in both. ok is false when they differ. glyph is then one
 // differing name, and listed reports whether it is the CharSet that names it.
-func charSetMismatch(charSet, program map[string]bool) (glyph string, listed, ok bool) {
+func CharSetMismatch(charSet, program map[string]bool) (glyph string, listed, ok bool) {
 	for _, n := range slices.Sorted(maps.Keys(charSet)) {
 		if n != ".notdef" && !program[n] {
 			return n, true, false

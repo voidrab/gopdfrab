@@ -26,7 +26,7 @@ func TestConvertDropsSignatures(t *testing.T) {
 		lost int
 	}{
 		{pdf.PDFA1B, 0},
-		{pdf.PDFA2B, 2},
+		{pdf.PDFA2B, 1}, // The field's V and Perms hold the same signature.
 	} {
 		t.Run(string(tc.p.Level), func(t *testing.T) {
 			cr, err := ConvertBytes(signedFieldDoc(), tc.p, Options{})

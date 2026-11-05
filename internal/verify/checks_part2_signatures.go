@@ -11,21 +11,27 @@ import (
 // signature value, and its PKCS#7 object must carry the signer's certificate
 // and exactly one signer.
 func signatureRule(d *pdf.Reader, _ pdf.PDFValue, _ *ValidationContext) []pdf.PDFError {
+	sigs := signatureDicts(catalog(d))
+	if len(sigs) == 0 {
+		return nil
+	}
+	sections := d.XRefSectionOffsets()
 	var errs []pdf.PDFError
-	for _, sig := range signatureDicts(catalog(d)) {
-		errs = append(errs, checkSignature(d, sig)...)
+	for _, sig := range sigs {
+		errs = append(errs, checkSignature(d, sig, sections)...)
 	}
 	return errs
 }
 
-// checkSignature checks one signature dictionary.
-func checkSignature(d *pdf.Reader, sig pdf.PDFDict) []pdf.PDFError {
+// checkSignature checks one signature dictionary. sections holds the file's
+// cross-reference sections.
+func checkSignature(d *pdf.Reader, sig pdf.PDFDict, sections []int64) []pdf.PDFError {
 	ref := refOf(sig)
 	report := func(c pdf.Check, format string, args ...any) pdf.PDFError {
 		return pdf.NewError(c, []error{fmt.Errorf(format, args...)}, 0, ref)
 	}
 	var errs []pdf.PDFError
-	if br, ok := byteRangeOf(sig); !ok || ref == nil || !d.ByteRangeCoversRevision(*ref, br) {
+	if br, ok := byteRangeOf(sig); !ok || ref == nil || !d.ByteRangeCoversRevision(*ref, br, sections) {
 		errs = append(errs, report(pdf.Checks.Form.SignatureByteRange,
 			"signature ByteRange does not cover the entire file except the signature value"))
 	}

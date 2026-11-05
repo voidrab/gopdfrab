@@ -771,14 +771,20 @@ func fixType1CharSet(desc pdf.PDFDict, exact bool) bool {
 	var names []string
 	switch {
 	case desc.Entries.Get("FontFile") != nil:
-		ff := desc.Entries.Get("FontFile").(pdf.PDFDict)
+		ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict)
+		if !ok {
+			return false
+		}
 		fontData, err := pdf.DecodeStream(ff)
 		if err != nil || len(fontData) == 0 {
 			return false
 		}
 		names = fontprog.Type1GlyphNames(fontData)
 	case desc.Entries.Get("FontFile3") != nil:
-		ff := desc.Entries.Get("FontFile3").(pdf.PDFDict)
+		ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict)
+		if !ok {
+			return false
+		}
 		data, err := pdf.DecodeStream(ff)
 		if err != nil {
 			return false
@@ -811,18 +817,17 @@ func charSetConsistent(charSet string, programNames []string, exact bool) bool {
 	for _, part := range fontprog.SplitCharSetNames(charSet) {
 		listed[part] = true
 	}
-	defined := make(map[string]bool, len(programNames))
+	if exact {
+		defined := make(map[string]bool, len(programNames))
+		for _, n := range programNames {
+			defined[n] = true
+		}
+		_, _, ok := verify.CharSetMismatch(listed, defined)
+		return ok
+	}
 	for _, n := range programNames {
 		if !listed[n] {
 			return false
-		}
-		defined[n] = true
-	}
-	if exact {
-		for n := range listed {
-			if n != ".notdef" && !defined[n] {
-				return false
-			}
 		}
 	}
 	return true

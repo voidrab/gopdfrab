@@ -228,7 +228,7 @@ func TestCheckSignatureMalformedEntries(t *testing.T) {
 	} {
 		sig := pdf.NewPDFDict()
 		sig.Entries.Set("ByteRange", tc.byteRange)
-		errs := checkSignature(nil, sig)
+		errs := checkSignature(nil, sig, nil)
 		if len(errs) != 1 || errs[0].Check() != pdf.Checks.Form.SignatureByteRange {
 			t.Errorf("%s: reported %v, want only SignatureByteRange (no Contents to read)", tc.name, errs)
 		}

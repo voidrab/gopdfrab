@@ -1,7 +1,5 @@
 package pdf
 
-import "slices"
-
 // ByteRangeCoversRevision reports whether byteRange, the ByteRange of the
 // signature dictionary that is object sig, covers the revision that dictionary
 // was written in, apart from the signature value itself (PDF/A-2 6.4.3).
@@ -10,10 +8,14 @@ import "slices"
 // starts at offset 0, skips exactly the signature dictionary's Contents
 // string, and ends after the first %%EOF that follows the next
 // cross-reference section (or the Contents string, when no section follows),
-// plus at most one EOL marker unless that marker ends the file. A signature dictionary that cannot be located in the file, such
-// as one held in an object stream, covers nothing. Neither does one whose
-// Contents is a reference, which veraPDF cannot follow.
-func (d *Reader) ByteRangeCoversRevision(sig PDFRef, byteRange [4]int64) bool {
+// plus at most one EOL marker unless that marker ends the file. A signature
+// dictionary that cannot be located in the file, such as one held in an object
+// stream, covers nothing. Neither does one whose Contents is a reference, which
+// veraPDF cannot follow.
+//
+// sections holds the file's cross-reference sections, as XRefSectionOffsets
+// returns them.
+func (d *Reader) ByteRangeCoversRevision(sig PDFRef, byteRange [4]int64, sections []int64) bool {
 	start, end, ok := d.contentsSpan(sig)
 	if !ok {
 		return false
@@ -21,7 +23,7 @@ func (d *Reader) ByteRangeCoversRevision(sig PDFRef, byteRange [4]int64) bool {
 	if byteRange[0] != 0 || byteRange[1] != start || byteRange[2] != end {
 		return false
 	}
-	eof, slack, atEnd := d.revisionEnd(d.nextXRefSection(end))
+	eof, slack, atEnd := d.revisionEnd(d.nextXRefSection(sections, end))
 	want := eof - end
 	if atEnd {
 		return byteRange[3] == want
@@ -70,36 +72,17 @@ func (d *Reader) objectBodyLexer(num int) (*Lexer, bool) {
 	return l, true
 }
 
-// skipValue consumes one dictionary value, an "N G R" reference included. It
-// returns false at a token that cannot start a value.
+// skipValue consumes one dictionary value, an "N G R" reference included, and
+// reports whether it parsed. It leaves nothing pushed back, so l.pos is exact: an
+// integer that opens no reference rewinds the lookahead the parser took.
 func skipValue(l *Lexer) bool {
-	switch t := l.NextToken(); t.Type {
-	case TokenArrayStart:
-		_, err := parseArray(l)
-		return err == nil
-	case TokenDictStart:
-		_, err := parseDictionary(l)
-		return err == nil
-	case TokenInteger:
-		skipRefTail(l)
-		return true
-	case TokenReal, TokenBoolean, TokenString, TokenHexString, TokenName:
-		return true
-	case TokenKeyword:
-		return t.Value == "null"
-	}
-	return false
-}
-
-// skipRefTail consumes the "G R" that turns a just-read integer into a
-// reference. When none follows, the lexer is left just after the integer.
-func skipRefTail(l *Lexer) {
+	tok := l.NextToken()
 	mark := l.pos
-	gen := l.NextToken()
-	if r := l.NextToken(); gen.Type == TokenInteger && r.Type == TokenKeyword && r.Value == "R" {
-		return
+	v, err := parseObject(l, tok)
+	if _, isInt := v.(PDFInteger); isInt {
+		l.pos, l.pushed = mark, l.pushed[:0]
 	}
-	l.pos, l.pushed = mark, l.pushed[:0]
+	return err == nil
 }
 
 // XRefSectionOffsets returns the file offsets of the cross-reference section
@@ -108,12 +91,14 @@ func skipRefTail(l *Lexer) {
 // cannot be read, ends the chain.
 func (d *Reader) XRefSectionOffsets() []int64 {
 	offsets := []int64{d.xrefOffset}
+	seen := map[int64]bool{d.xrefOffset: true}
 	prev := d.Trailer().Entries.Get("Prev")
 	for {
 		p, ok := prev.(PDFInteger)
-		if !ok || slices.Contains(offsets, int64(p)) {
+		if !ok || seen[int64(p)] {
 			return offsets
 		}
+		seen[int64(p)] = true
 		offsets = append(offsets, int64(p))
 		trailer, err := d.XRefTrailerAt(int64(p) + d.pdfStart)
 		if err != nil {
@@ -123,11 +108,11 @@ func (d *Reader) XRefSectionOffsets() []int64 {
 	}
 }
 
-// nextXRefSection returns the offset of the first cross-reference section
-// after off, or off when none follows.
-func (d *Reader) nextXRefSection(off int64) int64 {
+// nextXRefSection returns the offset of the first of sections after off, or off
+// when none follows.
+func (d *Reader) nextXRefSection(sections []int64, off int64) int64 {
 	next := int64(-1)
-	for _, o := range d.XRefSectionOffsets() {
+	for _, o := range sections {
 		if o += d.pdfStart; o > off && (next < 0 || o < next) {
 			next = o
 		}
