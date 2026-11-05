@@ -1855,10 +1855,6 @@ func TestSimpleTrueTypeSubsetWidthsFallback(t *testing.T) {
 	}
 }
 
-// TestSimpleTrueTypeMetricsSkipsWhatItCannotCompare covers the Widths entries
-// the hmtx comparison passes over -- non-numeric, zero, unmapped by any cmap,
-// or in a font with no usable horizontal metrics -- each followed by a genuine
-// mismatch on 'A' that must still be found.
 // TestSimpleTrueTypeMetricsCodeOutsideWidths verifies that a shown code outside
 // /Widths is compared through /MissingWidth, which defaults to 0.
 func TestSimpleTrueTypeMetricsCodeOutsideWidths(t *testing.T) {
@@ -1898,6 +1894,10 @@ func TestSimpleTrueTypeMetricsCodeOutsideWidths(t *testing.T) {
 	}
 }
 
+// TestSimpleTrueTypeMetricsSkipsWhatItCannotCompare covers the Widths entries
+// the hmtx comparison passes over -- non-numeric, zero, unmapped by any cmap,
+// or in a font with no usable horizontal metrics -- each followed by a genuine
+// mismatch on 'A' that must still be found.
 func TestSimpleTrueTypeMetricsSkipsWhatItCannotCompare(t *testing.T) {
 	ttf := loadTTF(t)
 	tables, _ := fontprog.ParseSfnt(ttf)

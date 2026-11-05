@@ -1620,11 +1620,6 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	}
 }
 
-// TestComputeContentUsageThroughInheritedResources covers the page that names
-// no /Resources of its own: /Resources is inheritable, and documents that hang
-// one shared dict on the page tree root are common. Reading only the page's own
-// left every font in it unseen, and with it the fact that a shown font is not
-// embedded (6.3.4).
 // TestComputeContentUsageFollowsType3Glyphs verifies that a font used only by
 // the glyph procedures of a shown Type 3 font counts as shown, in the rendering
 // mode the glyphs are shown in, and that a Type 3 font never shown adds nothing.
@@ -1672,6 +1667,11 @@ func TestComputeContentUsageFollowsType3Glyphs(t *testing.T) {
 	}
 }
 
+// TestComputeContentUsageThroughInheritedResources covers the page that names
+// no /Resources of its own: /Resources is inheritable, and documents that hang
+// one shared dict on the page tree root are common. Reading only the page's own
+// left every font in it unseen, and with it the fact that a shown font is not
+// embedded (6.3.4).
 func TestComputeContentUsageThroughInheritedResources(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})

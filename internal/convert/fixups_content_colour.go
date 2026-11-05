@@ -286,8 +286,8 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 }
 
 // follow injects into every form XObject and tiling pattern that stream draws
-// and every Type 3 font it selects. stream itself takes no entry, which suits
-// a page's content and a glyph procedure: both read their holder's resources.
+// and every Type 3 font it selects. It does not inject into stream itself,
+// because a page's content and a glyph procedure read their holder's resources.
 func (in defaultCSInjection) follow(stream, scope pdf.PDFDict) bool {
 	ptr := pdf.ValuePointer(stream.Entries)
 	if in.visited[ptr] {
