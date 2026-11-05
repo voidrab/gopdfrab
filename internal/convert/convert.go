@@ -149,6 +149,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	r.fixers = rs.fixersFor(&fixerRun{
 		ctx:       ctx,
 		doc:       doc,
+		profile:   p,
 		spec:      &r.spec,
 		dpi:       o.dpi(),
 		decode:    decoderFor(doc),

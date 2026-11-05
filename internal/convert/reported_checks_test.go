@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -442,7 +443,7 @@ func TestEmbeddedFileFixerRepairsOnlyReportedChecks(t *testing.T) {
 	s := pdf.Checks.Structure
 	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
 		fs := specDict("Type", specName("Filespec"), "EF", specDict("F", pdf.NewStreamDict(nil, []byte("text"))))
-		return trailerWith("X", fs), embeddedFileFixer{}, []repairProbe{
+		return trailerWith("X", fs), embeddedFileFixer{ctx: context.Background(), profile: pdf.PDFA2B}, []repairProbe{
 			{s.EmbeddedFileNotPDFA, "/EF", func() bool { return fs.Entries.Get("EF") == nil }},
 			{s.EmbeddedFileMissingNames, "/F and /UF", func() bool { return fs.Entries.Get("UF") != nil }},
 		}

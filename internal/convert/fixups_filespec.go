@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
 // fileSpecFixer removes the embedded files and external file references that
@@ -100,14 +102,16 @@ func reportLost(lost *[]pdf.PDFError, c pdf.Check, d pdf.PDFDict, msg string) {
 
 // embeddedFileFixer repairs the file specifications of embedded files, those
 // found by their Filespec type and those of the EmbeddedFiles name tree, each
-// repair only when its own check was reported. A file specification with an
-// embedded file that does not comply with PDF/A-1b or PDF/A-2b loses its EF
+// repair only when its own check was reported. An embedded PDF that does not
+// comply with PDF/A-1b or PDF/A-2b is converted to the profile's level; a file
+// specification with an embedded file that cannot be converted loses its EF
 // entry, and the removal is reported to lost, when non-nil. One that keeps its
 // EF entry but lacks an F or UF string gets the one from the other, or both
 // from its name in the tree, or else a generic name.
 type embeddedFileFixer struct {
-	ctx  context.Context
-	lost *[]pdf.PDFError
+	ctx     context.Context
+	profile *pdf.Profile
+	lost    *[]pdf.PDFError
 }
 
 func (embeddedFileFixer) Applies(c pdf.Check) bool {
@@ -126,6 +130,7 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		}
 	}
 	judge := verify.NewEmbeddedFileJudge(f.ctx)
+	converted := map[pdf.Dict]bool{}
 	dropped := map[pdf.Dict]bool{}
 	changed := false
 	fix := func(fs pdf.PDFDict) {
@@ -136,7 +141,15 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 			for _, ef := range verify.EmbeddedFileStreams(fs) {
 				// A file that could not be judged may comply, so it stays,
 				// and the output is left unconformant.
+				if converted[ef.Entries] {
+					continue
+				}
 				if problem, decided := judge.Problem(ef); decided && problem != "" {
+					if f.convertEmbedded(fs, ef) {
+						converted[ef.Entries] = true
+						changed = true
+						continue
+					}
 					reportLost(f.lost, st.EmbeddedFileNotPDFA, fs, embeddedFileName(fs)+" removed: it "+problem)
 					fs.Entries.Del("EF")
 					dropped[fs.Entries] = true
@@ -164,6 +177,69 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		dropAssociatedFiles(*trailer, dropped)
 	}
 	return changed, nil
+}
+
+// The limits on converting embedded files. Each file is decoded into memory and
+// converted with all of the same machinery, so an input must not be able to ask
+// for this without bound.
+const (
+	maxEmbedConvertDepth = 2
+	maxEmbedConvertBytes = 256 << 20
+)
+
+// embedConvert is what the conversions of a document's embedded files, and those
+// of the files they embed in turn, share through the run's context.
+type embedConvert struct {
+	depth int
+	// left is how many more decoded bytes may be converted.
+	left *atomic.Int64
+}
+
+type embedConvertKey struct{}
+
+// convertEmbedded replaces the embedded file ef of the file specification fs
+// with a conversion to the fixer's profile. It reports whether it did: the file
+// may not be a PDF, may not convert to a valid one, or may exceed the limits.
+// What the conversion had to give up is reported to lost, since the output
+// hides it.
+func (f embeddedFileFixer) convertEmbedded(fs, ef pdf.PDFDict) bool {
+	state, ok := f.ctx.Value(embedConvertKey{}).(embedConvert)
+	if !ok {
+		state.left = new(atomic.Int64)
+		state.left.Store(maxEmbedConvertBytes)
+	}
+	if state.depth >= maxEmbedConvertDepth {
+		return false
+	}
+	data, err := pdf.DecodeStream(ef)
+	if err != nil || state.left.Add(-int64(len(data))) < 0 {
+		return false
+	}
+	nested := context.WithValue(f.ctx, embedConvertKey{}, embedConvert{depth: state.depth + 1, left: state.left})
+	cr, err := ConvertBytesContext(nested, data, f.profile, Options{})
+	if err != nil {
+		return false
+	}
+	defer cr.Close()
+	out, err := cr.Output()
+	if err != nil || !cr.Result.Valid {
+		return false
+	}
+
+	name := embeddedFileName(fs)
+	if n := len(cr.RasterizedPages); n > 0 {
+		reportLost(f.lost, pdf.Checks.Structure.EmbeddedFileNotPDFA, fs,
+			fmt.Sprintf("%s converted to PDF/A with %d pages rasterized", name, n))
+	}
+	for _, lost := range cr.LostObjects {
+		reportLost(f.lost, pdf.Checks.Structure.EmbeddedFileNotPDFA, fs, name+" converted to PDF/A: "+strings.Join(lost.Messages(), "; "))
+	}
+	writer.SetStreamFlate(&ef, out)
+	if params, ok := ef.Entries.Get("Params").(pdf.PDFDict); ok {
+		params.Entries.Set("Size", pdf.PDFInteger(len(out)))
+		params.Entries.Del("CheckSum")
+	}
+	return true
 }
 
 // dropAssociatedFiles removes the file specifications in dropped from every

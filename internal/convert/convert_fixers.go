@@ -72,10 +72,11 @@ type leadsItsClause interface {
 // fixerRun is what one conversion run lends its fixers: the level's rules
 // and the run-scoped state that a fixer reads or reports into.
 type fixerRun struct {
-	ctx  context.Context
-	doc  *pdf.Reader
-	spec *pdfa.Spec
-	dpi  int
+	ctx     context.Context
+	doc     *pdf.Reader
+	profile *pdf.Profile
+	spec    *pdfa.Spec
+	dpi     int
 	// decode is the Reader's concurrent decode cache, shared with the
 	// pre-loop colour usage scan.
 	decode decodeFunc
@@ -161,7 +162,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return permissionsFixer{} },
 		func(r *fixerRun) Fixer { return pageBoundaryFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return fileSpecFixer{lost: r.lost} },
-		func(r *fixerRun) Fixer { return embeddedFileFixer{ctx: r.ctx, lost: r.lost} },
+		func(r *fixerRun) Fixer { return embeddedFileFixer{ctx: r.ctx, profile: r.profile, lost: r.lost} },
 		func(r *fixerRun) Fixer { return presentationFixer{} },
 		func(r *fixerRun) Fixer { return fontDictFixer{} },
 		func(r *fixerRun) Fixer { return type0FontFixer{} },

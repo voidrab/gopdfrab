@@ -93,6 +93,10 @@ Everything under `internal/` may change in any release without notice.
 
 ### Changed
 
+- Converting to PDF/A-2b converts an embedded PDF that fails the level's rule,
+  under limits of two nested levels and 256 MB of decoded input per document,
+  and reports what the embedded file lost in `LostObjects`. A file that cannot
+  be converted is removed and reported, as before.
 - Converting to PDF/A-2b keeps the document's XMP packet, under the level's
   identification, when it passes the level's rules, and keeps other objects'
   metadata that passes. A packet that does not pass is rebuilt from the Info

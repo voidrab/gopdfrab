@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -8,9 +9,13 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
 func TestFileSpecFixer(t *testing.T) {
@@ -110,7 +115,7 @@ func TestEmbeddedFileFixerDropsNonPDFAFiles(t *testing.T) {
 	root.Entries.Set("Pages", specDict("Kids", pdf.PDFArray{onlyBad, mixed}))
 
 	var lost []pdf.PDFError
-	changed, err := embeddedFileFixer{lost: &lost}.Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA))
+	changed, err := embeddedFileFixer{ctx: context.Background(), profile: pdf.PDFA2B, lost: &lost}.Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA))
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want changed", changed, err)
 	}
@@ -221,8 +226,136 @@ func TestEmbeddedFileFixerKeepsUndecidedFiles(t *testing.T) {
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 	var lost []pdf.PDFError
-	changed, err := embeddedFileFixer{ctx: cancelled, lost: &lost}.Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA))
+	changed, err := embeddedFileFixer{ctx: cancelled, profile: pdf.PDFA2B, lost: &lost}.Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA))
 	if err != nil || changed || len(lost) != 0 || fs.Entries.Get("EF") == nil {
 		t.Errorf("Fix = %v, %v, lost %v; want the file kept", changed, err, lost)
 	}
+}
+
+// embedManyIn returns the PDF data with n files embedded, each a separate stream
+// holding inner.
+func embedManyIn(t *testing.T, data, inner []byte, n int) []byte {
+	t.Helper()
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer doc.Close()
+	trailer, err := resolveTrailer(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names pdf.PDFArray
+	for i := range n {
+		name := pdf.PDFString{Value: fmt.Sprintf("f%03d", i)}
+		names = append(names, name, specDict("Type", specName("Filespec"), "F", name, "UF", name,
+			"EF", specDict("F", pdf.NewStreamDict(nil, inner))))
+	}
+	trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("Names", specDict("EmbeddedFiles", specDict("Names", names)))
+	var out bytes.Buffer
+	if err := writer.WriteDocument(&out, trailer, 0); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+func readCorpus(t *testing.T, name string) []byte {
+	t.Helper()
+	for _, p := range corpustest.VeraPDF2B.Files() {
+		if strings.HasSuffix(p, name) {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return data
+		}
+	}
+	t.Skipf("corpus file %s not present", name)
+	return nil
+}
+
+func TestEmbeddedFileFixerConvertsPDFs(t *testing.T) {
+	fix := func(ctx context.Context, data []byte) (pdf.PDFDict, []pdf.PDFError, bool) {
+		ef := pdf.NewStreamDict(nil, data)
+		ef.Entries.Set("Params", specDict("Size", pdf.PDFInteger(1), "CheckSum", pdf.PDFString{Value: "x"}))
+		fs := specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "a.pdf"}, "UF", pdf.PDFString{Value: "a.pdf"},
+			"EF", specDict("F", ef, "UF", ef))
+		trailer := trailerWith("X", fs)
+		var lost []pdf.PDFError
+		changed, err := embeddedFileFixer{ctx: ctx, profile: pdf.PDFA2B, lost: &lost}.Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA))
+		if err != nil || !changed {
+			t.Fatalf("Fix = %v, %v; want changed", changed, err)
+		}
+		_, kept := fs.Entries.Lookup("EF")
+		return ef, lost, kept
+	}
+	ctx := context.Background()
+
+	t.Run("converted", func(t *testing.T) {
+		ef, lost, kept := fix(ctx, readCorpus(t, "6-5-1-t01-fail-b.pdf"))
+		if !kept || len(lost) != 0 {
+			t.Fatalf("kept = %v, lost = %v", kept, lost)
+		}
+		out, err := pdf.DecodeStream(ef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res, err := verify.VerifyBytes(out, pdf.PDFA2B, nil); err != nil || !res.Valid {
+			t.Errorf("the converted file is not valid: %v, %v", res.Issues, err)
+		}
+		params := ef.Entries.Get("Params").(pdf.PDFDict)
+		if params.Entries.Get("Size") != pdf.PDFInteger(len(out)) || params.Entries.Get("CheckSum") != nil {
+			t.Errorf("Params not updated: Size %v, CheckSum %v", params.Entries.Get("Size"), params.Entries.Get("CheckSum"))
+		}
+	})
+	t.Run("loss inside is reported", func(t *testing.T) {
+		_, lost, kept := fix(ctx, readCorpus(t, "6-3-1-t01-fail-a.pdf"))
+		if !kept || len(lost) == 0 || !strings.Contains(lost[0].Error(), `"a.pdf" converted to PDF/A: `) {
+			t.Errorf("kept = %v, lost = %v", kept, lost)
+		}
+	})
+	t.Run("rasterizing inside is reported", func(t *testing.T) {
+		_, lost, kept := fix(ctx, readCorpus(t, "6-1-13-t10-fail-a.pdf"))
+		if !kept || len(lost) == 0 || !strings.Contains(lost[0].Error(), "pages rasterized") {
+			t.Errorf("kept = %v, lost = %v", kept, lost)
+		}
+	})
+	t.Run("not decodable", func(t *testing.T) {
+		bad := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": specName("FlateDecode")}), []byte("x"))
+		fs := specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "a"}, "UF", pdf.PDFString{Value: "a"}, "EF", specDict("F", bad))
+		trailer := trailerWith("X", fs)
+		var lost []pdf.PDFError
+		if _, err := (embeddedFileFixer{ctx: ctx, profile: pdf.PDFA2B, lost: &lost}).Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA)); err != nil {
+			t.Fatal(err)
+		}
+		if _, kept := fs.Entries.Lookup("EF"); kept {
+			t.Error("EF kept")
+		}
+	})
+	t.Run("too deep", func(t *testing.T) {
+		left := new(atomic.Int64)
+		left.Store(maxEmbedConvertBytes)
+		deep := context.WithValue(ctx, embedConvertKey{}, embedConvert{depth: maxEmbedConvertDepth, left: left})
+		if _, _, kept := fix(deep, readCorpus(t, "6-5-1-t01-fail-b.pdf")); kept {
+			t.Error("converted past the depth limit")
+		}
+	})
+	t.Run("over budget", func(t *testing.T) {
+		left := new(atomic.Int64)
+		broke := context.WithValue(ctx, embedConvertKey{}, embedConvert{left: left})
+		if _, _, kept := fix(broke, readCorpus(t, "6-5-1-t01-fail-b.pdf")); kept {
+			t.Error("converted over the byte budget")
+		}
+	})
+	t.Run("output stays invalid", func(t *testing.T) {
+		// More files than the judge may verify leaves one undecided, which the
+		// nested conversion keeps, so its output cannot be called valid.
+		ok2B, err := os.ReadFile(compliant2B)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, kept := fix(ctx, embedManyIn(t, ok2B, ok2B, 65)); kept {
+			t.Error("a file that stays invalid was kept")
+		}
+	})
 }
