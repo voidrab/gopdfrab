@@ -56,7 +56,7 @@ func TestDeviceNColorantsFixer(t *testing.T) {
 		})},
 	})}
 
-	changed, err := deviceNColorantsFixer{}.Fix(&trailer, nil)
+	changed, err := deviceNColorantsFixer{limit: 8}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("deviceNColorantsFixer.Fix: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestDeviceNColorantsFixerArrayContents(t *testing.T) {
 		})},
 	})}
 
-	changed, err := deviceNColorantsFixer{}.Fix(&trailer, nil)
+	changed, err := deviceNColorantsFixer{limit: 8}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("deviceNColorantsFixer.Fix: %v", err)
 	}
@@ -134,48 +134,52 @@ func TestRecurseDeviceNFormEdgeCases(t *testing.T) {
 		})},
 	})}
 
-	if _, ok := recurseDeviceNForm(nil, resources, map[uintptr]bool{}); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm(nil, resources, map[uintptr]bool{}); ok {
 		t.Error("recurseDeviceNForm(no operands) ok = true, want false")
 	}
-	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFInteger(1)}, resources, map[uintptr]bool{}); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm([]pdf.PDFValue{pdf.PDFInteger(1)}, resources, map[uintptr]bool{}); ok {
 		t.Error("recurseDeviceNForm(non-name operand) ok = true, want false")
 	}
-	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resourcesNoXObject, map[uintptr]bool{}); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resourcesNoXObject, map[uintptr]bool{}); ok {
 		t.Error("recurseDeviceNForm(no XObject resources) ok = true, want false")
 	}
-	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Missing"}}, resources, map[uintptr]bool{}); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Missing"}}, resources, map[uintptr]bool{}); ok {
 		t.Error("recurseDeviceNForm(unknown target) ok = true, want false")
 	}
-	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "NotForm"}}, resources, map[uintptr]bool{}); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "NotForm"}}, resources, map[uintptr]bool{}); ok {
 		t.Error("recurseDeviceNForm(non-Form target) ok = true, want false")
 	}
-	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "NoStream"}}, resources, map[uintptr]bool{}); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "NoStream"}}, resources, map[uintptr]bool{}); ok {
 		t.Error("recurseDeviceNForm(streamless Form) ok = true, want false")
 	}
 	visited := map[uintptr]bool{pdf.ValuePointer(plainForm.Entries): true}
-	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resources, visited); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resources, visited); ok {
 		t.Error("recurseDeviceNForm(already-visited Form) ok = true, want false")
 	}
 	// plainForm has no own /Resources and no oversized-DeviceN usage: the
 	// inheritance fallback runs, but rewriteDeviceNStream reports no change.
-	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resources, map[uintptr]bool{}); ok {
+	if _, ok := (deviceNColorantsFixer{limit: 8}).recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resources, map[uintptr]bool{}); ok {
 		t.Error("recurseDeviceNForm(Form needing no rewrite) ok = true, want false")
 	}
 }
 
 func TestIsOversizedDeviceN(t *testing.T) {
-	if !isOversizedDeviceN(oversizedDeviceN()) {
+	f := deviceNColorantsFixer{limit: 8}
+	if !f.oversized(oversizedDeviceN()) {
 		t.Error("9-colorant DeviceN should be oversized")
 	}
+	if (deviceNColorantsFixer{limit: 32}).oversized(oversizedDeviceN()) {
+		t.Error("9-colorant DeviceN should fit a limit of 32")
+	}
 	small := pdf.PDFArray{pdf.PDFName{Value: "DeviceN"}, pdf.PDFArray{pdf.PDFName{Value: "a"}}, pdf.PDFName{Value: "DeviceRGB"}}
-	if isOversizedDeviceN(small) {
+	if f.oversized(small) {
 		t.Error("1-colorant DeviceN should not be oversized")
 	}
-	if isOversizedDeviceN(pdf.PDFName{Value: "DeviceRGB"}) {
+	if f.oversized(pdf.PDFName{Value: "DeviceRGB"}) {
 		t.Error("non-array should not be oversized")
 	}
 	notDeviceN := pdf.PDFArray{pdf.PDFName{Value: "Separation"}, oversizedDeviceN()[1], pdf.PDFName{Value: "DeviceRGB"}}
-	if isOversizedDeviceN(notDeviceN) {
+	if f.oversized(notDeviceN) {
 		t.Error("a non-DeviceN array with a long names list should not be oversized")
 	}
 }
@@ -193,7 +197,7 @@ func TestDeviceNRewritePreservesUntouchedOperators(t *testing.T) {
 	})}
 	stream := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("1 0 0 RG 5 w /DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn 10 20 m 30 40 l S"))
 
-	out, changed := rewriteDeviceNStream(stream, resources, map[uintptr]bool{})
+	out, changed := deviceNColorantsFixer{limit: 8}.rewriteDeviceNStream(stream, resources, map[uintptr]bool{})
 	if !changed {
 		t.Fatalf("expected the oversized DeviceN scn to be rewritten")
 	}
@@ -240,7 +244,7 @@ func TestDeviceNFixerLeavesUnrewritableThingsAlone(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": page})}
 
-	changed, err := deviceNColorantsFixer{}.Fix(&trailer, nil)
+	changed, err := deviceNColorantsFixer{limit: 8}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +278,7 @@ func TestDeviceNRewriteRestoresSpaceAtQ(t *testing.T) {
 	stream := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte(
 		"/RGB cs q /DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn Q 0.25 0.5 0.75 scn"))
 
-	out, changed := rewriteDeviceNStream(stream, resources, map[uintptr]bool{})
+	out, changed := deviceNColorantsFixer{limit: 8}.rewriteDeviceNStream(stream, resources, map[uintptr]bool{})
 	if !changed {
 		t.Fatal("the oversized DeviceN colour was not rewritten")
 	}
@@ -284,5 +288,31 @@ func TestDeviceNRewriteRestoresSpaceAtQ(t *testing.T) {
 	}
 	if got := string(decoded); !strings.Contains(got, "0.25 0.5 0.75 scn") {
 		t.Errorf("the colour set after Q was rewritten\ngot: %s", got)
+	}
+}
+
+// TestDeviceNColorantsFixerKeepsSpacesWithinTheLimit pins that a DeviceN space
+// legal at the level survives, whatever a larger one elsewhere got reported.
+func TestDeviceNColorantsFixerKeepsSpacesWithinTheLimit(t *testing.T) {
+	dn := oversizedDeviceN()
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"DN": dn})},
+		})},
+		"Contents": pdf.NewStreamDict(pdf.NewDict(), []byte("/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn")),
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})},
+		})},
+	})}
+
+	changed, err := deviceNColorantsFixer{limit: 32}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Error("a 9-colorant space was rewritten under a limit of 32")
 	}
 }

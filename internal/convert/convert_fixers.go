@@ -138,7 +138,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return separationAlternateFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return contentLimitsFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return deviceColourFixer{decode: r.decode, spec: r.spec} },
-		func(r *fixerRun) Fixer { return deviceNColorantsFixer{} },
+		func(r *fixerRun) Fixer { return deviceNColorantsFixer{limit: r.spec.Limits.MaxDeviceNColorants} },
 		func(r *fixerRun) Fixer { return deviceNColorantEntriesFixer{} },
 		func(r *fixerRun) Fixer { return separationConsistencyFixer{} },
 		func(r *fixerRun) Fixer { return overprintModeFixer{} },
