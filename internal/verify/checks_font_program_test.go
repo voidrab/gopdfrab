@@ -371,11 +371,11 @@ func TestCidsToCheckAndDefaultWidth(t *testing.T) {
 	}
 
 	if CIDDefaultWidth(desc) != 1000 {
-		t.Error("cidDefaultWidth should default to 1000 when DW is absent")
+		t.Error("CIDDefaultWidth should default to 1000 when DW is absent")
 	}
 	desc.Entries.Set("DW", pdf.PDFInteger(2000))
 	if CIDDefaultWidth(desc) != 2000 {
-		t.Error("cidDefaultWidth should reflect the DW entry")
+		t.Error("CIDDefaultWidth should reflect the DW entry")
 	}
 }
 
@@ -1793,7 +1793,7 @@ func TestCIDDefaultWidthReal(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries.Set("DW", pdf.PDFReal(750.9))
 	if got := CIDDefaultWidth(d); got != 750 {
-		t.Errorf("cidDefaultWidth = %d, want 750", got)
+		t.Errorf("CIDDefaultWidth = %d, want 750", got)
 	}
 }
 
