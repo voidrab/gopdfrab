@@ -381,6 +381,103 @@ func TestFontMetricFixerGrowsTrueTypeWidthsForShownCode(t *testing.T) {
 	}
 }
 
+// TestFontMetricFixerFullWalkGrowsWidths verifies that the repair reached through
+// the full walk, which an issue without a reference forces, also covers the codes
+// and CIDs shown without a width entry, whether the font is direct or indirect.
+func TestFontMetricFixerFullWalkGrowsWidths(t *testing.T) {
+	ttf := streamOf(fontsubst.LiberationSansRegular)
+	simple := dictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"},
+		"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": ttf}),
+		"FirstChar":      pdf.PDFInteger(66), "Widths": ints(667),
+		"Encoding": pdf.PDFName{Value: "WinAnsiEncoding"},
+	})
+	cid := dictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "CIDFontType2"},
+		"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": ttf}),
+		"DW":             pdf.PDFInteger(1000),
+	})
+	type0 := dictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type0"},
+		"Encoding": pdf.PDFName{Value: "Identity-H"}, "DescendantFonts": pdf.PDFArray{cid},
+	})
+	page := dictOf(map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": dictOf(map[string]pdf.PDFValue{"Font": dictOf(map[string]pdf.PDFValue{"F": simple, "C": type0})}),
+		"Contents":  streamOf([]byte("BT /F 10 Tf (A) Tj /C 10 Tf <0024> Tj ET")),
+	})
+	trailer := dictOf(map[string]pdf.PDFValue{"Root": dictOf(map[string]pdf.PDFValue{"Page": page})})
+
+	changed, err := fontMetricFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want true, nil", changed, err)
+	}
+	if simple.Entries.Get("FirstChar") != pdf.PDFInteger(65) {
+		t.Errorf("FirstChar = %v, want 65", simple.Entries.Get("FirstChar"))
+	}
+	got := fontprog.ParseCIDWidths(cid.Entries.Get("W").(pdf.PDFArray))
+	if len(got) != 1 || got[0] != [2]int{36, 667} {
+		t.Errorf("W pairs = %v, want [[36 667]]", got)
+	}
+}
+
+// TestGrowCIDTrueTypeWidths verifies that /W gains the shown CIDs it lacks whose
+// glyph differs from the default width, keeps its order, and gains nothing else.
+func TestGrowCIDTrueTypeWidths(t *testing.T) {
+	ttf := streamOf(fontsubst.LiberationSansRegular)
+	font := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
+		m := map[string]pdf.PDFValue{"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": ttf})}
+		for k, v := range entries {
+			m[k] = v
+		}
+		return dictOf(m)
+	}
+	d := font(map[string]pdf.PDFValue{"W": pdf.PDFArray{pdf.PDFInteger(100), ints(500)}})
+	// CID 36 lacks a width, CID 100 has one, CID 60000 has no glyph.
+	if !growCIDTrueTypeWidths(d, map[int]bool{36: true, 100: true, 60000: true}) {
+		t.Fatal("growCIDTrueTypeWidths = false, want true")
+	}
+	got := fontprog.ParseCIDWidths(d.Entries.Get("W").(pdf.PDFArray))
+	if len(got) != 2 || got[0] != [2]int{36, 667} || got[1] != [2]int{100, 500} {
+		t.Errorf("W pairs = %v", got)
+	}
+	if growCIDTrueTypeWidths(d, map[int]bool{36: true}) {
+		t.Error("second pass grew /W again")
+	}
+
+	for name, tc := range map[string]struct {
+		d     pdf.PDFDict
+		shown map[int]bool
+	}{
+		"nothing shown": {font(nil), nil},
+		"default fits":  {font(map[string]pdf.PDFValue{"DW": pdf.PDFInteger(667)}), map[int]bool{36: true}},
+		"unmapped":      {font(map[string]pdf.PDFValue{"CIDToGIDMap": pdf.NewStreamDict(nil, []byte{0, 0})}), map[int]bool{36: true}},
+		"unusable map":  {font(map[string]pdf.PDFValue{"CIDToGIDMap": pdf.PDFInteger(1)}), map[int]bool{36: true}},
+		"no program":    {dictOf(nil), map[int]bool{36: true}},
+		"undecodable":   {dictOf(map[string]pdf.PDFValue{"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": undecodableStream()})}), map[int]bool{36: true}},
+		"not sfnt":      {dictOf(map[string]pdf.PDFValue{"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf([]byte("garbage"))})}), map[int]bool{36: true}},
+	} {
+		if growCIDTrueTypeWidths(tc.d, tc.shown) {
+			t.Errorf("%s: growCIDTrueTypeWidths = true, want false", name)
+		}
+	}
+}
+
+// TestShownUsageGrowWidthsIgnoresOtherDicts verifies that only a TrueType or
+// CIDFontType2 font is considered.
+func TestShownUsageGrowWidthsIgnoresOtherDicts(t *testing.T) {
+	trailer := dictOf(nil)
+	u := shownUsage{trailer: &trailer}
+	for _, d := range []pdf.PDFDict{
+		dictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "TrueType"}}),
+		dictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type1"}}),
+	} {
+		if u.growWidths(d) {
+			t.Errorf("growWidths(%v) = true, want false", d)
+		}
+	}
+}
+
 // TestFixCIDTrueTypeWidthsReadsCIDToGIDMap verifies that a width is taken from
 // the glyph a stream CIDToGIDMap selects, so a correct /W stays as it is.
 func TestFixCIDTrueTypeWidthsReadsCIDToGIDMap(t *testing.T) {

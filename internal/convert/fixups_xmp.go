@@ -370,33 +370,13 @@ func pdfDateToXMP(cd string) (out string, ok bool) {
 	if len(cd) < 4 || !isAllDigits(cd[:4]) {
 		return "", false
 	}
-	out, rest := cd[:4], cd[4:]
-
-	month, rest, ok := takeDigits2(rest)
-	if !ok {
-		return out + "-01-01T00:00:00Z", true
-	}
-	out += "-" + month
-
-	day, rest, ok := takeDigits2(rest)
-	if !ok {
-		return out + "-01T00:00:00Z", true
-	}
-	out += "-" + day
-
-	hour, rest, ok := takeDigits2(rest)
-	if !ok {
-		return out + "T00:00:00Z", true
-	}
-	minute, rest, ok := takeDigits2(rest)
-	if !ok {
-		minute = "00"
-	}
-	second, rest, ok := takeDigits2(rest)
-	if !ok {
-		second = "00"
-	}
-	out += "T" + hour + ":" + minute + ":" + second
+	year, rest := cd[:4], cd[4:]
+	month, rest := takeDigits2Or(rest, "01")
+	day, rest := takeDigits2Or(rest, "01")
+	hour, rest := takeDigits2Or(rest, "00")
+	minute, rest := takeDigits2Or(rest, "00")
+	second, rest := takeDigits2Or(rest, "00")
+	out = year + "-" + month + "-" + day + "T" + hour + ":" + minute + ":" + second
 
 	if len(rest) > 0 && (rest[0] == '+' || rest[0] == '-') {
 		sign := string(rest[0])
@@ -409,11 +389,18 @@ func pdfDateToXMP(cd string) (out string, ok bool) {
 		if !ok {
 			tzm = "00"
 		}
-		out += sign + tzh + ":" + tzm
-	} else {
-		out += "Z"
+		return out + sign + tzh + ":" + tzm, true
 	}
-	return out, true
+	return out + "Z", true
+}
+
+// takeDigits2Or consumes a 2-digit prefix of s, or returns def and s unchanged
+// if s doesn't start with two digits.
+func takeDigits2Or(s, def string) (digits, rest string) {
+	if d, r, ok := takeDigits2(s); ok {
+		return d, r
+	}
+	return def, s
 }
 
 // takeDigits2 consumes a 2-digit prefix of s, reporting ok=false (and

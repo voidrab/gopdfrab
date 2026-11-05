@@ -37,24 +37,42 @@ func TestIterationCapDoesNotRasterizeFixedPages(t *testing.T) {
 	}
 }
 
-// TestRasterBackstopKeepsPagesThatNeverUsedTheFont verifies that a font no fixer
-// can embed flattens exactly the pages that hold it, although the verifier reports
-// the font on the first of them only.
-func TestRasterBackstopKeepsPagesThatNeverUsedTheFont(t *testing.T) {
-	const page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>"
+// cjkPagesPDF builds a document with an unembedded CID font no fixer can embed,
+// which the pages in shows hold in their resources and show.
+func cjkPagesPDF(pages int, shows map[int]bool) []byte {
+	const objsPerPage = 2
+	kids := ""
+	for i := range pages {
+		kids += fmt.Sprintf("%d 0 R ", 5+objsPerPage*i)
+	}
 	b := pdfgen.NewBuilder("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
-	b.Obj(2, "<< /Type /Pages /Kids [4 0 R 5 0 R 6 0 R] /Count 3 >>")
-	b.Obj(3, "<< /Type /Font /Subtype /Type0 /BaseFont /HeiseiKakuGo-W5 /Encoding /UniJIS-UCS2-H /DescendantFonts [<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HeiseiKakuGo-W5 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> >>] >>")
-	b.Obj(4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 7 0 R >>")
-	b.Obj(5, fmt.Sprintf(page, 8))
-	b.Obj(6, fmt.Sprintf(page, 9))
-	b.StreamObj(7, "<<", []byte("0 0 10 10 re f"))
-	b.StreamObj(8, "<<", []byte("BT /F1 12 Tf 10 10 Td <3042> Tj ET"))
-	b.StreamObj(9, "<<", []byte("BT /F1 12 Tf 10 10 Td <3044> Tj ET"))
-	in := b.FinishClassic("<< /Size 10 /Root 1 0 R /ID [<00112233445566778899aabbccddeeff><00112233445566778899aabbccddeeff>] >>")
+	b.Obj(2, fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids, pages))
+	b.Obj(3, "<< /Type /Font /Subtype /Type0 /BaseFont /HeiseiKakuGo-W5 /Encoding /Identity-H /DescendantFonts [4 0 R] >>")
+	b.Obj(4, "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HeiseiKakuGo-W5 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> >>")
+	for i := range pages {
+		obj := 5 + objsPerPage*i
+		resources, content := "", "0 0 10 10 re f"
+		if shows[i+1] {
+			resources, content = "/Resources << /Font << /F1 3 0 R >> >>", "BT /F1 12 Tf 10 10 Td <0042> Tj ET"
+		}
+		b.Obj(obj, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] %s /Contents %d 0 R >>", resources, obj+1))
+		b.StreamObj(obj+1, "<<", []byte(content))
+	}
+	return b.FinishClassic(fmt.Sprintf("<< /Size %d /Root 1 0 R /ID [<00112233445566778899aabbccddeeff><00112233445566778899aabbccddeeff>] >>", 5+objsPerPage*pages))
+}
 
-	cr, err := ConvertBytes(in, pdf.PDFA1B, Options{})
+// TestRasterBackstopFlattensOnlyPagesShowingTheFont verifies that a font no fixer
+// can embed flattens exactly the pages that show it, in one pass, however many
+// they are, although the verifier reports the font once.
+func TestRasterBackstopFlattensOnlyPagesShowingTheFont(t *testing.T) {
+	shows := map[int]bool{}
+	want := []int{}
+	for page := 2; page <= 12; page++ {
+		shows[page] = true
+		want = append(want, page)
+	}
+	cr, err := ConvertBytes(cjkPagesPDF(12, shows), pdf.PDFA1B, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,8 +80,8 @@ func TestRasterBackstopKeepsPagesThatNeverUsedTheFont(t *testing.T) {
 	if !cr.Result.Valid {
 		t.Fatalf("output not valid: %v", cr.Result.Issues)
 	}
-	if !slices.Equal(cr.RasterizedPages, []int{2, 3}) {
-		t.Errorf("rasterized pages %v, want [2 3]", cr.RasterizedPages)
+	if !slices.Equal(cr.RasterizedPages, want) {
+		t.Errorf("rasterized pages %v, want %v", cr.RasterizedPages, want)
 	}
 }
 
@@ -74,8 +92,11 @@ func TestRasterBackstopFlattensEveryPageAfterTheLastPagePass(t *testing.T) {
 	trailer := onePageTrailer()
 	flattened := map[int]bool{1: true}
 	issue := pdf.NewError(pdf.Checks.Colour.OutputIntentNotArray, []error{errors.New("synthetic")}, 1, nil)
-	if _, _, changed := applyRasterFallback(context.Background(), &trailer, []pdf.PDFError{issue}, flattened, 72); changed {
+	if _, _, changed := applyRasterFallback(context.Background(), nil, &trailer, []pdf.PDFError{issue}, flattened, 72); changed {
 		t.Error("a page already flattened was rebuilt")
+	}
+	if _, _, changed := flattenAllPages(context.Background(), &trailer, flattened, 72); changed {
+		t.Error("the flatten-all pass rebuilt a page already flattened")
 	}
 
 	doc := openTrailer(t, trailer)

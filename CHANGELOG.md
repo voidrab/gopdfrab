@@ -116,7 +116,7 @@ Everything under `internal/` may change in any release without notice.
 
 - When a font no fixer could embed was shown on several pages, convert rasterized
   every page of the document, including those that never used it. It now
-  rasterizes only the pages that show the font.
+  rasterizes the pages that show the font, where it can tell which those are.
 - A partial Info date, such as `D:20150310`, became an XMP date without a time,
   which a validator reads in its local timezone, so the output's conformance
   depended on where it was checked. XMP dates now always carry a time and a
@@ -126,7 +126,8 @@ Everything under `internal/` may change in any release without notice.
   embeds a substitute.
 - A code shown by a simple TrueType font outside its `/Widths` was not compared
   with the embedded program. Verify now compares it through `/MissingWidth`, and
-  convert extends `/Widths` over the shown code.
+  convert extends `/Widths` over the shown code. Convert likewise adds a CID shown
+  with a wrong default width to `/W`, instead of rasterizing the page.
 - The PDF/A-2b overprint rule missed DeviceCMYK under an ICCBased DefaultCMYK
   and overprint state inherited by a form XObject, took stroked text for filled,
   and went on treating a colour space as ICCBased CMYK after a device colour

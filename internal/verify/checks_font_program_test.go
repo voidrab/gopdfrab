@@ -472,13 +472,18 @@ func TestCIDTrueTypeChecksReadCIDToGIDMap(t *testing.T) {
 	if coverage(w(1, widthA)) {
 		t.Error("SubsetGlyphCoverage for a CID mapped to a glyph")
 	}
-	if !coverage(w(3, widthA)) {
-		t.Error("no SubsetGlyphCoverage for a CID the map does not cover")
+	if coverage(w(3, widthA)) {
+		t.Error("SubsetGlyphCoverage for a CID the map does not cover that is only declared in W")
+	}
+	shown := &ValidationContext{Spec: a1bSpec, UsedCIDs: map[uintptr]map[int]bool{pdf.ValuePointer(desc.Entries): {3: true}}}
+	ValidateCIDTrueTypeSubset(desc, ff, w(1, widthA), shown)
+	if !hasCheck(shown, pdf.Checks.Font.SubsetGlyphCoverage) {
+		t.Error("no SubsetGlyphCoverage for a shown CID the map does not cover")
 	}
 
 	// A map that is no stream or does not decode leaves both checks silent.
 	desc.Entries.Set("CIDToGIDMap", pdf.PDFInteger(1))
-	if metrics(w(1, widthA+500)) || coverage(w(3, widthA)) {
+	if metrics(w(1, widthA+500)) || coverage(w(1, widthA)) {
 		t.Error("a check reported through an unusable CIDToGIDMap")
 	}
 }

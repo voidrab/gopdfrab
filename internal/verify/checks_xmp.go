@@ -1114,6 +1114,30 @@ func xmpScalarValue(xmp, prop string) (string, bool) {
 	return decodeXMLEntities(strings.TrimSpace(m[2])), true
 }
 
+// splitPDFDate returns the digits of a PDF date's date and time fields and those
+// of its timezone.
+func splitPDFDate(s string) (fields, zone string) {
+	s = strings.TrimPrefix(s, "D:")
+	i := strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' })
+	if i < 0 {
+		return s, ""
+	}
+	return s[:i], digitsOf(s[i:])
+}
+
+// splitXMPDate returns the digits of an XMP date's date and time fields and those
+// of its timezone, which only a date with a time can have.
+func splitXMPDate(s string) (fields, zone string) {
+	date, clock, ok := strings.Cut(s, "T")
+	if !ok {
+		return digitsOf(s), ""
+	}
+	if i := strings.IndexAny(clock, "Z+-"); i >= 0 {
+		return digitsOf(date) + digitsOf(clock[:i]), digitsOf(clock[i:])
+	}
+	return digitsOf(date) + digitsOf(clock), ""
+}
+
 // completeDateDigits fills in the fields a date's digits leave out with their
 // ISO 32000-1 7.9.4 defaults, up to the seconds: month and day 01, the rest 00.
 // Digits without a whole year stay as they are.
@@ -1215,8 +1239,10 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 			return
 		}
 		xmpDate, _ := pdf.FirstRegexpGroup(xmpDateRe, xmp)
-		infoDigits := completeDateDigits(digitsOf(cd))
-		xmpDigits := completeDateDigits(digitsOf(xmpDate))
+		infoTime, infoZone := splitPDFDate(cd)
+		xmpTime, xmpZone := splitXMPDate(xmpDate)
+		infoDigits := completeDateDigits(infoTime) + infoZone
+		xmpDigits := completeDateDigits(xmpTime) + xmpZone
 		n := min(len(infoDigits), len(xmpDigits), 14)
 		if n < 8 || infoDigits[:n] != xmpDigits[:n] || len(infoDigits) < len(xmpDigits) {
 			errs = append(errs, xmpErr(pdf.Checks.Metadata.InfoXMPSync, fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))

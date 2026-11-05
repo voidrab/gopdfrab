@@ -2,7 +2,9 @@ package convert
 
 import (
 	"encoding/binary"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -284,16 +286,20 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 // PDF /Widths (simple TrueType, Type1, Type1C, Type3) or /W (CIDFontType2,
 // CIDFontType0) entries from the embedded font program, mirroring the
 // detection in checks_font.go/checks_font_program.go.
-type fontMetricFixer struct{}
+type fontMetricFixer struct{ doc *pdf.Reader }
 
 func (fontMetricFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.AdvanceWidthMismatch
 }
 
-func (fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
+	usage := shownUsage{doc: f.doc, trailer: trailer}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if fixFontMetricsDict(d) {
+			changed = true
+		}
+		if usage.growWidths(d) {
 			changed = true
 		}
 	})
@@ -301,29 +307,51 @@ func (fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 }
 
 // fixTargeted repairs only the font dicts the issues reference; the verifier
-// reports every mismatching font per pass, so this covers all violations. A
-// simple TrueType font also gets /Widths entries for the shown codes outside it.
-func (fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+// reports every mismatching font per pass, so this covers all violations.
+func (f fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
-	var used map[uintptr]map[int]bool
+	usage := shownUsage{doc: f.doc, trailer: p.trailer}
 	for _, d := range targets {
 		if fixFontMetricsDict(d) {
 			changed = true
 		}
-		if d.Entries.Get("Subtype") != (pdf.PDFName{Value: "TrueType"}) {
-			continue
-		}
-		if used == nil {
-			_, _, used, _, _, _ = verify.ComputeContentUsage(*p.trailer, verify.NewContext(nil))
-		}
-		if growTrueTypeWidths(d, used[pdf.ValuePointer(d.Entries)]) {
+		if usage.growWidths(d) {
 			changed = true
 		}
 	}
 	return changed, true, nil
+}
+
+// shownUsage is the document's font usage, computed when first needed.
+type shownUsage struct {
+	doc        *pdf.Reader
+	trailer    *pdf.PDFDict
+	codes, cid map[uintptr]map[int]bool
+}
+
+// growWidths gives font d width entries for what it shows without one: a code
+// outside the /Widths of a simple TrueType font, or a CID absent from the /W of a
+// CIDFontType2. The width such a code or CID takes otherwise can disagree with the
+// embedded program, and only the codes shown are checked.
+func (u *shownUsage) growWidths(d pdf.PDFDict) bool {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
+		return false
+	}
+	subtype := d.Entries.Get("Subtype")
+	trueType := subtype == pdf.PDFName{Value: "TrueType"}
+	if !trueType && subtype != (pdf.PDFName{Value: "CIDFontType2"}) {
+		return false
+	}
+	if u.codes == nil {
+		_, _, u.codes, u.cid, _, _ = verify.ComputeContentUsage(*u.trailer, verify.NewContext(u.doc))
+	}
+	if trueType {
+		return growTrueTypeWidths(d, u.codes[pdf.ValuePointer(d.Entries)])
+	}
+	return growCIDTrueTypeWidths(d, u.cid[pdf.ValuePointer(d.Entries)])
 }
 
 // fixFontMetricsDict recomputes d's width metadata from its embedded font
@@ -679,6 +707,58 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if !changed {
 		return false
 	}
+	v.Entries.Set("W", buildCIDWidthsArray(pairs))
+	return true
+}
+
+// growCIDTrueTypeWidths adds to the /W of a CIDFontType2 each CID in shown that it
+// lacks and whose glyph's width differs from the font's default width.
+func growCIDTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
+	w, _ := v.Entries.Get("W").(pdf.PDFArray)
+	desc, _ := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	if !ok || len(shown) == 0 {
+		return false
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return false
+	}
+	tables, ok := fontprog.ParseSfnt(data)
+	if !ok {
+		return false
+	}
+	gidOf, ok := verify.CIDToGIDMapping(v.Entries.Get("CIDToGIDMap"), pdf.DecodeStream)
+	if !ok {
+		return false
+	}
+	pairs := fontprog.ParseCIDWidths(w)
+	listed := make(map[int]bool, len(pairs))
+	for _, pair := range pairs {
+		listed[pair[0]] = true
+	}
+	dw := 1000
+	if n, ok := pdf.PDFNumberToInt(v.Entries.Get("DW")); ok {
+		dw = n
+	}
+	glyphPresent := fontprog.TTGlyphPresent(tables)
+	grew := false
+	for _, cid := range slices.Sorted(maps.Keys(shown)) {
+		gid, mapped := gidOf(cid)
+		if listed[cid] || !mapped || !glyphPresent(gid) {
+			continue
+		}
+		width := fontprog.TTAdvanceWidth(tables, gid)
+		if width < 0 || math.Abs(width-float64(dw)) <= 1 {
+			continue
+		}
+		pairs = append(pairs, [2]int{cid, int(math.Round(width))})
+		grew = true
+	}
+	if !grew {
+		return false
+	}
+	slices.SortFunc(pairs, func(a, b [2]int) int { return a[0] - b[0] })
 	v.Entries.Set("W", buildCIDWidthsArray(pairs))
 	return true
 }

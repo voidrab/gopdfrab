@@ -809,7 +809,7 @@ func TestFlattenAllPages(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	if _, _, changed := flattenAllPages(context.Background(), &trailer, defaultRasterDPI); !changed {
+	if _, _, changed := flattenAllPages(context.Background(), &trailer, nil, defaultRasterDPI); !changed {
 		t.Fatalf("flattenAllPages returned false, want true (a renderable page was present)")
 	}
 
@@ -827,7 +827,7 @@ func TestFlattenAllPages(t *testing.T) {
 // TestFlattenAllPagesNoPages checks the no-pages-resolved short-circuit.
 func TestFlattenAllPagesNoPages(t *testing.T) {
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	if _, _, changed := flattenAllPages(context.Background(), &trailer, defaultRasterDPI); changed {
+	if _, _, changed := flattenAllPages(context.Background(), &trailer, nil, defaultRasterDPI); changed {
 		t.Error("flattenAllPages on a trailer with no Root/Pages returned true, want false")
 	}
 }
@@ -955,7 +955,7 @@ func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
 	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	drops, rasterized, changed := flattenAllPages(context.Background(), &trailer, defaultRasterDPI)
+	drops, rasterized, changed := flattenAllPages(context.Background(), &trailer, nil, defaultRasterDPI)
 	if !changed {
 		t.Fatal("flattenAllPages returned false, want true")
 	}

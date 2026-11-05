@@ -8,6 +8,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/raster"
+	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -38,10 +39,10 @@ func (r *run) backstop() error {
 	// The verifier reports a shared object once, on the first page it finds it
 	// on, so flattening that page can expose the same object on a later one.
 	// Those pages are flattened in turn, which leaves the pages that never used
-	// it as they are.
+	// it as they are. A font no fixer can embed takes all its pages in one pass.
 	flattened := map[int]bool{}
 	for range maxPagePasses {
-		drops, rasterized, changed := applyRasterFallback(r.ctx, &r.trailer, r.cr.Result.Issues, flattened, r.o.dpi())
+		drops, rasterized, changed := applyRasterFallback(r.ctx, r.doc, &r.trailer, r.cr.Result.Issues, flattened, r.o.dpi())
 		if !changed {
 			break
 		}
@@ -55,7 +56,7 @@ func (r *run) backstop() error {
 		}
 	}
 	if !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, true) {
-		if drops, rasterized, changed := flattenAllPages(r.ctx, &r.trailer, r.o.dpi()); changed {
+		if drops, rasterized, changed := flattenAllPages(r.ctx, &r.trailer, flattened, r.o.dpi()); changed {
 			if err := r.ctx.Err(); err != nil {
 				return err
 			}
@@ -81,14 +82,24 @@ func (r *run) recordRaster(drops []RasterDrop, rasterized []int) {
 // pass and is left alone, and the pages of this pass are added to it. Page numbers
 // in issues align with the graph's page order, since both come from the same
 // Root/Pages/Kids walk.
-func applyRasterFallback(ctx context.Context, trailer *pdf.PDFDict, issues []pdf.PDFError, flattened map[int]bool, dpi int) ([]RasterDrop, []int, bool) {
+func applyRasterFallback(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, issues []pdf.PDFError, flattened map[int]bool, dpi int) ([]RasterDrop, []int, bool) {
 	pages := orderedPages(*trailer)
 	flag := map[int]bool{}
-	for _, iss := range issues {
-		if iss.Page() > 0 && !flattened[iss.Page()] {
-			flag[iss.Page()] = true
-			flattened[iss.Page()] = true
+	mark := func(pageNum int) {
+		if pageNum > 0 && !flattened[pageNum] {
+			flag[pageNum] = true
+			flattened[pageNum] = true
 		}
+	}
+	showing := pagesShowingUnembeddedFonts(doc, *trailer, pages, issues)
+	for _, iss := range issues {
+		if ref, ok := iss.ObjectRef(); ok && len(showing[ref.ObjNum]) > 0 {
+			for _, pageNum := range showing[ref.ObjNum] {
+				mark(pageNum)
+			}
+			continue
+		}
+		mark(iss.Page())
 	}
 	var flagged []pageTarget
 	var pageNums []int
@@ -106,14 +117,56 @@ func applyRasterFallback(ctx context.Context, trailer *pdf.PDFDict, issues []pdf
 	return flattenPagesParallel(ctx, flagged, pageNums, dpi)
 }
 
+// pagesShowingUnembeddedFonts maps the object number of each font issues report as
+// not embedded to the pages that show it, which is every page that font's report
+// stands for. A font whose usage is unknown has no entry.
+func pagesShowingUnembeddedFonts(doc *pdf.Reader, trailer pdf.PDFDict, pages []pageTarget, issues []pdf.PDFError) map[int][]int {
+	font := pdf.Checks.Font
+	wanted := map[int]bool{}
+	for _, iss := range issues {
+		if c := iss.Check(); c == font.SimpleNotEmbedded || c == font.CIDNotEmbedded {
+			if ref, ok := iss.ObjectRef(); ok {
+				wanted[ref.ObjNum] = true
+			}
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	fonts := map[uintptr]int{}
+	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		if ref, ok := d.Ref(); ok && wanted[ref.ObjNum] {
+			fonts[pdf.ValuePointer(d.Entries)] = ref.ObjNum
+		}
+	})
+	showing := map[int][]int{}
+	for i, page := range pages {
+		_, _, codes, cids, _, _ := verify.ComputeContentUsage(page.dict, verify.NewContext(doc))
+		seen := map[int]bool{}
+		for _, used := range []map[uintptr]map[int]bool{codes, cids} {
+			for ptr := range used {
+				if num, ok := fonts[ptr]; ok && !seen[num] {
+					seen[num] = true
+					showing[num] = append(showing[num], i+1)
+				}
+			}
+		}
+	}
+	return showing
+}
+
 // flattenAllPages rasterizes every page, the final backstop for residuals that
 // applyRasterFallback can't target -- document-level violations with no page
-// number, or anything its page-by-page pass left behind.
-func flattenAllPages(ctx context.Context, trailer *pdf.PDFDict, dpi int) ([]RasterDrop, []int, bool) {
-	pages := orderedPages(*trailer)
-	pageNums := make([]int, len(pages))
-	for i := range pages {
-		pageNums[i] = i + 1
+// number, or anything its page-by-page pass left behind. A page in flattened is
+// flat already and is left alone.
+func flattenAllPages(ctx context.Context, trailer *pdf.PDFDict, flattened map[int]bool, dpi int) ([]RasterDrop, []int, bool) {
+	var pages []pageTarget
+	var pageNums []int
+	for i, page := range orderedPages(*trailer) {
+		if !flattened[i+1] {
+			pages = append(pages, page)
+			pageNums = append(pageNums, i+1)
+		}
 	}
 	return flattenPagesParallel(ctx, pages, pageNums, dpi)
 }

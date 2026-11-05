@@ -133,14 +133,17 @@ type overprint struct {
 
 // overprintScan is a form XObject together with the state it was drawn in.
 type overprintScan struct {
-	form  uintptr
-	state overprint
+	form, resources uintptr
+	state           overprint
 }
 
 // overprintTracker follows the overprint state through one content stream.
 type overprintTracker struct {
 	state overprint
 	saved []overprint
+	// borrowed marks a form XObject without resources of its own: it reads names
+	// from its caller's, but their Default colour spaces do not apply to it.
+	borrowed bool
 }
 
 // fillOps and strokeOps are the path-painting operators that use the
@@ -164,13 +167,13 @@ func (t *overprintTracker) step(op string, operands []pdf.PDFValue, resources pd
 			*s, t.saved = t.saved[n-1], t.saved[:n-1]
 		}
 	case "CS":
-		s.strokeCMYK = len(operands) > 0 && isICCBasedCMYK(operands[len(operands)-1], resources)
+		s.strokeCMYK = t.selectsICCBasedCMYK(operands, resources)
 	case "cs":
-		s.fillCMYK = len(operands) > 0 && isICCBasedCMYK(operands[len(operands)-1], resources)
+		s.fillCMYK = t.selectsICCBasedCMYK(operands, resources)
 	case "K":
-		s.strokeCMYK = isICCBasedCMYK(deviceCMYK, resources)
+		s.strokeCMYK = !t.borrowed && isICCBasedCMYK(deviceCMYK, resources)
 	case "k":
-		s.fillCMYK = isICCBasedCMYK(deviceCMYK, resources)
+		s.fillCMYK = !t.borrowed && isICCBasedCMYK(deviceCMYK, resources)
 	case "G", "RG":
 		s.strokeCMYK = false
 	case "g", "rg":
@@ -231,7 +234,7 @@ func (t *overprintTracker) enterForm(operands []pdf.PDFValue, resources pdf.PDFD
 	if !ok || !form.IsStream() || form.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) {
 		return
 	}
-	key := overprintScan{form: pdf.ValuePointer(form.Entries), state: t.state}
+	key := overprintScan{form: pdf.ValuePointer(form.Entries), resources: pdf.ValuePointer(resources.Entries), state: t.state}
 	if ctx.overprintScans[key] {
 		return
 	}
@@ -243,11 +246,21 @@ func (t *overprintTracker) enterForm(operands []pdf.PDFValue, resources pdf.PDFD
 	if !own {
 		formResources = resources
 	}
-	inner := overprintTracker{state: t.state}
+	inner := overprintTracker{state: t.state, borrowed: !own}
 	// A stream that does not decode is reported where the walk reaches it.
 	_ = scanContent(ctx.reader, form, func(op string, operands []pdf.PDFValue) {
 		inner.step(op, operands, formResources, form, ctx)
 	})
+}
+
+// selectsICCBasedCMYK reports whether the operand of a cs or CS operator selects
+// an ICCBased colour space of four components.
+func (t *overprintTracker) selectsICCBasedCMYK(operands []pdf.PDFValue, resources pdf.PDFDict) bool {
+	if len(operands) == 0 {
+		return false
+	}
+	operand := operands[len(operands)-1]
+	return !(t.borrowed && operand == deviceCMYK) && isICCBasedCMYK(operand, resources)
 }
 
 // deviceCMYK is the colour space the k and K operators select.

@@ -169,6 +169,8 @@ func TestOverprintTracker(t *testing.T) {
 		"XObject", kv(
 			"Paints", form("f", kv()),
 			"Sets", form("/CMYK cs f"),
+			"BorrowsK", form("0 0 0 1 k f 0 0 0 1 K S"),
+			"BorrowsCS", form("/DeviceCMYK cs f"),
 			"Plain", form("f", kv()),
 			"Loop", loop,
 			"Img", streamDict(""),
@@ -219,6 +221,8 @@ func TestOverprintTracker(t *testing.T) {
 		{"Tr without operands", []op{gs("OP"), cs("cs", "CMYK"), {"Tr", nil}, {"Tj", nil}}, true},
 		{"form inherits the state", []op{gs("OP"), cs("cs", "CMYK"), {"Do", []pdf.PDFValue{name("Paints")}}}, true},
 		{"form with no resources reads the caller's", []op{gs("OP"), {"Do", []pdf.PDFValue{name("Sets")}}}, true},
+		{"form with no resources ignores the caller's DefaultCMYK", []op{gs("OP"), {"Do", []pdf.PDFValue{name("BorrowsK")}}}, false},
+		{"form with no resources ignores DefaultCMYK through cs", []op{gs("OP"), {"Do", []pdf.PDFValue{name("BorrowsCS")}}}, false},
 		{"form drawn in the initial state", []op{{"Do", []pdf.PDFValue{name("Paints")}}}, false},
 		{"form drawn twice in one state", []op{gs("OP"), {"Do", []pdf.PDFValue{name("Plain")}}, {"Do", []pdf.PDFValue{name("Plain")}}}, false},
 		{"form that draws itself", []op{gs("OP"), {"Do", []pdf.PDFValue{name("Loop")}}}, false},

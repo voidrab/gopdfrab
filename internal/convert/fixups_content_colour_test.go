@@ -273,9 +273,6 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	if !verify.DefaultColorSpaceDefined("cmyk", adopted) {
 		t.Error("DefaultCMYK not injected into a form without its own resources")
 	}
-	if adopted.Entries.Get("XObject") == nil {
-		t.Error("the adopted resources lost the names the form reads")
-	}
 }
 
 // buildStatefulAPPage constructs a page with one widget annotation whose
@@ -669,6 +666,50 @@ func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 	patRes, _ := pattern.Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("cmyk", patRes) {
 		t.Error("DefaultCMYK not injected into the tiling pattern's own resources")
+	}
+}
+
+// TestAdoptionKeepsAFormsNamesPerPage verifies that a form XObject without
+// resources of its own, drawn from two pages whose resources give a name different
+// values, keeps reading each page's value, and that each adopted holder is an
+// object of its own.
+func TestAdoptionKeepsAFormsNamesPerPage(t *testing.T) {
+	form := pdf.NewStreamDict(kv("Subtype", nm("Form")).Entries, []byte("/G gs 1 0 0 rg 0 0 1 1 re f"))
+	form.SetRef(pdf.PDFRef{ObjNum: 9})
+	gs := func(lw int) pdf.PDFDict { return kv("Type", nm("ExtGState"), "LW", pdf.PDFInteger(lw)) }
+	page := func(lw int) pdf.PDFDict {
+		res := kv("ExtGState", kv("G", gs(lw)), "XObject", kv("Fm", form))
+		res.SetRef(pdf.PDFRef{ObjNum: 20 + lw})
+		return kv("Type", nm("Page"), "Resources", res, "Contents", pdf.NewStreamDict(nil, []byte("/Fm Do")))
+	}
+	p1, p2 := page(2), page(9)
+	trailer := kv("Root", kv("Pages", kv("Kids", pdf.PDFArray{p1, p2})))
+
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want true, nil", changed, err)
+	}
+	drawn := func(p pdf.PDFDict) pdf.PDFDict {
+		return pdf.LookupResource(p.Entries.Get("Resources").(pdf.PDFDict), "XObject", "Fm").(pdf.PDFDict)
+	}
+	for _, tc := range []struct {
+		p  pdf.PDFDict
+		lw int
+	}{{p1, 2}, {p2, 9}} {
+		res := drawn(tc.p).Entries.Get("Resources").(pdf.PDFDict)
+		g, _ := pdf.LookupResource(res, "ExtGState", "G").(pdf.PDFDict)
+		if g.Entries.Get("LW") != pdf.PDFInteger(tc.lw) {
+			t.Errorf("form on the page with LW %d reads LW %v", tc.lw, g.Entries.Get("LW"))
+		}
+		if !verify.DefaultColorSpaceDefined("rgb", res) {
+			t.Errorf("form on the page with LW %d has no DefaultRGB", tc.lw)
+		}
+		if _, numbered := res.Ref(); numbered {
+			t.Errorf("the adopted resources carry a reference: %v", res)
+		}
+	}
+	if _, numbered := drawn(p2).Ref(); numbered {
+		t.Error("the form's copy still carries the original's reference")
 	}
 }
 

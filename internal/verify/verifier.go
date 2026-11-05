@@ -1331,9 +1331,10 @@ func hexStringBytes(v pdf.PDFHexString) int {
 }
 
 // collectType3Usage records the fonts and XObjects the glyph procedures of a
-// shown Type 3 font use, each procedure in the text rendering mode the glyphs
-// are shown in. Every procedure counts, not only those of the shown codes, as
-// in veraPDF. It reports whether every procedure decoded.
+// shown Type 3 font use. ISO 32000-1 9.3.6 gives the text rendering mode no
+// effect on Type 3 glyphs, but veraPDF hands it to the procedures, so this does
+// too. Every procedure counts, not only those of the shown codes, also as in
+// veraPDF. It reports whether every procedure decoded.
 func collectType3Usage(ctx *ValidationContext, font pdf.PDFDict, renderMode int, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
 	key := formScan{form: pdf.ValuePointer(font.Entries), renderMode: renderMode}
 	if fu.scannedForms[key] {

@@ -562,10 +562,14 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 	if !ok {
 		return // reported as Font.CIDToGIDMapMissing, or the map does not decode
 	}
-	cids, _ := cidsToCheck(obj, w, ctx)
+	cids, knownUsage := cidsToCheck(obj, w, ctx)
 	glyphPresent := fontprog.TTGlyphPresent(tables)
 	for _, cid := range cids {
-		if gid, mapped := gidOf(cid); !mapped || !glyphPresent(gid) {
+		gid, mapped := gidOf(cid)
+		if !mapped && !knownUsage {
+			continue // declared in W, and nothing says it is shown
+		}
+		if !mapped || !glyphPresent(gid) {
 			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced for rendering has no glyph in embedded program", cid))
 			return
 		}

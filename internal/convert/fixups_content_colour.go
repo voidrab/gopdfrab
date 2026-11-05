@@ -142,6 +142,7 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 	// Built lazily and reused across every page that needs it, so the
 	// writer emits one shared ICC stream object rather than one per page.
 	var sharedRGB, sharedCMYK pdf.PDFArray
+	adopted := map[uintptr]map[uintptr]pdf.PDFDict{}
 
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Page"}) {
@@ -191,7 +192,7 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 			in := defaultCSInjection{
 				needRGB: nestedRGB, needCMYK: nestedCMYK,
 				rgb: sharedRGB, cmyk: sharedCMYK,
-				decode: f.decode, visited: map[uintptr]bool{},
+				decode: f.decode, visited: map[uintptr]bool{}, adopted: adopted,
 			}
 			forEachContentStream(d, func(cs pdf.PDFDict) {
 				if in.follow(cs, resources) {
@@ -271,6 +272,10 @@ type defaultCSInjection struct {
 	rgb, cmyk         pdf.PDFArray
 	decode            decodeFunc
 	visited           map[uintptr]bool
+	// adopted holds, per holder that had no /Resources, the copy of it that
+	// serves each scope it is drawn in. It is shared across a document's pages;
+	// nil leaves holders as they are found.
+	adopted map[uintptr]map[uintptr]pdf.PDFDict
 }
 
 // run injects into the resources of stream, a form XObject or tiling pattern,
@@ -280,9 +285,49 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 	if in.visited[pdf.ValuePointer(stream.Entries)] {
 		return false
 	}
-	adoptResources(stream, scope)
-	changed := injectDefaultCS(stream, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
+	changed := in.adoptResources(stream, scope)
+	changed = injectDefaultCS(stream, in.needRGB, in.needCMYK, in.rgb, in.cmyk) || changed
 	return in.follow(stream, scope) || changed
+}
+
+// holderIn returns the dictionary to work on for holder, which scope's category
+// resources name. A holder without /Resources reads its names from where it is
+// drawn, so adoption must not tie it to the first scope: each further scope gets
+// a copy, which takes the holder's place in that scope.
+func (in defaultCSInjection) holderIn(holder, scope pdf.PDFDict, category, name string) pdf.PDFDict {
+	if in.adopted == nil {
+		return holder
+	}
+	ptr, scopePtr := pdf.ValuePointer(holder.Entries), pdf.ValuePointer(scope.Entries)
+	copies, adopted := in.adopted[ptr]
+	if !adopted {
+		if _, own := holder.Entries.Get("Resources").(pdf.PDFDict); !own {
+			in.adopted[ptr] = map[uintptr]pdf.PDFDict{scopePtr: holder}
+		}
+		return holder
+	}
+	held, ok := copies[scopePtr]
+	if !ok {
+		held = pdf.PDFDict{Entries: holder.Entries.CloneAsNew()}
+		held.Entries.Del("Resources")
+		copies[scopePtr] = held
+		in.adopted[pdf.ValuePointer(held.Entries)] = copies
+	}
+	if named, ok := scope.Entries.Get(category).(pdf.PDFDict); ok {
+		named.Entries.Set(name, held)
+	}
+	return held
+}
+
+// adoptResources copies into a holder without /Resources the resources it reads
+// from scope, reporting whether it changed anything. A Default colour space applies
+// only in a holder's own resources, and a dictionary holding nothing else would
+// cut it off from every name it uses.
+func (in defaultCSInjection) adoptResources(holder, scope pdf.PDFDict) bool {
+	if _, own := holder.Entries.Get("Resources").(pdf.PDFDict); own {
+		return false
+	}
+	return inheritedResourcesFixer{decode: in.decode}.adopt(holder, scope, map[uintptr]bool{})
 }
 
 // follow injects into every form XObject and tiling pattern that stream draws
@@ -331,27 +376,13 @@ func (in defaultCSInjection) follow(stream, scope pdf.PDFDict) bool {
 		}
 		named, _ := scope.Entries.Get(category).(pdf.PDFDict)
 		if sub, ok := named.Entries.Get(name.Value).(pdf.PDFDict); ok && sub.IsStream() {
+			sub = in.holderIn(sub, scope, category, name.Value)
 			if in.run(sub, resourcesOf(sub, scope)) {
 				changed = true
 			}
 		}
 	})
 	return changed
-}
-
-// adoptResources gives a holder without /Resources a copy of the resources it
-// reads names from. A Default colour space applies only in a holder's own
-// resources, and a dictionary holding nothing else would cut it off from every
-// name it uses.
-func adoptResources(holder, scope pdf.PDFDict) {
-	if _, own := holder.Entries.Get("Resources").(pdf.PDFDict); own {
-		return
-	}
-	res := pdf.NewPDFDict()
-	if scope.Entries != nil {
-		res = pdf.PDFDict{Entries: scope.Entries.Clone()}
-	}
-	holder.Entries.Set("Resources", res)
 }
 
 // runType3 injects Default colour spaces into the resources of the Type 3 font
@@ -363,14 +394,16 @@ func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) b
 	if !ok {
 		return false
 	}
+	name, _ := operand.(pdf.PDFName)
+	font = in.holderIn(font, scope, "Font", name.Value)
 	ptr := pdf.ValuePointer(font.Entries)
 	if in.visited[ptr] {
 		return false
 	}
 	in.visited[ptr] = true
-	adoptResources(font, scope)
+	changed := in.adoptResources(font, scope)
 	// injectDefaultCS edits the font's resources in place.
-	changed := injectDefaultCS(font, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
+	changed = injectDefaultCS(font, in.needRGB, in.needCMYK, in.rgb, in.cmyk) || changed
 	res, _ := font.Entries.Get("Resources").(pdf.PDFDict)
 	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
 		if in.follow(r.Stream, res) {
