@@ -109,3 +109,20 @@ func TestRasterBackstopFlattensEveryPageAfterTheLastPagePass(t *testing.T) {
 		t.Errorf("rasterized pages %v, want [1]", r.cr.RasterizedPages)
 	}
 }
+
+// TestRasterBackstopIgnoresIssuesWithoutFixer verifies that an issue no fixer
+// handles does not flatten the page it names, while one with a fixer does.
+func TestRasterBackstopIgnoresIssuesWithoutFixer(t *testing.T) {
+	fixed, unfixed := pdf.Checks.Colour.OutputIntentNotArray, pdf.Checks.Structure.StringTooLong
+	r := &run{
+		fixers: map[pdf.Check]Fixer{fixed: nil},
+		cr: ConvertResult{Result: pdf.Result{Issues: []pdf.PDFError{
+			pdf.NewError(unfixed, nil, 1, nil),
+			pdf.NewError(fixed, nil, 2, nil),
+		}}},
+	}
+	got := r.withFixers()
+	if len(got) != 1 || got[0].Check() != fixed {
+		t.Errorf("withFixers = %v, want the issue with a fixer only", got)
+	}
+}

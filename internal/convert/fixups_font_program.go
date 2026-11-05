@@ -1034,35 +1034,50 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	return true
 }
 
-// fixTrueTypeCIDSet synthesizes or completes /CIDSet from the glyphs present
-// in a CIDFontType2 program. It handles both a missing CIDSet and an existing
-// one that omits a present glyph.
+// cidsWithGlyphs returns the CIDs of a CIDFontType2 that select a glyph of its
+// program. Under an Identity CIDToGIDMap they are the glyphs present. Under a stream
+// they are the CIDs from 1 up that it maps within the program, as veraPDF counts
+// them. ok is false for a program without glyphs or an unusable map.
+func cidsWithGlyphs(d pdf.PDFDict, tables map[string][]byte) (cids []int, ok bool) {
+	numGlyphs := fontprog.TTNumGlyphs(tables)
+	if numGlyphs <= 0 {
+		return nil, false
+	}
+	gidOf, ok := verify.CIDToGIDMapping(d.Entries.Get("CIDToGIDMap"), pdf.DecodeStream)
+	if !ok {
+		return nil, false
+	}
+	if verify.IdentityCIDToGIDMap(d) {
+		glyphPresent := fontprog.TTGlyphPresent(tables)
+		for gid := range numGlyphs {
+			if glyphPresent(gid) {
+				cids = append(cids, gid)
+			}
+		}
+		return cids, true
+	}
+	for cid := 1; ; cid++ {
+		gid, mapped := gidOf(cid)
+		if !mapped {
+			return cids, true
+		}
+		if gid < numGlyphs {
+			cids = append(cids, cid)
+		}
+	}
+}
+
+// fixTrueTypeCIDSet synthesizes or completes /CIDSet from the CIDs a CIDFontType2
+// has glyphs for. It handles both a missing CIDSet and an existing one that omits
+// a present glyph.
 func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
-	// Only safe when CID==GID (the spec default); a stream CIDToGIDMap means
-	// CIDs don't correspond to GIDs directly.
-	if c2g := d.Entries.Get("CIDToGIDMap"); c2g != nil && c2g != (pdf.PDFName{Value: "Identity"}) {
-		return false
-	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	tables, ok := decodeSfnt(ff)
 	if !ok {
 		return false
 	}
-	numGlyphs := fontprog.TTNumGlyphs(tables)
-	if numGlyphs <= 0 {
+	cids, ok := cidsWithGlyphs(d, tables)
+	if !ok {
 		return false
-	}
-	// numGlyphs > 0, so gid 0 is in range and TTGlyphPresent accepts every
-	// gid in [0, numGlyphs): cids is never empty.
-	glyphPresent := fontprog.TTGlyphPresent(tables)
-	var cids []int
-	for gid := range numGlyphs {
-		if glyphPresent(gid) {
-			cids = append(cids, gid)
-		}
 	}
 
 	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.IsStream() {

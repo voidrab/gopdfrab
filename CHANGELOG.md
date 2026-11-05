@@ -116,7 +116,11 @@ Everything under `internal/` may change in any release without notice.
 
 - When a font no fixer could embed was shown on several pages, convert rasterized
   every page of the document, including those that never used it. It now
-  rasterizes the pages that show the font, where it can tell which those are.
+  rasterizes the pages that show the font, where it can tell which those are, and
+  a finding only the writer can repair no longer flattens the page it names.
+- Convert could not write the CIDSet of a CIDFontType2 font with a CIDToGIDMap
+  stream, so such a font's pages were rasterized at PDF/A-1b. It now lists the CIDs
+  the map selects a glyph for.
 - A partial Info date, such as `D:20150310`, became an XMP date without a time,
   which a validator reads in its local timezone, so the output's conformance
   depended on where it was checked. XMP dates now always carry a time and a

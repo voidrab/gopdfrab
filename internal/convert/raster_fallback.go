@@ -42,7 +42,7 @@ func (r *run) backstop() error {
 	// it as they are. A font no fixer can embed takes all its pages in one pass.
 	flattened := map[int]bool{}
 	for range maxPagePasses {
-		drops, rasterized, changed := applyRasterFallback(r.ctx, r.doc, &r.trailer, r.cr.Result.Issues, flattened, r.o.dpi())
+		drops, rasterized, changed := applyRasterFallback(r.ctx, r.doc, &r.trailer, r.withFixers(), flattened, r.o.dpi())
 		if !changed {
 			break
 		}
@@ -70,6 +70,18 @@ func (r *run) backstop() error {
 // repair. docWide selects the document-level rule of hasFixableIssue.
 func (r *run) residual(docWide bool) bool {
 	return !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, docWide)
+}
+
+// withFixers returns the last verify's issues that have a fixer. The writer repairs
+// the others by construction, so they are no reason to flatten the page they name.
+func (r *run) withFixers() []pdf.PDFError {
+	var issues []pdf.PDFError
+	for _, iss := range r.cr.Result.Issues {
+		if _, ok := r.fixers[iss.Check()]; ok {
+			issues = append(issues, iss)
+		}
+	}
+	return issues
 }
 
 // recordRaster records a completed raster pass and verifies the graph it
