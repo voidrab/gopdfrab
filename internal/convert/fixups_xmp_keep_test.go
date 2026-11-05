@@ -134,8 +134,8 @@ func TestKeepExistingXMP(t *testing.T) {
 	}
 }
 
-// TestRegenerateXMPKeepsConformingPacket checks the wiring: a filtered valid
-// packet stays, unfiltered, and an unusable one is rebuilt.
+// TestRegenerateXMPKeepsConformingPacket verifies that regenerateXMP keeps a
+// valid packet, removing its filter, and rebuilds a packet it cannot use.
 func TestRegenerateXMPKeepsConformingPacket(t *testing.T) {
 	spec := *a2bSpec
 	run := func(meta pdf.PDFDict) string {
@@ -166,8 +166,9 @@ func TestRegenerateXMPKeepsConformingPacket(t *testing.T) {
 	}
 }
 
-// TestStripEmbeddedMetadataKeepsConformingUnderPart2 pins each branch of the
-// object metadata decision.
+// TestStripEmbeddedMetadataKeepsConformingUnderPart2 verifies that object
+// metadata is kept under Part 2 only when it conforms, and that the catalog's
+// metadata is never removed.
 func TestStripEmbeddedMetadataKeepsConformingUnderPart2(t *testing.T) {
 	good := metadataStream(xmpPacketWith(plainXPacketHeader, dcTitleDescription), "")
 	bad := metadataStream(xmpPacketWith(plainXPacketHeader,

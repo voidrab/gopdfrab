@@ -25,11 +25,11 @@ var xpacketSizeAttrRe = regexp.MustCompile(`\s+(?:bytes|encoding)\s*=\s*(?:"[^"]
 // xpacketHeaderRe matches an xpacket header.
 var xpacketHeaderRe = regexp.MustCompile(`<\?xpacket\s+begin[^?]*\?>`)
 
-// keepExistingXMP gives meta, the catalog's metadata stream, its own packet
-// under the level's identification, when the level's rules accept the result.
-// It reports whether they did. Only Part 2 checks a packet property by
-// property, which is what makes one safe to keep; under Part 1 the caller
-// builds a new packet.
+// keepExistingXMP replaces the stream of meta, the catalog's metadata stream,
+// with its own packet, unfiltered, under the level's identification. It does
+// so only if the level's rules accept the result, and reports whether it did.
+// Only Part 2 checks a packet property by property, which is what makes a
+// packet safe to keep; under Part 1 the caller builds a new packet.
 func keepExistingXMP(meta pdf.PDFDict, spec pdfa.Spec) bool {
 	if spec.Part != 2 || !meta.IsStream() {
 		return false
@@ -52,9 +52,9 @@ func keepExistingXMP(meta pdf.PDFDict, spec pdfa.Spec) bool {
 }
 
 // identifyXMP returns packet with its PDF/A identification replaced by the
-// level's and everything else untouched, and with the xpacket header attributes
-// that PDF/A forbids removed. It edits the packet's bytes rather than serializing
-// a parsed form, so properties it has no reason to touch stay exactly as written.
+// level's, and with the xpacket header attributes that PDF/A forbids removed.
+// It edits the packet's bytes rather than re-serializing a parsed form, so
+// everything it does not change stays exactly as written.
 func identifyXMP(packet []byte, spec pdfa.Spec) ([]byte, error) {
 	type edit struct {
 		start, end int
@@ -125,8 +125,9 @@ func identifyXMP(packet []byte, spec pdfa.Spec) ([]byte, error) {
 	}), nil
 }
 
-// stripIdentificationAttrs removes from tag, a start tag, the attributes in the
-// PDF/A identification namespace, whose prefixes are given.
+// stripIdentificationAttrs returns tag, a start tag, with every attribute in
+// the PDF/A identification namespace removed. prefixes holds the prefixes
+// bound to that namespace.
 func stripIdentificationAttrs(tag string, prefixes map[string]bool) string {
 	for prefix := range prefixes {
 		re := regexp.MustCompile(`\s+` + regexp.QuoteMeta(prefix) + `:[\w.-]+\s*=\s*(?:"[^"]*"|'[^']*')`)

@@ -399,8 +399,9 @@ func DocumentXMPConforms(data []byte, spec pdfa.Spec) bool {
 }
 
 // ObjectXMPConforms reports whether data, the UTF-8 XMP of a metadata stream
-// other than the document's, passes the Part 2 rules given document, the
-// document's own packet.
+// other than the document's, passes the Part 2 rules. document is the
+// document's own XMP packet; the extension schemas it defines are used to
+// check data, and an unparsable document contributes none.
 func ObjectXMPConforms(data, document []byte) bool {
 	var main map[string]*xmpSchemaDef
 	if pkt, err := parseXMPPacket(pdf.DecodeXMPEncoding(document)); err == nil {

@@ -17,12 +17,13 @@ import (
 // dictionary entry that has a PDF/A-recognized XMP counterpart -- a
 // synchronized dc:/xmp:/pdf: property in its required container shape (see
 // checks_xmp.go's xmpNSSchemas/xmpLangAltProps). This is applied
-// unconditionally and pre-emptively (see convert.go): it is far simpler and
-// more reliable to regenerate a known-good packet from scratch than to patch
-// an arbitrary existing one into compliance, and doing so resolves the large
-// majority of clause 6.7's many sub-checks (and the Info/XMP sync checks,
-// 6.7.3/6.1.5, since the packet is generated directly from Info) in one pass.
-// A packet that keepExistingXMP can keep is left in place instead.
+// pre-emptively (see convert.go): it is far simpler and more reliable to
+// regenerate a known-good packet from scratch than to patch an arbitrary
+// existing one into compliance, and doing so resolves the large majority of
+// clause 6.7's many sub-checks (and the Info/XMP sync checks, 6.7.3/6.1.5,
+// since the packet is generated directly from Info) in one pass. Under Part 2,
+// keepExistingXMP keeps a packet that its rules accept, with the identification
+// patched, instead.
 func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 	if !spec.PDFA {
 		return nil
@@ -61,8 +62,8 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 
 // stripEmbeddedMetadataVisitor is stripEmbeddedMetadata's per-dict visitor
 // for the shared pre-emptive walk; nil when there is no catalog to protect or
-// the level is not PDF/A. Under Part 2, which checks the metadata of other
-// objects property by property, metadata that passes stays.
+// the level is not PDF/A. Under Part 2, metadata that objectXMPConforms
+// accepts is kept.
 func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok || !spec.PDFA {
