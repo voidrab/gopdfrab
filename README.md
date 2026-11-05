@@ -198,7 +198,8 @@ reports loss separately from `cr.Result.Valid`:
   what the rasterizer could not draw on them.
 - `cr.LostObjects` lists content that could not be carried over at all: an
   unresolvable object, an undecodable stream, an embedded file or annotation
-  the level forbids, a layer the document hides.
+  the level forbids, a layer the document hides, a digital signature, which
+  rewriting the file invalidates at every level.
 - `Options.CheckFidelity` renders input and output with the same rasterizer
   and fills `cr.Fidelity` with a per-page comparison; `Blanked()` flags a page
   that lost its content.
@@ -302,7 +303,7 @@ res, err := doc.Verify(p)
 | `Checks.ObjectModel`  | ISO 32000 object-model conformance, independent of PDF/A     |
 
 An eleventh group, `Checks.LogicalStructure` (6.8.x), is PDF/A-1a only, so
-`AllChecks()` returns 201 checks over all eleven groups, 196 over the ten above.
+`AllChecks()` returns 204 checks over all eleven groups, 199 over the ten above.
 A clause names a check only within a conformance level, so lookups take one:
 `CheckByClauseIn(gopdfrab.A1B, "6.3.4", 1)`, `ChecksForClauseIn` and
 `check.ClauseIn(level)`. The registry fields above list PDF/A-1 clauses;
@@ -339,12 +340,13 @@ GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm
 ```
 
 A page can load the verify-only module up front and fetch the full one only to
-convert. Each registers its globals, which take a `Uint8Array` and return a
-Promise, then posts `{type: "ready", module}` with `module` set to `"verify"`
-or `"convert"`:
+convert. Each registers its globals, which take a `Uint8Array` and an optional
+profile name (`"pdfa1b"`, the default, `"legacy1b"`, `"pdfa2b"` or `"pdf"`, as
+for the CLI's `--profile`) and return a Promise, then posts
+`{type: "ready", module}` with `module` set to `"verify"` or `"convert"`:
 
-- `gopdfrabVerify(bytes)` resolves to `{valid, summary, profile, issueCount, doc, issues}`.
-- `gopdfrabConvert(bytes)` (full module only) resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, with `output` a `Uint8Array`.
+- `gopdfrabVerify(bytes, profile?)` resolves to `{valid, summary, profile, issueCount, doc, issues}`.
+- `gopdfrabConvert(bytes, profile?)` (full module only) resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, with `output` a `Uint8Array`.
 
 The doc comments in `wasm/main.go` and `wasm/internal/jsapi` are the full
 reference.

@@ -211,6 +211,9 @@ var stableCheckIDs = map[string]int{
 	"AlternatePresentations":           199,
 	"PresentationSteps":                200,
 	"CatalogRequirements":              201,
+	"SignatureByteRange":               202,
+	"SignatureCertificate":             203,
+	"SignatureSigners":                 204,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {

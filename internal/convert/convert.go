@@ -145,6 +145,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	}
 
 	r := &run{ctx: ctx, doc: doc, p: p, o: o, spec: spec, trailer: trailer, objHint: doc.Footprint().Objects}
+	dropSignatures(r.trailer, &r.lost)
 	r.fixers = rs.fixersFor(&fixerRun{
 		ctx:       ctx,
 		doc:       doc,

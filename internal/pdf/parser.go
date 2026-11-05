@@ -46,10 +46,33 @@ func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) 
 	return d.parseXRefSectionAt(offset, fillIn, d.xrefTable)
 }
 
-// XRefTrailerAt parses the xref section at offset as ParseXRefSectionAt does
+// xrefTrailerAt parses the xref section at offset as ParseXRefSectionAt does
 // and returns its trailer dict, leaving d.xrefTable unchanged.
-func (d *Reader) XRefTrailerAt(offset int64) (PDFDict, error) {
+func (d *Reader) xrefTrailerAt(offset int64) (PDFDict, error) {
 	return d.parseXRefSectionAt(offset, false, nil)
+}
+
+// XRefSectionOffsets returns the offsets, relative to the PDF header, of the
+// cross-reference section that startxref names and of every earlier one its
+// trailers' Prev entries chain to, in chain order. A Prev that repeats an
+// offset, or a trailer that cannot be read, ends the chain.
+func (d *Reader) XRefSectionOffsets() []int64 {
+	offsets := []int64{d.xrefOffset}
+	seen := map[int64]bool{d.xrefOffset: true}
+	prev := d.Trailer().Entries.Get("Prev")
+	for {
+		p, ok := prev.(PDFInteger)
+		if !ok || seen[int64(p)] {
+			return offsets
+		}
+		seen[int64(p)] = true
+		offsets = append(offsets, int64(p))
+		trailer, err := d.xrefTrailerAt(int64(p) + d.pdfStart)
+		if err != nil {
+			return offsets
+		}
+		prev = trailer.Entries.Get("Prev")
+	}
 }
 
 // parseXRefSectionAt reads the section at offset into table, which may be

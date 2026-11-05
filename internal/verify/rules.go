@@ -236,6 +236,13 @@ var (
 		},
 		{
 			checks: []pdf.Check{
+				pdf.Checks.Form.SignatureByteRange, pdf.Checks.Form.SignatureCertificate,
+				pdf.Checks.Form.SignatureSigners,
+			},
+			fn: signatureRule,
+		},
+		{
+			checks: []pdf.Check{
 				pdf.Checks.Colour.ICCBasedComponentsMismatch,
 				pdf.Checks.Colour.OutputIntentICCVersion, pdf.Checks.Colour.OutputIntentInvalidN,
 				pdf.Checks.Colour.OutputIntentInvalidProfile,

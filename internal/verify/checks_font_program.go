@@ -20,7 +20,8 @@ import (
 // violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
 // string stands in as the glyph set when the program is unparseable. A level
 // whose subsets may omit the CharSet checks the program alone when the CharSet
-// is absent.
+// is absent. A level that sets Spec.ExactCharSet instead compares the whole
+// CharSet with the program.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	var charSet map[string]bool
 	if charSetVal, ok := desc.Entries.Lookup("CharSet"); ok {
@@ -59,6 +60,12 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	}
 	if glyphSet == nil {
 		return // Without a CharSet or a readable program, nothing can be checked.
+	}
+	if haveProgram && charSet != nil && ctx.exactCharSet() {
+		if msg := CharSetMismatch(charSet, glyphSet); msg != "" {
+			ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, msg)
+		}
+		charSet = nil // Checked above; the per-code check then skips it.
 	}
 
 	glyphNames, ok := type1SubsetGlyphNames(v, desc, ctx)
@@ -120,6 +127,31 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 			return
 		}
 	}
+}
+
+// CharSetMismatch compares a CharSet with the glyph set of its program,
+// .notdef aside in both. It returns a description of the first difference, or
+// "" when they agree.
+func CharSetMismatch(charSet, program map[string]bool) string {
+	if n := firstMissing(charSet, program); n != "" {
+		return fmt.Sprintf("CharSet lists glyph /%s, which the embedded font subset does not define", n)
+	}
+	if n := firstMissing(program, charSet); n != "" {
+		return fmt.Sprintf("CharSet does not list glyph /%s defined in the font subset", n)
+	}
+	return ""
+}
+
+// firstMissing returns the smallest name of names, .notdef aside, that other
+// lacks, or "" when there is none.
+func firstMissing(names, other map[string]bool) string {
+	first := ""
+	for n := range names {
+		if n != ".notdef" && !other[n] && (first == "" || n < first) {
+			first = n
+		}
+	}
+	return first
 }
 
 // validateType1CMetrics checks that PDF Widths entries match the advance

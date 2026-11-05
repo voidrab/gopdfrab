@@ -334,7 +334,7 @@ func TestFixPanose(t *testing.T) {
 		})
 	}
 	trailer := trailerWith("D", descWith(pdf.PDFString{Value: ten}))
-	if changed, _ := (constraintFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (constraintFixer{m: om14}).Fix(&trailer, nil); !changed {
 		t.Error("constraintFixer left a 10-byte Panose")
 	}
 }

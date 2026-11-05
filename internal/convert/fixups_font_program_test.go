@@ -390,6 +390,28 @@ func TestFontSubsetMetaFixerSynthesizesType1CharSet(t *testing.T) {
 	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
 }
 
+// TestFontSubsetMetaFixerExactCharSet verifies that a CharSet naming a glyph
+// the program does not define is kept by default and rebuilt when the level
+// wants the exact set.
+func TestFontSubsetMetaFixerExactCharSet(t *testing.T) {
+	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t02-fail-a.pdf"
+	trailer, closeDoc := fixtureTrailer(t, path)
+	defer closeDoc()
+
+	desc := findFontBySubtype(t, trailer, "Type1").Entries.Get("FontDescriptor").(pdf.PDFDict)
+	runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
+	exact := desc.Entries.Get("CharSet").(pdf.PDFString).Value
+	desc.Entries.Set("CharSet", pdf.PDFString{Value: exact + "/zzzextra"})
+
+	if changed, err := (fontSubsetMetaFixer{}).Fix(&trailer, nil); err != nil || changed {
+		t.Errorf("Fix = (%v, %v), want an extra name kept: (false, nil)", changed, err)
+	}
+	runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{exact: true}, &trailer)
+	if got := desc.Entries.Get("CharSet").(pdf.PDFString).Value; got != exact {
+		t.Errorf("exact CharSet = %q, want %q", got, exact)
+	}
+}
+
 // TestFontSubsetMetaFixerSynthesizesCFFCharSet covers a Type1 font embedded
 // as a name-keyed CFF program (FontFile3, "Type1C"): one fixture with no
 // /CharSet at all, one with an empty /CharSet string.
@@ -890,6 +912,17 @@ func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
 		normalizeCFFWidthDefaultsInFont(d)
 		if after := d.Entries.Get("FontFile3"); !reflect.DeepEqual(before, after) {
 			t.Errorf("%s: FontFile3 changed", name)
+		}
+	}
+}
+
+// TestFixType1CharSetRejectsNonStreamFontFile verifies that a font program
+// entry that is no stream leaves the descriptor alone.
+func TestFixType1CharSetRejectsNonStreamFontFile(t *testing.T) {
+	for _, key := range []string{"FontFile", "FontFile3"} {
+		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{key: pdf.PDFInteger(1)})}
+		if fixType1CharSet(desc, false) {
+			t.Errorf("%s: a non-stream program changed the descriptor", key)
 		}
 	}
 }

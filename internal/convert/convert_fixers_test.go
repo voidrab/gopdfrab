@@ -29,14 +29,14 @@ func TestFixersForPanicsOnOverlap(t *testing.T) {
 	rs.fixers = append(slices.Clone(rs.fixers), func(*fixerRun) Fixer {
 		return fakeFixer{check: pdf.Checks.Structure.StreamLZWFilter}
 	})
-	rs.fixersFor(&fixerRun{})
+	rs.fixersFor(&fixerRun{spec: a1bSpec})
 }
 
 // TestStandardFixersCanRepair verifies that every standard fixer has a way to
 // repair: dispatchFixers silently skips one that has none.
 func TestStandardFixersCanRepair(t *testing.T) {
 	for _, build := range standardRepairs.fixers {
-		switch f := build(&fixerRun{}); f.(type) {
+		switch f := build(&fixerRun{spec: a1bSpec}); f.(type) {
 		case graphFixer, targetedFixer:
 		default:
 			t.Errorf("%T is neither a graphFixer nor a targetedFixer", f)

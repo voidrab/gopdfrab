@@ -70,12 +70,8 @@ func TestModelFor(t *testing.T) {
 			t.Errorf("ModelFor(%q) = %v, want nil", v, m)
 		}
 	}
-	m14 := ModelFor("1.4")
-	if !reflect.DeepEqual(Types(), m14.Types()) {
-		t.Error("Types() is not the PDF 1.4 model's")
-	}
-	if got, want := SelfIdentified("Annot", "Widget"), m14.SelfIdentified("Annot", "Widget"); got != want {
-		t.Errorf("SelfIdentified(Annot, Widget) = %q, want %q", got, want)
+	if ModelFor("1.4") != pdf14 {
+		t.Error(`ModelFor("1.4") is not the PDF 1.4 model`)
 	}
 }
 
@@ -109,7 +105,7 @@ func TestPDF17Model(t *testing.T) {
 		}
 	}
 	if got := m17.SelfIdentified("ObjStm", ""); got != "ObjectStream" {
-		t.Errorf("PDF 1.7: SelfIdentified(ObjStm) = %q, want ObjectStream", got)
+		t.Errorf("PDF 1.7: pdf14.SelfIdentified(ObjStm) = %q, want ObjectStream", got)
 	}
 
 	vp, _ := m17.Type("ViewerPreferences")
