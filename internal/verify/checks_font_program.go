@@ -314,7 +314,8 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 
 // validateCIDSetExact checks that the FontDescriptor's CIDSet lists exactly the
 // CIDs of the embedded program, .notdef aside, used or not (ISO 19005-2
-// 6.2.11.4.2). A program that does not parse is reported on its own.
+// 6.2.11.4.2). A program that does not parse is skipped here, because
+// ValidateFontProgram reports it as Font.InvalidProgram.
 func validateCIDSetExact(obj, desc pdf.PDFDict, ctx *ValidationContext) {
 	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 	if !ok || !cidSet.IsStream() {
@@ -344,11 +345,11 @@ func validateCIDSetExact(obj, desc pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// programCIDs returns the CIDs the embedded program of the CIDFont obj lists and
-// a test of whether it has a given CID. These are veraPDF's two readings, which
-// differ for a TrueType program with an identity map: it lists as many CIDs as
-// the program has horizontal metrics, and has every CID below its glyph count.
-// ok is false when the program cannot be read.
+// programCIDs returns the CIDs that the embedded program of the CIDFont obj
+// lists, and a test of whether the program has a given CID. Both follow
+// veraPDF, which for a TrueType program with an identity map lists one CID per
+// horizontal metric and accepts every CID below the glyph count. ok is false
+// when the program cannot be read.
 func programCIDs(obj, desc pdf.PDFDict, ctx *ValidationContext) (listed []int, present func(int) bool, ok bool) {
 	switch obj.Entries.Get("Subtype") {
 	case pdf.PDFName{Value: "CIDFontType0"}:

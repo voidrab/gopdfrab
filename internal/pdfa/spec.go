@@ -50,9 +50,9 @@ type Spec struct {
 	// SubsetSetsOptional says whether a subset font's descriptor may omit its
 	// CharSet or CIDSet, which must still be complete when present.
 	SubsetSetsOptional bool
-	// ExactSubsetSets says whether a subset's CharSet or CIDSet must list exactly
-	// the glyphs of its embedded program, .notdef aside, rather than at least
-	// the program glyphs the document uses.
+	// ExactSubsetSets says whether a subset's CharSet or CIDSet must list
+	// exactly the glyphs of its embedded program, .notdef aside, rather than
+	// at least the program glyphs the document uses.
 	ExactSubsetSets bool
 	// ForbiddenViewerPrefKeys are the ViewerPreferences keys the level's PDF
 	// version does not define.
@@ -278,7 +278,7 @@ var a2b = Spec{
 	AABarredTypes: NewNames("Catalog", "Page"),
 	// 6.2.11.4.2 and 6.2.11.6.
 	SubsetSetsOptional:    true,
-	ExactSubsetSets:          true,
+	ExactSubsetSets:       true,
 	SymbolCmapAmongOthers: true,
 	// 6.1.7.2 and 6.1.10: ISO 32000-1 Table 6 less LZWDecode, and for inline
 	// images also less JBIG2Decode, JPXDecode and Crypt, in either spelling.

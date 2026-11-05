@@ -715,7 +715,8 @@ func TestValidateCIDSetExactTrueType(t *testing.T) {
 		return bits
 	}
 
-	// Identity map: every metric-bearing CID must be listed, none past the glyphs.
+	// Identity map: every metric-bearing CID must be listed, none past the
+	// glyphs.
 	identity := font(map[string]pdf.PDFValue{})
 	if got := cidSetIssue(identity, desc(cidSetStream(bitsFor(1, nHM)...), ff)); got != "" {
 		t.Errorf("identity, exact set: %s", got)

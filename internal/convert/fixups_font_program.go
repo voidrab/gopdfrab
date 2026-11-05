@@ -747,8 +747,8 @@ func fixFontSubsetMetaDict(d pdf.PDFDict, exact bool) bool {
 
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	if exact && (subtype.Value == "CIDFontType0" || subtype.Value == "CIDFontType2") {
-		// A level with exact sets makes them optional, and a program's own
-		// glyph list is no more than a CIDSet could say, so the set just goes.
+		// At a level with exact subset sets the CIDSet is optional, so it is
+		// removed rather than rebuilt from the program.
 		_, present := desc.Entries.Lookup("CIDSet")
 		desc.Entries.Del("CIDSet")
 		return present
