@@ -1625,6 +1625,53 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 // one shared dict on the page tree root are common. Reading only the page's own
 // left every font in it unseen, and with it the fact that a shown font is not
 // embedded (6.3.4).
+// TestComputeContentUsageFollowsType3Glyphs verifies that a font used only by
+// the glyph procedures of a shown Type 3 font counts as shown, in the rendering
+// mode the glyphs are shown in, and that a Type 3 font never shown adds nothing.
+func TestComputeContentUsageFollowsType3Glyphs(t *testing.T) {
+	inner := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Helvetica"))
+	hidden := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Times-Roman"))
+	type3 := func(fonts pdf.PDFDict, res bool) pdf.PDFDict {
+		f := kv("Type", name("Font"), "Subtype", name("Type3"),
+			"CharProcs", kv("a", streamDict("BT /In 10 Tf (x) Tj ET")))
+		if res {
+			f.Entries.Set("Resources", kv("Font", fonts))
+		}
+		return f
+	}
+	own := type3(kv("In", inner), true)
+	unshown := type3(kv("In", hidden), true)
+	borrowed := type3(pdf.PDFDict{}, false)
+	shared := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Courier"))
+	page := kv("Type", name("Page"),
+		"Resources", kv("Font", kv("T3", own, "U3", unshown, "B3", borrowed, "In", shared)),
+		"Contents", streamDict("BT /T3 10 Tf (a) Tj (a) Tj 3 Tr /B3 10 Tf (a) Tj ET"))
+
+	_, invisible, used, _, _, complete := ComputeContentUsage(page, NewContext(nil))
+	if !complete {
+		t.Error("usage incomplete")
+	}
+	if !used[pdf.ValuePointer(inner.Entries)]['x'] {
+		t.Error("a font used by a glyph procedure does not count as shown")
+	}
+	if _, ok := used[pdf.ValuePointer(hidden.Entries)]; ok {
+		t.Error("a font of a Type 3 font never shown counts as shown")
+	}
+	if !invisible[pdf.ValuePointer(shared.Entries)] {
+		t.Error("a glyph procedure of invisible text did not read the caller's resources in that mode")
+	}
+
+	// A glyph procedure that does not decode leaves the usage incomplete.
+	bad := streamDict("")
+	bad.Entries.Set("Filter", name("Unknown"))
+	broken := kv("Type", name("Font"), "Subtype", name("Type3"), "CharProcs", kv("a", bad))
+	page = kv("Type", name("Page"), "Resources", kv("Font", kv("T3", broken)),
+		"Contents", streamDict("BT /T3 10 Tf (a) Tj ET"))
+	if _, _, _, _, _, complete := ComputeContentUsage(page, NewContext(nil)); complete {
+		t.Error("usage complete despite a glyph procedure that does not decode")
+	}
+}
+
 func TestComputeContentUsageThroughInheritedResources(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})

@@ -1113,12 +1113,14 @@ type usageText struct {
 	haveSimpleFont    bool
 	compositeFontPtr  uintptr
 	haveCompositeFont bool
+	type3Font         pdf.PDFDict
 }
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
 // scannedPatterns dedupes tiling-pattern content streams across the walk;
-// scannedForms dedupes form XObjects by the text state they are drawn in.
+// scannedForms dedupes form XObjects and Type 3 fonts by the text state they are
+// drawn in.
 type fontUsage struct {
 	visible         map[uintptr]bool
 	invisible       map[uintptr]bool
@@ -1176,6 +1178,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			st.currentFontPtrs = nil
 			st.haveSimpleFont = false
 			st.haveCompositeFont = false
+			st.type3Font = pdf.PDFDict{}
 			if len(operands) >= 2 && fonts.Entries != nil {
 				if name, ok := operands[len(operands)-2].(pdf.PDFName); ok {
 					if fd, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict); ok {
@@ -1197,6 +1200,9 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 							// Simple font: codes shown via Tj/TJ are single bytes.
 							st.simpleFontPtr = pdf.ValuePointer(fd.Entries)
 							st.haveSimpleFont = true
+							if fd.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"}) {
+								st.type3Font = fd
+							}
 						}
 					}
 				}
@@ -1233,6 +1239,9 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 						fu.partialCodes[st.compositeFontPtr] = true
 					}
 				})
+			}
+			if st.type3Font.Entries != nil && !collectType3Usage(ctx, st.type3Font, st.renderMode, resources, reachable, fu) {
+				complete = false
 			}
 		case "scn", "SCN":
 			// A tiling pattern set as fill/stroke colour runs its own content
@@ -1319,6 +1328,30 @@ func hexStringBytes(v pdf.PDFHexString) int {
 		}
 	}
 	return (digits + 1) / 2
+}
+
+// collectType3Usage records the fonts and XObjects the glyph procedures of a
+// shown Type 3 font use, each procedure in the text rendering mode the glyphs
+// are shown in. Every procedure counts, not only those of the shown codes, as
+// in veraPDF. It reports whether every procedure decoded.
+func collectType3Usage(ctx *ValidationContext, font pdf.PDFDict, renderMode int, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
+	key := formScan{form: pdf.ValuePointer(font.Entries), renderMode: renderMode}
+	if fu.scannedForms[key] {
+		return true
+	}
+	fu.scannedForms[key] = true
+	complete := true
+	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+		res := r.Resources
+		if res.Entries == nil {
+			res = resources
+		}
+		st := &usageState{usageText: usageText{renderMode: renderMode}}
+		if !collectUsageFromBytes(ctx, r.Stream, res, reachable, fu, st) {
+			complete = false
+		}
+	})
+	return complete
 }
 
 // validateHexString validates requirements outlined in 6.1.6, reporting
