@@ -60,6 +60,13 @@ func TestBlendModeRendering(t *testing.T) {
 	}
 }
 
+// component reads a separable blend mode as a function of one component.
+func component(mode string) func(cb, cs float64) float64 {
+	return func(cb, cs float64) float64 {
+		return blendModes[mode]([3]float64{cb, cb, cb}, [3]float64{cs, cs, cs})[0]
+	}
+}
+
 func TestBlendFunctions(t *testing.T) {
 	for mode, tc := range map[string]struct{ cb, cs, want float64 }{
 		"Multiply":   {0.5, 0.5, 0.25},
@@ -71,11 +78,11 @@ func TestBlendFunctions(t *testing.T) {
 		"Difference": {0.75, 0.25, 0.5},
 		"Exclusion":  {0.5, 0.5, 0.5},
 	} {
-		if got := blendFunctions[mode](tc.cb, tc.cs); math.Abs(got-tc.want) > 1e-9 {
+		if got := component(mode)(tc.cb, tc.cs); math.Abs(got-tc.want) > 1e-9 {
 			t.Errorf("%s(%v, %v) = %v, want %v", mode, tc.cb, tc.cs, got, tc.want)
 		}
 	}
-	dodge, burn, soft := blendFunctions["ColorDodge"], blendFunctions["ColorBurn"], blendFunctions["SoftLight"]
+	dodge, burn, soft := component("ColorDodge"), component("ColorBurn"), component("SoftLight")
 	for _, tc := range []struct {
 		fn           func(float64, float64) float64
 		cb, cs, want float64
@@ -98,19 +105,19 @@ func TestBlendFunctions(t *testing.T) {
 
 func TestNonSeparableBlends(t *testing.T) {
 	cb, cs := [3]float64{0.5, 0.5, 0.5}, [3]float64{0.9, 0.1, 0.1}
-	if got := blend("Color", cb, cs); math.Abs(lum(got)-lum(cb)) > 1e-9 {
+	if got := blendModes["Color"](cb, cs); math.Abs(lum(got)-lum(cb)) > 1e-9 {
 		t.Errorf("Color did not keep the backdrop's luminosity: %v", got)
 	}
-	if got := blend("Luminosity", cs, cb); math.Abs(lum(got)-lum(cb)) > 1e-9 {
+	if got := blendModes["Luminosity"](cs, cb); math.Abs(lum(got)-lum(cb)) > 1e-9 {
 		t.Errorf("Luminosity did not take the source's luminosity: %v", got)
 	}
-	if got := blend("Saturation", cb, cs); math.Abs(got[0]-0.5)+math.Abs(got[1]-0.5)+math.Abs(got[2]-0.5) > 1e-9 {
+	if got := blendModes["Saturation"](cb, cs); math.Abs(got[0]-0.5)+math.Abs(got[1]-0.5)+math.Abs(got[2]-0.5) > 1e-9 {
 		t.Errorf("Saturation of a grey backdrop = %v, want it unchanged", got)
 	}
-	if got := blend("Hue", cs, cb); sat(got) > 1e-9 {
+	if got := blendModes["Hue"](cs, cb); sat(got) > 1e-9 {
 		t.Errorf("Hue of a grey source keeps saturation: %v", got)
 	}
-	if got := blend("Hue", cs, [3]float64{0.1, 0.9, 0.1}); got == cs {
+	if got := blendModes["Hue"](cs, [3]float64{0.1, 0.9, 0.1}); got == cs {
 		t.Errorf("Hue left the colour unchanged: %v", got)
 	}
 	// setLum brings components outside [0, 1] back into it.
@@ -227,7 +234,7 @@ func TestMaskOutsideItsBounds(t *testing.T) {
 func TestCompositeLayerOntoClearBackdrop(t *testing.T) {
 	dst, layer := image.NewRGBA(image.Rect(0, 0, 1, 1)), image.NewRGBA(image.Rect(0, 0, 1, 1))
 	storeRGBA64(layer.Pix, 0, 1, 0, 0, 0.5)
-	compositeLayer(dst, layer, nil, "Multiply")
+	compositeLayer(dst, layer, nil, "Multiply", 1)
 	if dst.Pix[3] < 126 || dst.Pix[3] > 129 || dst.Pix[0] != dst.Pix[3] {
 		t.Errorf("a clear backdrop should take the source unblended: %v", dst.Pix[:4])
 	}
@@ -238,7 +245,7 @@ func TestEffectBudgetDropsEffects(t *testing.T) {
 	r := &renderer{canvas: canvas, effectPixels: effectPixelBudget}
 	gs := renderState{blendMode: "Multiply", clip: [4]float64{0, 0, 4, 4}}
 	painted := false
-	r.withEffects(&gs, anywhere, func() {
+	r.withEffects(&gs, nil, func() {
 		painted = r.canvas == canvas && gs.blendMode == ""
 	})
 	if !painted {
@@ -405,7 +412,7 @@ func TestReaches(t *testing.T) {
 	}
 	gs.tm = content.IdentityMatrix
 	gs.CTM = content.IdentityMatrix
-	if got := textReach(2, 0, gs); !image.Pt(40, 0).In(got) || image.Pt(500, 0).In(got) {
+	if got := textReach(2, 0, gs); !image.Pt(40, 0).In(got) || image.Pt(500, 0).In(got) || image.Pt(0, 40).In(got) {
 		t.Errorf("textReach = %v", got)
 	}
 	if got := tjReach([]pdf.PDFValue{pdf.PDFArray{pdf.PDFString{Value: "ab"}, pdf.PDFInteger(-1000), name("x")}}, gs); !image.Pt(40, 0).In(got) {
@@ -413,9 +420,6 @@ func TestReaches(t *testing.T) {
 	}
 	if got := tjReach(nil, gs); !got.Empty() {
 		t.Errorf("tjReach of nothing = %v", got)
-	}
-	if got := anywhere(); got != noHint {
-		t.Errorf("anywhere = %v", got)
 	}
 	gs.font = dictOf(map[string]pdf.PDFValue{"Subtype": name("Type3")})
 	if got := textReach(1, 0, gs); got != noHint {
@@ -460,5 +464,17 @@ func TestIsolatedGroupOutsideTheClipPaintsNothing(t *testing.T) {
 	form := formWith("0 g 0 0 10 10 re f", map[string]pdf.PDFValue{"I": pdf.PDFBoolean(true)})
 	if got := renderForm(t, "20 20 1 1 re W n /Fm Do", form, nil); !near(got, [3]uint8{255, 255, 255}) {
 		t.Errorf("got %v, want the paper", got)
+	}
+}
+
+// TestEffectLayerStaysWithinAMaskThatHidesTheRest verifies a mask opaque nowhere
+// outside its box limits the layer to that box.
+func TestEffectLayerStaysWithinAMaskThatHidesTheRest(t *testing.T) {
+	r := &renderer{canvas: image.NewRGBA(image.Rect(0, 0, 100, 100))}
+	gs := &renderState{softMask: &softMask{bounds: image.Rect(1, 1, 3, 3), alpha: make([]uint8, 4)}, clip: [4]float64{0, 0, 100, 100}}
+	var got image.Rectangle
+	r.withEffects(gs, nil, func() { got = r.canvas.Bounds() })
+	if got != image.Rect(1, 1, 3, 3) {
+		t.Errorf("layer = %v", got)
 	}
 }

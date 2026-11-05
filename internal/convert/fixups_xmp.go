@@ -42,18 +42,10 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 	info, _ := trailer.Entries.Get("Info").(pdf.PDFDict)
 	xmp := buildXMPPacket(info, spec)
 
-	meta.Entries.Del("Filter")
-	meta.Entries.Del("DecodeParms")
-	meta.Entries.Del("DP")
 	if meta.Entries == nil {
 		meta = pdf.NewPDFDict()
-		meta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
-		meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
 	}
-	meta.SetStream([]byte(xmp))
-	// Deliberately not MarkStreamDirty: the XMP packet must stay unfiltered
-	// (6.7.2 forbids a Filter on the Metadata stream), whereas MarkStreamDirty
-	// tells the writer to Flate-encode and add /Filter /FlateDecode.
+	setXMPPacket(meta, []byte(xmp))
 
 	root.Entries.Set("Metadata", meta)
 	trailer.Entries.Set("Root", root)
@@ -70,31 +62,31 @@ func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa
 		return nil
 	}
 	var catalogMetaPtr uintptr
-	var document []byte
+	var conforms func(data []byte) bool
 	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
-		document = meta.Stream()
+		conforms = verify.ObjectXMPChecker(meta.Stream())
 	}
 	return func(d pdf.PDFDict) {
 		meta, ok := d.Entries.Get("Metadata").(pdf.PDFDict)
 		if !ok || pdf.ValuePointer(meta.Entries) == catalogMetaPtr {
 			return
 		}
-		if spec.Part == 2 && objectXMPConforms(meta, document) {
+		if spec.Part >= 2 && conforms != nil && objectXMPConforms(meta, conforms) {
 			return
 		}
 		d.Entries.Del("Metadata")
 	}
 }
 
-// objectXMPConforms reports whether meta, a metadata stream other than the
-// catalog's, passes the Part 2 metadata rules given the document's own packet.
-func objectXMPConforms(meta pdf.PDFDict, document []byte) bool {
+// objectXMPConforms reports whether the packet of meta, a metadata stream other
+// than the catalog's, passes conforms.
+func objectXMPConforms(meta pdf.PDFDict, conforms func(data []byte) bool) bool {
 	if !meta.IsStream() {
 		return false
 	}
 	data, err := pdf.DecodeStream(meta)
-	return err == nil && verify.ObjectXMPConforms(pdf.DecodeXMPEncoding(data), document)
+	return err == nil && conforms(pdf.DecodeXMPEncoding(data))
 }
 
 // normalizeInfoDict coerces the Info dictionary's standard entries (Table
@@ -251,12 +243,9 @@ func buildXMPPacket(info pdf.PDFDict, spec pdfa.Spec) string {
 	var b strings.Builder
 	b.WriteString("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n")
 	b.WriteString(`<x:xmpmeta xmlns:x="adobe:ns:meta/">` + "\n")
-	b.WriteString(`<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` + "\n")
+	b.WriteString(`<rdf:RDF xmlns:rdf="` + pdf.RDFNamespace + `">` + "\n")
 
-	b.WriteString(`<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">` + "\n")
-	b.WriteString("<pdfaid:part>" + spec.XMPPart + "</pdfaid:part>\n")
-	b.WriteString("<pdfaid:conformance>" + spec.XMPConformance + "</pdfaid:conformance>\n")
-	b.WriteString("</rdf:Description>\n")
+	b.WriteString(identificationDescription("rdf", "", spec))
 
 	// dc:title/dc:description/dc:creator must be Alt/Seq containers, which
 	// have no attribute form, so checkInfoXMPSync's matching comparisons

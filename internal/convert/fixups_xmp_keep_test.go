@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"encoding/hex"
 	"strings"
 	"testing"
 
@@ -152,13 +153,8 @@ func TestRegenerateXMPKeepsConformingPacket(t *testing.T) {
 		}
 		return string(got.Stream())
 	}
-	hex := strings.Builder{}
-	const digits = "0123456789abcdef"
-	for _, b := range []byte(xmpPacketWith(plainXPacketHeader, dcTitleDescription)) {
-		hex.WriteByte(digits[b>>4])
-		hex.WriteByte(digits[b&15])
-	}
-	if got := run(metadataStream(hex.String()+">", "ASCIIHexDecode")); !strings.Contains(got, "Kept title") {
+	encoded := hex.EncodeToString([]byte(xmpPacketWith(plainXPacketHeader, dcTitleDescription)))
+	if got := run(metadataStream(encoded+">", "ASCIIHexDecode")); !strings.Contains(got, "Kept title") {
 		t.Errorf("conforming packet not kept:\n%s", got)
 	}
 	if got := run(metadataStream("not xml", "")); !strings.Contains(got, "<pdfaid:part>2</pdfaid:part>") {

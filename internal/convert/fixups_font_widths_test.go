@@ -490,7 +490,7 @@ func TestFixFontSubsetMetaDictIgnoresWhatItCannotRepair(t *testing.T) {
 			withFile("FontFile2", streamOf(wrapInSfnt(0x00010000, map[string][]byte{"head": make([]byte, 54)})))),
 	}
 	for name, d := range cases {
-		if fixFontSubsetMetaDict(d, false) {
+		if fixFontSubsetMetaDict(d, false, false) {
 			t.Errorf("%s: fixFontSubsetMetaDict = true, want false", name)
 		}
 	}

@@ -178,7 +178,11 @@ func cmapHexDigits(tok string) (string, bool) {
 	if len(tok) < 3 || tok[0] != '<' || tok[len(tok)-1] != '>' {
 		return "", false
 	}
-	return strings.Join(strings.Fields(tok[1:len(tok)-1]), ""), true
+	digits := tok[1 : len(tok)-1]
+	if strings.ContainsAny(digits, " \t\r\n\f\x00") {
+		digits = strings.Join(strings.FieldsFunc(digits, func(r rune) bool { return strings.ContainsRune(" \t\r\n\f\x00", r) }), "")
+	}
+	return digits, true
 }
 
 // cmapHexValue returns the value of a hex string token. ok is false when the

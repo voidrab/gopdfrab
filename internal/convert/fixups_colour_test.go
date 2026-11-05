@@ -583,7 +583,7 @@ func outputIntentDict(s string, identifier bool, profile pdf.PDFValue) pdf.PDFDi
 	return oi
 }
 
-// TestValidPDFAOutputIntentN walks every rejection path of the "is there
+// TestHasValidOutputIntent walks every rejection path of the "is there
 // already a usable PDF/A OutputIntent, and for which N" probe.
 func TestHasValidOutputIntent(t *testing.T) {
 	good := iccProfileStream(pdf.PDFInteger(3), srgbICCProfile)
@@ -600,7 +600,8 @@ func TestHasValidOutputIntent(t *testing.T) {
 		want bool
 	}{
 		{"no OutputIntents", rootOf(), false},
-		{"valid after a non-dict entry", rootOf(pdf.PDFInteger(1), outputIntentDict("GTS_PDFA1", true, good)), true},
+		{"valid", rootOf(outputIntentDict("GTS_PDFA1", true, good)), true},
+		{"valid after a non-dict entry", rootOf(pdf.PDFInteger(1), outputIntentDict("GTS_PDFA1", true, good)), false},
 		{"different profile objects", rootOf(
 			outputIntentDict("GTS_PDFA1", true, good),
 			outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile))), false},
@@ -658,7 +659,7 @@ func TestInjectOutputIntentSharesOtherIntentsProfile(t *testing.T) {
 		{"shared", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, good)}, a2b, 2},
 		{"level without other intents", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, good)}, a1b(), 1},
 		{"no identifier", pdf.PDFArray{outputIntentDict("GTS_PDFX", false, good)}, a2b, 1},
-		{"no profile", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, nil)}, a2b, 1},
+		{"no profile to share", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, nil)}, a2b, 2},
 		{"invalid profile", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, iccProfileStream(pdf.PDFInteger(3), []byte("junk")))}, a2b, 1},
 		{"non-dict entry", pdf.PDFArray{pdf.PDFInteger(1)}, a2b, 1},
 		{"no intents", pdf.PDFArray{}, a2b, 1},

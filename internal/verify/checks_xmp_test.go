@@ -1454,13 +1454,13 @@ func TestXMPConforms(t *testing.T) {
 		t.Error("an unparsable packet should not conform")
 	}
 
-	if !ObjectXMPConforms(wrap(""), wrap(id("2"))) {
+	if !ObjectXMPChecker(wrap(id("2")))(wrap("")) {
 		t.Error("an empty object packet should conform")
 	}
-	if !ObjectXMPConforms(wrap(""), []byte("not xml")) {
+	if !ObjectXMPChecker([]byte("<a><b></a>"))(wrap("")) {
 		t.Error("an unparsable document packet should not affect an empty object packet")
 	}
-	if ObjectXMPConforms(wrap(undeclared), wrap(id("2"))) {
+	if ObjectXMPChecker(wrap(id("2")))(wrap(undeclared)) {
 		t.Error("an object packet with an undeclared property should not conform")
 	}
 }

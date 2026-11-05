@@ -939,13 +939,13 @@ func TestFixFontSubsetMetaDictRemovesCIDSetWhenExact(t *testing.T) {
 			"BaseFont":       pdf.PDFName{Value: "ABCDEF+Test"},
 			"FontDescriptor": desc,
 		})}
-		if !fixFontSubsetMetaDict(font, true) {
+		if !fixFontSubsetMetaDict(font, true, true) {
 			t.Errorf("%s: first pass reported no change", subtype)
 		}
 		if desc.Entries.Get("CIDSet") != nil {
 			t.Errorf("%s: CIDSet still present", subtype)
 		}
-		if fixFontSubsetMetaDict(font, true) {
+		if fixFontSubsetMetaDict(font, true, true) {
 			t.Errorf("%s: second pass reported a change", subtype)
 		}
 	}

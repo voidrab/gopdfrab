@@ -651,39 +651,44 @@ func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
 // limit keeps only its first code, which maps to limit as in a cidchar. Codes
 // past the new end of a range are left unmapped.
 func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
-	type splice struct {
-		start, end int
-		text       string
-	}
 	var splices []splice
-	max := int64(limit)
+	top := int64(limit)
 	fontprog.EachCMapCID(data, func(e fontprog.CMapCIDEntry) {
-		cid, ok := fontprog.CmapParseInt(e.CID.Text)
-		last, _ := e.LastCID()
-		if !ok || last <= max {
+		last, ok := e.LastCID()
+		if !ok || last <= top {
 			return
 		}
-		if cid > max {
-			splices = append(splices, splice{e.CID.Start, e.CID.End, strconv.Itoa(limit)})
-			cid = max
-		}
+		first := last - e.CodeSpan()
 		if e.CodeSpan() > 0 {
-			splices = append(splices, splice{e.Hi.Start, e.Hi.End, fontprog.CMapCodeAfter(e.Lo.Text, max-cid)})
+			splices = append(splices, splice{e.Hi.Start, e.Hi.End, fontprog.CMapCodeAfter(e.Lo.Text, max(top-first, 0))})
+		}
+		if first > top {
+			splices = append(splices, splice{e.CID.Start, e.CID.End, strconv.Itoa(limit)})
 		}
 	})
 	if len(splices) == 0 {
 		return nil, false
 	}
+	return applySplices(data, splices), true
+}
 
-	sort.Slice(splices, func(i, j int) bool { return splices[i].start < splices[j].start })
-	var out []byte
-	prev := 0
+// splice is a replacement of the bytes from start to end.
+type splice struct {
+	start, end int
+	text       string
+}
+
+// applySplices returns data with the splices, in ascending order and disjoint,
+// made in it.
+func applySplices(data []byte, splices []splice) []byte {
+	out := make([]byte, 0, len(data))
+	at := 0
 	for _, s := range splices {
-		out = append(out, data[prev:s.start]...)
+		out = append(out, data[at:s.start]...)
 		out = append(out, s.text...)
-		prev = s.end
+		at = s.end
 	}
-	return append(out, data[prev:]...), true
+	return append(out, data[at:]...)
 }
 
 // --- shared content-stream resource-aware rewriting ---

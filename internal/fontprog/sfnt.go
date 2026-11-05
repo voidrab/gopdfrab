@@ -95,7 +95,7 @@ func TTAdvanceWidth(tables map[string][]byte, gid int) float64 {
 	if len(hmtx) == 0 || len(hhea) < 36 || !ok {
 		return -1
 	}
-	nHM := int(binary.BigEndian.Uint16(hhea[34:36]))
+	nHM := TTNumHMetrics(tables)
 	var aw int
 	if gid < nHM {
 		if gid*4+2 > len(hmtx) {

@@ -1473,6 +1473,18 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		)}
 	}
 
+	return outputIntentIssues(intents, spec, catalog(d))
+}
+
+// OutputIntentsConform reports whether an OutputIntents array passes the level's
+// output intent checks.
+func OutputIntentsConform(intents pdf.PDFArray, spec pdfa.Spec) bool {
+	return len(outputIntentIssues(intents, spec, nil)) == 0
+}
+
+// outputIntentIssues checks an OutputIntents array. An issue with no intent of
+// its own to name refers to cat, the catalog.
+func outputIntentIssues(intents pdf.PDFArray, spec pdfa.Spec, cat pdf.PDFValue) []pdf.PDFError {
 	errs := []pdf.PDFError{}
 
 	var indirectObject pdf.PDFValue
@@ -1484,7 +1496,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentNotDict,
 				[]error{fmt.Errorf("expected OutputIntent to be a pdf.PDFDict")},
 				0,
-				refOf(catalog(d)),
+				refOf(cat),
 			)
 			errs = append(errs, err)
 			continue

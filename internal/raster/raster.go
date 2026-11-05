@@ -97,11 +97,7 @@ func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int
 	base := content.Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
 	// The colour a drawing starts in is black in DeviceGray, so "1 sc"
 	// without a preceding cs selects white.
-	gs := renderState{
-		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
-		clip: [4]float64{0, 0, float64(width), float64(height)},
-	}
-	gs.CTM = base
+	gs := newRenderState(base, [4]float64{0, 0, float64(width), float64(height)})
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
@@ -179,6 +175,15 @@ type renderState struct {
 	tm, tlm    content.Matrix
 }
 
+// newRenderState is the graphics state a drawing starts in.
+func newRenderState(ctm content.Matrix, clip [4]float64) renderState {
+	gs := renderState{
+		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1, clip: clip,
+	}
+	gs.CTM = ctm
+	return gs
+}
+
 // renderer carries the mutable bits shared across a RenderPage call: the
 // output canvas, a font-info cache keyed by font dict identity, and a
 // recursion-depth guard against pathological/cyclic Form XObject graphs.
@@ -206,6 +211,10 @@ type renderer struct {
 	// effectPixelBudget.
 	effectPixels int64
 }
+
+// maxFormDepth bounds the nesting of forms and soft-mask groups, against
+// pathological and cyclic graphs.
+const maxFormDepth = 12
 
 // raster-drop feature names, reported so a rasterized conversion does not
 // silently lose them.
@@ -383,9 +392,8 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "W*":
 			pendingClip, pendingClipEvenOdd = true, true
 		case "f", "F", "f*", "S", "s", "B", "B*", "b", "b*", "n":
-			if op == "n" {
-				r.paintPath(&path, &gs, op)
-			} else {
+			// An n path only sets a clip, and paints nothing.
+			if op != "n" {
 				r.withEffects(&gs, func() image.Rectangle { return pathReach(&path, &gs) }, func() { r.paintPath(&path, &gs, op) })
 			}
 			applyPendingClip()
@@ -451,7 +459,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "Tr":
 			gs.renderMode = int(nums(1)[0])
 		case "sh":
-			r.withEffects(&gs, anywhere, func() { r.paintShadingOp(operands, resources, &gs) })
+			r.withEffects(&gs, nil, func() { r.paintShadingOp(operands, resources, &gs) })
 		case "INLINEIMAGE":
 			r.withEffects(&gs, func() image.Rectangle { return imageReach(&gs) }, func() { r.paintInlineImage(operands, resources, &gs) })
 		}
@@ -518,8 +526,6 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	case "B", "B*", "b", "b*":
 		fill()
 		stroke()
-	case "n":
-		// Path constructed only to set a clip region; no paint.
 	}
 }
 
@@ -601,20 +607,16 @@ func pathReach(path *pathBuilder, gs *renderState) image.Rectangle {
 // form that is no transparency group is not an object of its own, so what it
 // paints takes them one operation at a time; anything else is one object.
 func (r *renderer) paintDo(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
-	if gs.softMask == nil && gs.blendMode == "" {
-		r.doXObject(operands, resources, gs)
-		return
-	}
 	xobj, ok := namedXObject(operands, resources)
-	if !ok {
+	if !ok || r.oc.Hides(xobj.Entries.Get("OC")) {
 		return
 	}
 	group, _ := xobj.Entries.Get("Group").(pdf.PDFDict)
 	if xobj.Entries.Get("Subtype") == pdf.PDFValue(pdf.PDFName{Value: "Form"}) && !isTransparencyGroup(group) {
-		r.doXObject(operands, resources, gs)
+		r.doXObject(xobj, resources, gs)
 		return
 	}
-	r.withEffects(gs, func() image.Rectangle { return xobjectReach(xobj, gs) }, func() { r.doXObject(operands, resources, gs) })
+	r.withEffects(gs, func() image.Rectangle { return xobjectReach(xobj, gs) }, func() { r.doXObject(xobj, resources, gs) })
 }
 
 // showTextWithEffects is showText through the graphics state's effects.
@@ -631,22 +633,17 @@ func namedXObject(operands []pdf.PDFValue, resources pdf.PDFDict) (pdf.PDFDict, 
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
-	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+	xobj, ok := pdf.LookupResource(resources, "XObject", name.Value).(pdf.PDFDict)
 	return xobj, ok && xobj.IsStream()
 }
 
 // doXObject paints a Form (recursing with composed CTM/Resources) or Image
 // (decoded via DecodeImageRGBA, compositing its /SMask if present) XObject.
-func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
-	xobj, ok := namedXObject(operands, resources)
-	if !ok || r.oc.Hides(xobj.Entries.Get("OC")) {
-		return
-	}
+func (r *renderer) doXObject(xobj, resources pdf.PDFDict, gs *renderState) {
 	subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)
 	switch subtype.Value {
 	case "Form":
-		if r.depth > 12 {
+		if r.depth > maxFormDepth {
 			return
 		}
 		r.depth++
@@ -659,10 +656,11 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 		if err != nil {
 			return
 		}
-		if group, _ := xobj.Entries.Get("Group").(pdf.PDFDict); isTransparencyGroup(group) && !paintsThrough(group, gs) {
-			r.paintGroup(data, formRes, childGS, gs.fillAlpha)
-			return
-		} else if isTransparencyGroup(group) {
+		if group, _ := xobj.Entries.Get("Group").(pdf.PDFDict); isTransparencyGroup(group) {
+			if !paintsThrough(group, gs) {
+				r.paintGroup(data, formRes, childGS, gs.fillAlpha)
+				return
+			}
 			// A group's content starts at full opacity whichever way it paints.
 			childGS.strokeAlpha = 1
 		}
@@ -698,10 +696,7 @@ func formClip(form pdf.PDFDict, ctm content.Matrix, clip [4]float64) [4]float64 
 	if err != nil || len(bbox) != 4 {
 		return clip
 	}
-	var box pathBuilder
-	box.rect(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1])
-	minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(ctm))
-	return intersectRect(clip, [4]float64{minX, minY, maxX, maxY})
+	return intersectRect(clip, deviceBounds(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1], ctm, 0))
 }
 
 // paintsThrough reports whether a group drawn under gs is the same as painting
@@ -729,27 +724,10 @@ func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState
 	if area.Empty() {
 		return
 	}
-	backdrop := r.canvas
-	r.canvas = image.NewRGBA(area)
 	gs.fillAlpha, gs.strokeAlpha = 1, 1
-	r.execContent(data, resources, gs)
-	group := r.canvas
-	r.canvas = backdrop
-
-	// Source-over with premultiplied samples, the group's scaled by alpha.
-	for y := area.Min.Y; y < area.Max.Y; y++ {
-		src := group.Pix[group.PixOffset(area.Min.X, y):group.PixOffset(area.Max.X, y)]
-		dst := backdrop.Pix[backdrop.PixOffset(area.Min.X, y):backdrop.PixOffset(area.Max.X, y)]
-		for i := 0; i < len(src); i += 4 {
-			sa := float64(src[i+3]) * alpha / 255
-			if sa == 0 {
-				continue
-			}
-			for c := range 4 {
-				dst[i+c] = uint8(float64(src[i+c])*alpha + float64(dst[i+c])*(1-sa) + 0.5)
-			}
-		}
-	}
+	group := image.NewRGBA(area)
+	r.onLayer(group, func() { r.execContent(data, resources, gs) })
+	compositeLayer(r.canvas, group, nil, "", alpha)
 }
 
 // paintImage decodes an Image XObject (and its /SMask, if present) and
@@ -1470,7 +1448,7 @@ func (r *renderer) drawType3Glyph(fi *fontInfo, code int, pageResources pdf.PDFD
 	}
 	// A CharProc may Do a Form or show text again; share the Form recursion
 	// guard rather than adding a second one.
-	if r.depth > 12 {
+	if r.depth > maxFormDepth {
 		return
 	}
 	data, err := pdf.DecodeStream(proc)

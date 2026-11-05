@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/corpustest"
@@ -347,9 +346,8 @@ func TestEmbeddedFileFixerConvertsPDFs(t *testing.T) {
 		}
 	})
 	t.Run("a failed conversion leaves the budget and is not retried", func(t *testing.T) {
-		left := new(atomic.Int64)
-		left.Store(1 << 20)
-		state := context.WithValue(ctx, embedConvertKey{}, embedConvert{left: left})
+		left := int64(1 << 20)
+		state := context.WithValue(ctx, embedConvertKey{}, embedConvert{left: &left})
 		bad := pdf.NewStreamDict(nil, []byte("not a pdf"))
 		first := specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "a"}, "UF", pdf.PDFString{Value: "a"}, "EF", specDict("F", bad))
 		second := specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "b"}, "UF", pdf.PDFString{Value: "b"}, "EF", specDict("F", bad))
@@ -358,7 +356,7 @@ func TestEmbeddedFileFixerConvertsPDFs(t *testing.T) {
 		if _, err := (embeddedFileFixer{ctx: state, profile: pdf.PDFA2B, lost: &lost}).Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA)); err != nil {
 			t.Fatal(err)
 		}
-		if got := left.Load(); got != 1<<20 {
+		if got := left; got != 1<<20 {
 			t.Errorf("budget left = %d, want it untouched", got)
 		}
 		if len(lost) != 2 {
@@ -366,16 +364,15 @@ func TestEmbeddedFileFixerConvertsPDFs(t *testing.T) {
 		}
 	})
 	t.Run("too deep", func(t *testing.T) {
-		left := new(atomic.Int64)
-		left.Store(maxEmbedConvertBytes)
-		deep := context.WithValue(ctx, embedConvertKey{}, embedConvert{depth: maxEmbedConvertDepth, left: left})
+		left := int64(maxEmbedConvertBytes)
+		deep := context.WithValue(ctx, embedConvertKey{}, embedConvert{depth: maxEmbedConvertDepth, left: &left})
 		if _, _, kept := fix(deep, readCorpus(t, "6-5-1-t01-fail-b.pdf")); kept {
 			t.Error("converted past the depth limit")
 		}
 	})
 	t.Run("over budget", func(t *testing.T) {
-		left := new(atomic.Int64)
-		broke := context.WithValue(ctx, embedConvertKey{}, embedConvert{left: left})
+		var left int64
+		broke := context.WithValue(ctx, embedConvertKey{}, embedConvert{left: &left})
 		if _, _, kept := fix(broke, readCorpus(t, "6-5-1-t01-fail-b.pdf")); kept {
 			t.Error("converted over the byte budget")
 		}

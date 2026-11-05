@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync/atomic"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -132,7 +131,8 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		}
 	}
 	judge := verify.NewEmbeddedFileJudge(f.ctx)
-	converted, failed := map[pdf.Dict]bool{}, map[pdf.Dict]bool{}
+	// convertible records, for each stream tried, whether it converted.
+	convertible := map[pdf.Dict]bool{}
 	dropped := map[pdf.Dict]bool{}
 	changed := false
 	fix := func(fs pdf.PDFDict) {
@@ -143,16 +143,19 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 			for _, ef := range verify.EmbeddedFileStreams(fs) {
 				// A file that could not be judged may comply, so it stays,
 				// and the output is left unconformant.
-				if converted[ef.Entries] {
+				if convertible[ef.Entries] {
 					continue
 				}
 				if problem, decided := judge.Problem(ef); decided && problem != "" {
-					if !failed[ef.Entries] && f.convertEmbedded(fs, ef) {
-						converted[ef.Entries] = true
+					ok, tried := convertible[ef.Entries]
+					if !tried {
+						ok = f.convertEmbedded(fs, ef)
+						convertible[ef.Entries] = ok
+					}
+					if ok {
 						changed = true
 						continue
 					}
-					failed[ef.Entries] = true
 					reportLost(f.lost, st.EmbeddedFileNotPDFA, fs, embeddedFileName(fs)+" removed: it "+problem)
 					fs.Entries.Del("EF")
 					dropped[fs.Entries] = true
@@ -195,7 +198,7 @@ const (
 type embedConvert struct {
 	depth int
 	// left is how many more decoded bytes may be converted.
-	left *atomic.Int64
+	left *int64
 }
 
 type embedConvertKey struct{}
@@ -208,26 +211,31 @@ type embedConvertKey struct{}
 func (f embeddedFileFixer) convertEmbedded(fs, ef pdf.PDFDict) bool {
 	state, ok := f.ctx.Value(embedConvertKey{}).(embedConvert)
 	if !ok {
-		state.left = new(atomic.Int64)
-		state.left.Store(maxEmbedConvertBytes)
+		left := int64(maxEmbedConvertBytes)
+		state.left = &left
 	}
 	if state.depth >= maxEmbedConvertDepth {
 		return false
 	}
 	data, err := pdf.DecodeStream(ef)
-	if err != nil || state.left.Add(-int64(len(data))) < 0 {
-		state.left.Add(int64(len(data)))
+	size := int64(len(data))
+	if err != nil || size > *state.left {
 		return false
 	}
-	// Only a conversion that succeeds uses up the budget.
-	done := false
-	defer func() {
-		if !done {
-			state.left.Add(int64(len(data)))
-		}
-	}()
+	*state.left -= size
 	nested := context.WithValue(f.ctx, embedConvertKey{}, embedConvert{depth: state.depth + 1, left: state.left})
-	cr, err := ConvertBytesContext(nested, data, f.profile, f.options)
+	if !f.replaceWithConversion(nested, fs, ef, data) {
+		// Only a conversion that succeeds uses up the budget.
+		*state.left += size
+		return false
+	}
+	return true
+}
+
+// replaceWithConversion is convertEmbedded once the limits have passed, with data
+// the decoded file.
+func (f embeddedFileFixer) replaceWithConversion(ctx context.Context, fs, ef pdf.PDFDict, data []byte) bool {
+	cr, err := ConvertBytesContext(ctx, data, f.profile, f.options)
 	if err != nil {
 		return false
 	}
@@ -245,12 +253,11 @@ func (f embeddedFileFixer) convertEmbedded(fs, ef pdf.PDFDict) bool {
 	for _, lost := range cr.LostObjects {
 		reportLost(f.lost, pdf.Checks.Structure.EmbeddedFileNotPDFA, fs, name+" converted to PDF/A: "+strings.Join(lost.Messages(), "; "))
 	}
-	writer.SetStreamFlate(&ef, out)
+	writer.SetStreamFlateFast(&ef, out)
 	if params, ok := ef.Entries.Get("Params").(pdf.PDFDict); ok {
 		params.Entries.Set("Size", pdf.PDFInteger(len(out)))
 		params.Entries.Del("CheckSum")
 	}
-	done = true
 	return true
 }
 
