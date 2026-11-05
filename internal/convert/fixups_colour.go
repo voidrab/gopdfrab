@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"runtime"
+	"slices"
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -51,13 +52,20 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 		return fmt.Errorf("injectOutputIntent: Root is not a dictionary")
 	}
 
-	dominant := dominantColourModel(detectColourModelUsage(*trailer, decoderFor(doc)))
-	if existingN, ok := validPDFAOutputIntentN(root, spec); ok {
-		if dominant == "" || colourModelN[dominant] == existingN {
-			return nil
-		}
+	// A valid intent states the file's real output condition, so it stays even
+	// when another colour model dominates the content: deviceColourFixer covers
+	// that model without replacing it.
+	if hasValidOutputIntent(root, spec) {
+		return nil
+	}
+	intents, _ := root.Entries.Get("OutputIntents").(pdf.PDFArray)
+	if shared, ok := sharedIntent(intents, spec); ok {
+		root.Entries.Set("OutputIntents", append(slices.Clone(intents), shared))
+		trailer.Entries.Set("Root", root)
+		return nil
 	}
 
+	dominant := dominantColourModel(detectColourModelUsage(*trailer, decoderFor(doc)))
 	wantN, alternate, identifier, iccBytes := colourModelN["rgb"], "DeviceRGB", "sRGB", srgbICCProfile
 	if dominant == "cmyk" {
 		wantN, alternate, identifier, iccBytes = colourModelN["cmyk"], "DeviceCMYK", "FOGRA39", cmykICCProfile
@@ -77,6 +85,45 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 	root.Entries.Set("OutputIntents", pdf.PDFArray{intent})
 	trailer.Entries.Set("Root", root)
 	return nil
+}
+
+// sharedIntent returns a new intent of the level's own subtype for a level that
+// lets intents of other subtypes stand beside it, when intents hold a usable
+// one. The new intent takes the other's output condition and profile, since all
+// the intents of a file must share a profile; ok is false when there is none to
+// share, or more than one.
+func sharedIntent(intents pdf.PDFArray, spec pdfa.Spec) (pdf.PDFDict, bool) {
+	if !spec.OtherOutputIntents {
+		return pdf.PDFDict{}, false
+	}
+	var first pdf.PDFDict
+	for _, v := range intents {
+		intent, ok := v.(pdf.PDFDict)
+		if !ok {
+			return pdf.PDFDict{}, false
+		}
+		profile := intent.Entries.Get("DestOutputProfile")
+		if profile == nil {
+			continue
+		}
+		if first.Entries != nil && !pdf.EqualPDFValue(first.Entries.Get("DestOutputProfile"), profile) {
+			return pdf.PDFDict{}, false
+		}
+		first = intent
+	}
+	if first.Entries == nil || !usableIntentProfile(first, spec) {
+		return pdf.PDFDict{}, false
+	}
+	id := first.Entries.Get("OutputConditionIdentifier")
+	if id == nil {
+		return pdf.PDFDict{}, false
+	}
+	shared := pdf.NewPDFDict()
+	shared.Entries.Set("Type", pdf.PDFName{Value: "OutputIntent"})
+	shared.Entries.Set("S", pdf.PDFName{Value: spec.OutputIntentSubtype})
+	shared.Entries.Set("OutputConditionIdentifier", id)
+	shared.Entries.Set("DestOutputProfile", first.Entries.Get("DestOutputProfile"))
+	return shared, true
 }
 
 // separationAlternateFixer remediates 6.2.3.4: a Separation or DeviceN whose
@@ -277,14 +324,13 @@ type scanJob struct {
 	resources pdf.PDFDict
 }
 
-// validPDFAOutputIntentN returns the /N value of the first OutputIntent that
-// meets all of the level's output intent and ICC profile checks. If multiple
-// intents exist, they must use the same profile object, or the entire array is
-// treated as invalid.
-func validPDFAOutputIntentN(root pdf.PDFDict, spec pdfa.Spec) (n int, ok bool) {
+// hasValidOutputIntent reports whether an OutputIntent meets all of the level's
+// output intent and ICC profile checks. If multiple intents exist, they must
+// use the same profile object, or the entire array is treated as invalid.
+func hasValidOutputIntent(root pdf.PDFDict, spec pdfa.Spec) bool {
 	intents, ok := root.Entries.Get("OutputIntents").(pdf.PDFArray)
 	if !ok {
-		return 0, false
+		return false
 	}
 
 	var firstProfile pdf.PDFValue
@@ -300,7 +346,7 @@ func validPDFAOutputIntentN(root pdf.PDFDict, spec pdfa.Spec) (n int, ok bool) {
 		if firstProfile == nil {
 			firstProfile = profile
 		} else if !pdf.EqualPDFValue(firstProfile, profile) {
-			return 0, false
+			return false
 		}
 	}
 
@@ -309,31 +355,26 @@ func validPDFAOutputIntentN(root pdf.PDFDict, spec pdfa.Spec) (n int, ok bool) {
 		if !ok {
 			continue
 		}
-		if !pdf.EqualPDFValue(intent.Entries.Get("S"), pdf.PDFName{Value: spec.OutputIntentSubtype}) {
-			continue
+		if pdf.EqualPDFValue(intent.Entries.Get("S"), pdf.PDFName{Value: spec.OutputIntentSubtype}) &&
+			intent.Entries.Get("OutputConditionIdentifier") != nil && usableIntentProfile(intent, spec) {
+			return true
 		}
-		if intent.Entries.Get("OutputConditionIdentifier") == nil {
-			continue
-		}
-		profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
-		if !ok || !profile.IsStream() {
-			continue
-		}
-		nVal, ok := profile.Entries.Get("N").(pdf.PDFInteger)
-		if !ok {
-			continue
-		}
-		switch int(nVal) {
-		case 1, 3, 4:
-		default:
-			continue
-		}
-		if verify.ValidateICCProfileStream(profile, spec) != nil {
-			continue
-		}
-		return int(nVal), true
 	}
-	return 0, false
+	return false
+}
+
+// usableIntentProfile reports whether intent's profile is a stream with a
+// component count an output intent can have, that passes the level's ICC checks.
+func usableIntentProfile(intent pdf.PDFDict, spec pdfa.Spec) bool {
+	profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
+	if !ok || !profile.IsStream() {
+		return false
+	}
+	switch n, _ := profile.Entries.Get("N").(pdf.PDFInteger); n {
+	case 1, 3, 4:
+		return verify.ValidateICCProfileStream(profile, spec) == nil
+	}
+	return false
 }
 
 // iccBasedProfileFixer remediates both halves of 6.2.3.2: an ICCBased colour
