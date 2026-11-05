@@ -346,6 +346,25 @@ func TestEmbeddedFileFixerConvertsPDFs(t *testing.T) {
 			t.Error("EF kept")
 		}
 	})
+	t.Run("a failed conversion leaves the budget and is not retried", func(t *testing.T) {
+		left := new(atomic.Int64)
+		left.Store(1 << 20)
+		state := context.WithValue(ctx, embedConvertKey{}, embedConvert{left: left})
+		bad := pdf.NewStreamDict(nil, []byte("not a pdf"))
+		first := specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "a"}, "UF", pdf.PDFString{Value: "a"}, "EF", specDict("F", bad))
+		second := specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "b"}, "UF", pdf.PDFString{Value: "b"}, "EF", specDict("F", bad))
+		trailer := trailerWith("X", pdf.PDFArray{first, second})
+		var lost []pdf.PDFError
+		if _, err := (embeddedFileFixer{ctx: state, profile: pdf.PDFA2B, lost: &lost}).Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA)); err != nil {
+			t.Fatal(err)
+		}
+		if got := left.Load(); got != 1<<20 {
+			t.Errorf("budget left = %d, want it untouched", got)
+		}
+		if len(lost) != 2 {
+			t.Errorf("lost = %v, want both removed", lost)
+		}
+	})
 	t.Run("too deep", func(t *testing.T) {
 		left := new(atomic.Int64)
 		left.Store(maxEmbedConvertBytes)

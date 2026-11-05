@@ -111,6 +111,8 @@ func reportLost(lost *[]pdf.PDFError, c pdf.Check, d pdf.PDFDict, msg string) {
 type embeddedFileFixer struct {
 	ctx     context.Context
 	profile *pdf.Profile
+	// options are what the conversion of an embedded file runs under.
+	options Options
 	lost    *[]pdf.PDFError
 }
 
@@ -130,7 +132,7 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		}
 	}
 	judge := verify.NewEmbeddedFileJudge(f.ctx)
-	converted := map[pdf.Dict]bool{}
+	converted, failed := map[pdf.Dict]bool{}, map[pdf.Dict]bool{}
 	dropped := map[pdf.Dict]bool{}
 	changed := false
 	fix := func(fs pdf.PDFDict) {
@@ -145,11 +147,12 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 					continue
 				}
 				if problem, decided := judge.Problem(ef); decided && problem != "" {
-					if f.convertEmbedded(fs, ef) {
+					if !failed[ef.Entries] && f.convertEmbedded(fs, ef) {
 						converted[ef.Entries] = true
 						changed = true
 						continue
 					}
+					failed[ef.Entries] = true
 					reportLost(f.lost, st.EmbeddedFileNotPDFA, fs, embeddedFileName(fs)+" removed: it "+problem)
 					fs.Entries.Del("EF")
 					dropped[fs.Entries] = true
@@ -213,10 +216,18 @@ func (f embeddedFileFixer) convertEmbedded(fs, ef pdf.PDFDict) bool {
 	}
 	data, err := pdf.DecodeStream(ef)
 	if err != nil || state.left.Add(-int64(len(data))) < 0 {
+		state.left.Add(int64(len(data)))
 		return false
 	}
+	// Only a conversion that succeeds uses up the budget.
+	done := false
+	defer func() {
+		if !done {
+			state.left.Add(int64(len(data)))
+		}
+	}()
 	nested := context.WithValue(f.ctx, embedConvertKey{}, embedConvert{depth: state.depth + 1, left: state.left})
-	cr, err := ConvertBytesContext(nested, data, f.profile, Options{})
+	cr, err := ConvertBytesContext(nested, data, f.profile, f.options)
 	if err != nil {
 		return false
 	}
@@ -239,6 +250,7 @@ func (f embeddedFileFixer) convertEmbedded(fs, ef pdf.PDFDict) bool {
 		params.Entries.Set("Size", pdf.PDFInteger(len(out)))
 		params.Entries.Del("CheckSum")
 	}
+	done = true
 	return true
 }
 

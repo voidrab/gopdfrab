@@ -17,6 +17,9 @@ const dropEffects = "blend mode or soft mask"
 // 2000 full pages at the default resolution. Past it, content paints plainly.
 const effectPixelBudget = 4_000_000_000
 
+// softMaskCacheBytes bounds the rendered masks one render keeps for reuse.
+const softMaskCacheBytes = 256 << 20
+
 // softMask is the opacity an ExtGState /SMask gives each device pixel.
 type softMask struct {
 	bounds image.Rectangle
@@ -36,8 +39,9 @@ func (m *softMask) at(x, y int) float64 {
 // is a different mask, since a mask's coordinates are those in force at the gs
 // operator.
 type softMaskKey struct {
-	dict uintptr
-	ctm  content.Matrix
+	dict   uintptr
+	ctm    content.Matrix
+	canvas image.Rectangle
 }
 
 // applySoftMask sets gs's soft mask from an ExtGState soft mask (/SMask) value.
@@ -48,12 +52,18 @@ func (r *renderer) applySoftMask(v pdf.PDFValue, resources pdf.PDFDict, gs *rend
 		gs.softMask = nil
 		return
 	}
-	key := softMaskKey{pdf.ValuePointer(d.Entries), gs.CTM}
+	key := softMaskKey{pdf.ValuePointer(d.Entries), gs.CTM, r.canvas.Bounds()}
 	mask, cached := r.softMasks[key]
 	if !cached {
 		mask = r.renderSoftMask(d, resources, gs)
-		if r.softMasks == nil {
+		if mask != nil {
+			r.softMaskBytes += len(mask.alpha)
+		}
+		if r.softMasks == nil || r.softMaskBytes > softMaskCacheBytes {
 			r.softMasks = map[softMaskKey]*softMask{}
+			if mask != nil {
+				r.softMaskBytes = len(mask.alpha)
+			}
 		}
 		r.softMasks[key] = mask
 	}
@@ -75,7 +85,18 @@ func (r *renderer) renderSoftMask(d, resources pdf.PDFDict, gs *renderState) *so
 	r.depth++
 	defer func() { r.depth-- }()
 
-	bounds := r.canvas.Bounds()
+	canvasBounds := r.canvas.Bounds()
+	canvasClip := [4]float64{float64(canvasBounds.Min.X), float64(canvasBounds.Min.Y), float64(canvasBounds.Max.X), float64(canvasBounds.Max.Y)}
+	ctm := formCTM(form, gs.CTM)
+	clip := formClip(form, ctm, canvasClip)
+	// Nothing paints outside the group's box, where the mask is a single value.
+	bounds := clipToBounds(canvasBounds, clip)
+	r.effectPixels += int64(bounds.Dx()) * int64(bounds.Dy())
+	if r.effectPixels > effectPixelBudget {
+		r.drop(dropEffects)
+		return nil
+	}
+
 	luminosity := d.Entries.Get("S") != pdf.PDFValue(pdf.PDFName{Value: "Alpha"})
 	formRes := resourcesOr(form, resources)
 	layer := image.NewRGBA(bounds)
@@ -90,11 +111,9 @@ func (r *renderer) renderSoftMask(d, resources pdf.PDFDict, gs *renderState) *so
 	}
 
 	child := renderState{
-		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
-		clip: [4]float64{float64(bounds.Min.X), float64(bounds.Min.Y), float64(bounds.Max.X), float64(bounds.Max.Y)},
+		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1, clip: clip,
 	}
-	child.CTM = formCTM(form, gs.CTM)
-	child.clip = formClip(form, child.CTM, child.clip)
+	child.CTM = ctm
 
 	canvas := r.canvas
 	r.canvas = layer
@@ -193,10 +212,10 @@ func blendModeOf(v pdf.PDFValue) string {
 	return ""
 }
 
-// withEffects runs paint, which marks the canvas. If gs has a soft mask or blend
-// mode, paint marks a separate layer over hint, the area paint can reach, and
-// that layer is composited with them. paint runs with neither set in gs.
-func (r *renderer) withEffects(gs *renderState, hint image.Rectangle, paint func()) {
+// withEffects runs paint, which marks the canvas. Under a soft mask or blend
+// mode, it marks a separate layer over the area reach returns, which is then
+// composited with them; paint runs with neither set in gs.
+func (r *renderer) withEffects(gs *renderState, reach func() image.Rectangle, paint func()) {
 	if gs.softMask == nil && gs.blendMode == "" {
 		paint()
 		return
@@ -205,7 +224,7 @@ func (r *renderer) withEffects(gs *renderState, hint image.Rectangle, paint func
 	gs.softMask, gs.blendMode = nil, ""
 	defer func() { gs.softMask, gs.blendMode = mask, mode }()
 
-	area := clipToBounds(r.canvas.Bounds(), gs.clip).Intersect(hint)
+	area := clipToBounds(r.canvas.Bounds(), gs.clip).Intersect(reach())
 	r.effectPixels += int64(area.Dx()) * int64(area.Dy())
 	if r.effectPixels > effectPixelBudget {
 		r.drop(dropEffects)
@@ -363,4 +382,57 @@ func setSat(c [3]float64, s float64) [3]float64 {
 		c[i] = (c[i] - n) * s / (x - n)
 	}
 	return c
+}
+
+// anywhere is the reach of a painting operation that may mark anywhere its clip
+// allows.
+func anywhere() image.Rectangle { return noHint }
+
+// textReach bounds where showing a string of n bytes can mark from the current
+// text position, allowing each glyph two ems. adjust is the sum of the absolute
+// TJ adjustments. A Type 3 glyph can draw anything, so its reach is unbounded.
+func textReach(n int, adjust float64, gs *renderState) image.Rectangle {
+	if gs.font.Entries.Get("Subtype") == pdf.PDFValue(pdf.PDFName{Value: "Type3"}) {
+		return noHint
+	}
+	tm := gs.tm.Mul(gs.CTM)
+	origin := tm.Apply(content.Point{Y: gs.rise})
+	em := ctmScale(tm) * math.Abs(gs.fontSize)
+	spacing := float64(n) * (math.Abs(gs.charSpace) + math.Abs(gs.wordSpace)) * ctmScale(tm)
+	r := (em*(2*float64(n+1)+adjust/1000)+spacing)*math.Max(1, math.Abs(gs.hScale)) + 2
+	return clipToBounds(noHint, [4]float64{origin.X - r, origin.Y - r, origin.X + r, origin.Y + r})
+}
+
+// imageReach is the device area an image, which fills the unit square of user
+// space, can mark.
+func imageReach(gs *renderState) image.Rectangle {
+	var box pathBuilder
+	box.rect(0, 0, 1, 1)
+	minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(gs.CTM))
+	return clipToBounds(noHint, [4]float64{minX - 1, minY - 1, maxX + 1, maxY + 1})
+}
+
+// xobjectReach is the device area a Do of the named XObject can mark.
+func xobjectReach(xobj pdf.PDFDict, gs *renderState) image.Rectangle {
+	if xobj.Entries.Get("Subtype") == pdf.PDFValue(pdf.PDFName{Value: "Image"}) {
+		return imageReach(gs)
+	}
+	return clipToBounds(noHint, formClip(xobj, formCTM(xobj, gs.CTM), [4]float64{math.MinInt32, math.MinInt32, math.MaxInt32, math.MaxInt32}))
+}
+
+// tjReach is textReach for the operand array of a TJ.
+func tjReach(operands []pdf.PDFValue, gs *renderState) image.Rectangle {
+	if len(operands) == 0 {
+		return image.Rectangle{}
+	}
+	arr, _ := operands[len(operands)-1].(pdf.PDFArray)
+	n, adjust := 0, 0.0
+	for _, item := range arr {
+		if v, ok := pdf.PDFNumberToFloat(item); ok {
+			adjust += math.Abs(v)
+		} else if raw, ok := pdf.StringBytes(item); ok {
+			n += len(raw)
+		}
+	}
+	return textReach(n, adjust, gs)
 }

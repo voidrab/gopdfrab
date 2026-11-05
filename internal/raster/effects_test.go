@@ -238,7 +238,7 @@ func TestEffectBudgetDropsEffects(t *testing.T) {
 	r := &renderer{canvas: canvas, effectPixels: effectPixelBudget}
 	gs := renderState{blendMode: "Multiply", clip: [4]float64{0, 0, 4, 4}}
 	painted := false
-	r.withEffects(&gs, noHint, func() {
+	r.withEffects(&gs, anywhere, func() {
 		painted = r.canvas == canvas && gs.blendMode == ""
 	})
 	if !painted {
@@ -279,5 +279,186 @@ func TestDeepSoftMaskIsNotRendered(t *testing.T) {
 	gs := &renderState{GState: content.NewGState()}
 	if m := r.renderSoftMask(maskForm("Alpha", "", nil), pdf.PDFDict{}, gs); m != nil {
 		t.Error("rendered a mask past the depth limit")
+	}
+}
+
+// renderForm renders src with the XObject Fm available, returning the centre
+// pixel, as renderEffects does.
+func renderForm(t *testing.T, src string, form pdf.PDFDict, states map[string]pdf.PDFValue) [3]uint8 {
+	t.Helper()
+	res := dictOf(map[string]pdf.PDFValue{"ExtGState": dictOf(states), "XObject": dictOf(map[string]pdf.PDFValue{"Fm": form})})
+	canvas, _, err := renderContent([]byte(src), res, [4]float64{0, 0, 10, 10}, 72, InheritedPaint{}, paperBackdrop, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off := canvas.PixOffset(5, 5)
+	return [3]uint8{canvas.Pix[off], canvas.Pix[off+1], canvas.Pix[off+2]}
+}
+
+func formWith(src string, group map[string]pdf.PDFValue) pdf.PDFDict {
+	entries := map[string]pdf.PDFValue{
+		"Subtype": name("Form"),
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+	}
+	if group != nil {
+		group["S"] = name("Transparency")
+		entries["Group"] = dictOf(group)
+	}
+	return pdf.NewStreamDict(pdf.DictOf(entries), []byte(src))
+}
+
+// TestBlendModeOverFormContent checks the three ways a form takes a blend mode.
+func TestBlendModeOverFormContent(t *testing.T) {
+	multiply := map[string]pdf.PDFValue{"M": dictOf(map[string]pdf.PDFValue{"BM": name("Multiply")})}
+	const two = "0.5 g 0 0 10 10 re f 0.5 g 0 0 10 10 re f"
+	cases := []struct {
+		name string
+		src  string
+		form pdf.PDFDict
+		want uint8
+	}{
+		// A plain form: each rectangle multiplies on its own.
+		{"plain form under the mode", "/M gs /Fm Do", formWith(two, nil), 64},
+		// A group is one object: its top rectangle hides the lower, then the
+		// group multiplies once.
+		{"group under the mode", "/M gs /Fm Do", formWith(two, map[string]pdf.PDFValue{}), 128},
+		// Inside a non-isolated group a mode sees what the group is drawn over.
+		{"mode inside a non-isolated group", "0.5 g 0 0 10 10 re f /Fm Do", formWith("/M gs 0.5 g 0 0 10 10 re f", map[string]pdf.PDFValue{}), 64},
+		// Inside an isolated one it sees nothing.
+		{"mode inside an isolated group", "0.5 g 0 0 10 10 re f /Fm Do", formWith("/M gs 0.5 g 0 0 10 10 re f", map[string]pdf.PDFValue{"I": pdf.PDFBoolean(true)}), 128},
+		{"mode inside a knockout group", "0.5 g 0 0 10 10 re f /Fm Do", formWith("/M gs 0.5 g 0 0 10 10 re f", map[string]pdf.PDFValue{"K": pdf.PDFBoolean(true)}), 128},
+		{"no such form", "/M gs /Other Do 0 0 0 rg", formWith("", nil), 255},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := renderForm(t, tc.src, tc.form, multiply)
+			if !near(res, [3]uint8{tc.want, tc.want, tc.want}) {
+				t.Errorf("got %v, want %d", res, tc.want)
+			}
+		})
+	}
+}
+
+// TestGroupThroughResetsStrokeAlpha verifies a group painted straight onto the
+// backdrop still starts its content at full opacity.
+func TestGroupThroughResetsStrokeAlpha(t *testing.T) {
+	half := map[string]pdf.PDFValue{"A": dictOf(map[string]pdf.PDFValue{"CA": pdf.PDFReal(0.5)})}
+	got := renderForm(t, "/A gs /Fm Do", formWith("10 w 0 G 0 5 m 10 5 l S", map[string]pdf.PDFValue{}), half)
+	if !near(got, [3]uint8{0, 0, 0}) {
+		t.Errorf("got %v, want black", got)
+	}
+}
+
+func TestSoftMaskCachePerCanvas(t *testing.T) {
+	r := &renderer{canvas: image.NewRGBA(image.Rect(0, 0, 10, 10))}
+	gs := &renderState{GState: content.NewGState()}
+	mask := maskForm("Alpha", "", nil)
+	r.applySoftMask(mask, pdf.PDFDict{}, gs)
+	whole := gs.softMask
+	r.applySoftMask(mask, pdf.PDFDict{}, gs)
+	if gs.softMask != whole {
+		t.Error("the same mask under the same CTM was rendered again")
+	}
+	r.canvas = image.NewRGBA(image.Rect(2, 2, 4, 4))
+	r.applySoftMask(mask, pdf.PDFDict{}, gs)
+	if gs.softMask == whole {
+		t.Error("a mask rendered for one canvas was reused on another")
+	}
+}
+
+func TestSoftMaskCacheIsBounded(t *testing.T) {
+	r := &renderer{canvas: image.NewRGBA(image.Rect(0, 0, 10, 10)), softMaskBytes: softMaskCacheBytes}
+	r.softMasks = map[softMaskKey]*softMask{{dict: 1}: {}}
+	gs := &renderState{GState: content.NewGState()}
+	r.applySoftMask(maskForm("Alpha", "", nil), pdf.PDFDict{}, gs)
+	if len(r.softMasks) != 1 || r.softMaskBytes != 100 {
+		t.Errorf("after overflow: %d masks, %d bytes", len(r.softMasks), r.softMaskBytes)
+	}
+	r = &renderer{canvas: image.NewRGBA(image.Rect(0, 0, 10, 10)), softMaskBytes: softMaskCacheBytes + 1}
+	r.applySoftMask(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}, pdf.PDFDict{}, gs)
+	if len(r.softMasks) != 1 {
+		t.Errorf("a mask with no group after overflow: %d entries", len(r.softMasks))
+	}
+}
+
+func TestSoftMaskChargedToTheBudget(t *testing.T) {
+	r := &renderer{canvas: image.NewRGBA(image.Rect(0, 0, 10, 10)), effectPixels: effectPixelBudget}
+	gs := &renderState{GState: content.NewGState()}
+	if m := r.renderSoftMask(maskForm("Alpha", "", nil), pdf.PDFDict{}, gs); m != nil || !r.dropped[dropEffects] {
+		t.Errorf("over budget: mask %v, dropped %v", m, r.dropped)
+	}
+}
+
+func TestSoftMaskCoversOnlyItsGroupsBox(t *testing.T) {
+	r := &renderer{canvas: image.NewRGBA(image.Rect(0, 0, 100, 100))}
+	gs := &renderState{GState: content.NewGState()}
+	m := r.renderSoftMask(maskForm("Luminosity", "", nil), pdf.PDFDict{}, gs)
+	if m == nil || m.bounds.Dx() > 11 || m.bounds.Dy() > 11 {
+		t.Fatalf("mask bounds = %v, want the box", m)
+	}
+}
+
+func TestReaches(t *testing.T) {
+	gs := &renderState{GState: content.NewGState(), fontSize: 10, hScale: 1, charSpace: 1}
+	if got := textReach(2, 0, gs); !image.Pt(0, 0).In(got) || got.Dx() > 200 {
+		t.Errorf("textReach = %v", got)
+	}
+	gs.tm = content.IdentityMatrix
+	gs.CTM = content.IdentityMatrix
+	if got := textReach(2, 0, gs); !image.Pt(40, 0).In(got) || image.Pt(500, 0).In(got) {
+		t.Errorf("textReach = %v", got)
+	}
+	if got := tjReach([]pdf.PDFValue{pdf.PDFArray{pdf.PDFString{Value: "ab"}, pdf.PDFInteger(-1000), name("x")}}, gs); !image.Pt(40, 0).In(got) {
+		t.Errorf("tjReach = %v", got)
+	}
+	if got := tjReach(nil, gs); !got.Empty() {
+		t.Errorf("tjReach of nothing = %v", got)
+	}
+	if got := anywhere(); got != noHint {
+		t.Errorf("anywhere = %v", got)
+	}
+	gs.font = dictOf(map[string]pdf.PDFValue{"Subtype": name("Type3")})
+	if got := textReach(1, 0, gs); got != noHint {
+		t.Errorf("a Type 3 font's reach = %v", got)
+	}
+	gs.CTM = content.Matrix{A: 20, D: 20, E: 5, F: 5}
+	if got := imageReach(gs); !image.Pt(24, 24).In(got) || image.Pt(40, 40).In(got) {
+		t.Errorf("imageReach = %v", got)
+	}
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": name("Image")}), nil)
+	if got := xobjectReach(img, gs); got != imageReach(gs) {
+		t.Errorf("xobjectReach(image) = %v", got)
+	}
+	gs.CTM = content.IdentityMatrix
+	if got := xobjectReach(formWith("", nil), gs); !image.Pt(9, 9).In(got) || image.Pt(20, 20).In(got) {
+		t.Errorf("xobjectReach(form) = %v", got)
+	}
+}
+
+func TestNamedXObject(t *testing.T) {
+	form := formWith("", nil)
+	res := dictOf(map[string]pdf.PDFValue{"XObject": dictOf(map[string]pdf.PDFValue{"Fm": form, "NoStream": pdf.NewPDFDict()})})
+	for _, tc := range []struct {
+		operands []pdf.PDFValue
+		want     bool
+	}{
+		{[]pdf.PDFValue{name("Fm")}, true},
+		{nil, false},
+		{[]pdf.PDFValue{pdf.PDFInteger(1)}, false},
+		{[]pdf.PDFValue{name("Missing")}, false},
+		{[]pdf.PDFValue{name("NoStream")}, false},
+	} {
+		if _, ok := namedXObject(tc.operands, res); ok != tc.want {
+			t.Errorf("namedXObject(%v) = %v, want %v", tc.operands, ok, tc.want)
+		}
+	}
+}
+
+// TestIsolatedGroupOutsideTheClipPaintsNothing covers a group with nothing left
+// of its area to paint.
+func TestIsolatedGroupOutsideTheClipPaintsNothing(t *testing.T) {
+	form := formWith("0 g 0 0 10 10 re f", map[string]pdf.PDFValue{"I": pdf.PDFBoolean(true)})
+	if got := renderForm(t, "20 20 1 1 re W n /Fm Do", form, nil); !near(got, [3]uint8{255, 255, 255}) {
+		t.Errorf("got %v, want the paper", got)
 	}
 }

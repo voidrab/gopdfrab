@@ -3,8 +3,10 @@ package fontprog
 import (
 	_ "embed"
 	"encoding/binary"
+	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -170,15 +172,32 @@ func (e CMapCIDEntry) LastCID() (cid int64, ok bool) {
 	return first + e.CodeSpan(), ok
 }
 
-// cmapHexValue returns the value of a hex string token such as "<00ff>". ok is
-// false when tok is not enclosed in angle brackets or its digits do not parse
-// as a 64-bit hex integer.
-func cmapHexValue(tok string) (int64, bool) {
+// cmapHexDigits returns the hex digits of a hex string token such as "<00 ff>",
+// without the white space a hex string may hold. ok is false for any other token.
+func cmapHexDigits(tok string) (string, bool) {
 	if len(tok) < 3 || tok[0] != '<' || tok[len(tok)-1] != '>' {
+		return "", false
+	}
+	return strings.Join(strings.Fields(tok[1:len(tok)-1]), ""), true
+}
+
+// cmapHexValue returns the value of a hex string token. ok is false when the
+// token is not one or its digits do not parse as a 63-bit integer.
+func cmapHexValue(tok string) (int64, bool) {
+	digits, ok := cmapHexDigits(tok)
+	if !ok {
 		return 0, false
 	}
-	v, err := strconv.ParseUint(tok[1:len(tok)-1], 16, 63)
+	v, err := strconv.ParseUint(digits, 16, 63)
 	return int64(v), err == nil
+}
+
+// CMapCodeAfter returns the hex string token, as many digits wide as code, for
+// the value of code plus n. code must be a token CodeSpan could read.
+func CMapCodeAfter(code string, n int64) string {
+	digits, _ := cmapHexDigits(code)
+	v, _ := cmapHexValue(code)
+	return fmt.Sprintf("<%0*x>", len(digits), v+n)
 }
 
 // EachCMapCID calls fn with each cidrange and cidchar entry in CMap PostScript

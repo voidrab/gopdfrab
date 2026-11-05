@@ -88,41 +88,31 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 }
 
 // sharedIntent returns a new intent of the level's own subtype for a level that
-// lets intents of other subtypes stand beside it, when intents hold a usable
-// one. The new intent takes the other intent's OutputConditionIdentifier and
-// DestOutputProfile, since all intents of a file must share a profile. ok is
-// false if an entry is not a dictionary, if the intents name different
-// profiles, or if the profile or identifier cannot be used.
+// lets intents of other subtypes stand beside it, when every intent there is
+// sound and they all name one profile, which the new intent takes along with the
+// output condition. ok is false otherwise: the array needs replacing, since no
+// fixer repairs a faulty intent left beside the new one.
 func sharedIntent(intents pdf.PDFArray, spec pdfa.Spec) (pdf.PDFDict, bool) {
-	if !spec.OtherOutputIntents {
+	if !spec.OtherOutputIntents || len(intents) == 0 {
 		return pdf.PDFDict{}, false
 	}
 	var first pdf.PDFDict
 	for _, v := range intents {
 		intent, ok := v.(pdf.PDFDict)
-		if !ok {
+		if !ok || !usableIntentProfile(intent, spec) || intent.Entries.Get("OutputConditionIdentifier") == nil ||
+			intent.Entries.Get("DestOutputProfileRef") != nil {
 			return pdf.PDFDict{}, false
 		}
-		profile := intent.Entries.Get("DestOutputProfile")
-		if profile == nil {
-			continue
-		}
-		if first.Entries != nil && !pdf.EqualPDFValue(first.Entries.Get("DestOutputProfile"), profile) {
+		if first.Entries == nil {
+			first = intent
+		} else if !pdf.EqualPDFValue(first.Entries.Get("DestOutputProfile"), intent.Entries.Get("DestOutputProfile")) {
 			return pdf.PDFDict{}, false
 		}
-		first = intent
-	}
-	if first.Entries == nil || !usableIntentProfile(first, spec) {
-		return pdf.PDFDict{}, false
-	}
-	id := first.Entries.Get("OutputConditionIdentifier")
-	if id == nil {
-		return pdf.PDFDict{}, false
 	}
 	shared := pdf.NewPDFDict()
 	shared.Entries.Set("Type", pdf.PDFName{Value: "OutputIntent"})
 	shared.Entries.Set("S", pdf.PDFName{Value: spec.OutputIntentSubtype})
-	shared.Entries.Set("OutputConditionIdentifier", id)
+	shared.Entries.Set("OutputConditionIdentifier", first.Entries.Get("OutputConditionIdentifier"))
 	shared.Entries.Set("DestOutputProfile", first.Entries.Get("DestOutputProfile"))
 	return shared, true
 }

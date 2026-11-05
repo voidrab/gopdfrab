@@ -77,6 +77,8 @@ type fixerRun struct {
 	profile *pdf.Profile
 	spec    *pdfa.Spec
 	dpi     int
+	// embedded are the options an embedded file's conversion runs under.
+	embedded Options
 	// decode is the Reader's concurrent decode cache, shared with the
 	// pre-loop colour usage scan.
 	decode decodeFunc
@@ -162,7 +164,9 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return permissionsFixer{} },
 		func(r *fixerRun) Fixer { return pageBoundaryFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return fileSpecFixer{lost: r.lost} },
-		func(r *fixerRun) Fixer { return embeddedFileFixer{ctx: r.ctx, profile: r.profile, lost: r.lost} },
+		func(r *fixerRun) Fixer {
+			return embeddedFileFixer{ctx: r.ctx, profile: r.profile, options: r.embedded, lost: r.lost}
+		},
 		func(r *fixerRun) Fixer { return presentationFixer{} },
 		func(r *fixerRun) Fixer { return fontDictFixer{} },
 		func(r *fixerRun) Fixer { return type0FontFixer{} },

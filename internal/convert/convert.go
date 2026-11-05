@@ -152,6 +152,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 		profile:   p,
 		spec:      &r.spec,
 		dpi:       o.dpi(),
+		embedded:  Options{MaxIterations: o.MaxIterations, RasterDPI: o.RasterDPI},
 		decode:    decoderFor(doc),
 		fontSrc:   &appearanceFontSource{},
 		formDrops: &r.formDrops,

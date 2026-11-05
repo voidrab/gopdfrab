@@ -668,7 +668,7 @@ func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
 			cid = max
 		}
 		if e.CodeSpan() > 0 {
-			splices = append(splices, splice{e.Hi.Start, e.Hi.End, offsetCMapCode(e.Lo.Text, max-cid)})
+			splices = append(splices, splice{e.Hi.Start, e.Hi.End, fontprog.CMapCodeAfter(e.Lo.Text, max-cid)})
 		}
 	})
 	if len(splices) == 0 {
@@ -684,14 +684,6 @@ func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
 		prev = s.end
 	}
 	return append(out, data[prev:]...), true
-}
-
-// offsetCMapCode returns the hex string token, as wide as code, for the value
-// of code plus n. code is a well-formed hex string token.
-func offsetCMapCode(code string, n int64) string {
-	digits := code[1 : len(code)-1]
-	v, _ := strconv.ParseInt(digits, 16, 64)
-	return fmt.Sprintf("<%0*x>", len(digits), v+n)
 }
 
 // --- shared content-stream resource-aware rewriting ---

@@ -647,6 +647,8 @@ func TestInjectOutputIntentKeepsValidIntent(t *testing.T) {
 func TestInjectOutputIntentSharesOtherIntentsProfile(t *testing.T) {
 	a2b, _ := pdfa.For(pdf.A2B)
 	good := iccProfileStream(pdf.PDFInteger(3), srgbICCProfile)
+	refIntent := outputIntentDict("GTS_PDFX", true, good)
+	refIntent.Entries.Set("DestOutputProfileRef", pdf.NewPDFDict())
 	cases := []struct {
 		name    string
 		intents pdf.PDFArray
@@ -659,6 +661,12 @@ func TestInjectOutputIntentSharesOtherIntentsProfile(t *testing.T) {
 		{"no profile", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, nil)}, a2b, 1},
 		{"invalid profile", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, iccProfileStream(pdf.PDFInteger(3), []byte("junk")))}, a2b, 1},
 		{"non-dict entry", pdf.PDFArray{pdf.PDFInteger(1)}, a2b, 1},
+		{"no intents", pdf.PDFArray{}, a2b, 1},
+		{"beside a faulty intent", pdf.PDFArray{
+			outputIntentDict("GTS_PDFA1", true, nil),
+			outputIntentDict("GTS_PDFX", true, good),
+		}, a2b, 1},
+		{"with a profile reference", pdf.PDFArray{refIntent}, a2b, 1},
 		{"two profiles", pdf.PDFArray{
 			outputIntentDict("GTS_PDFX", true, good),
 			outputIntentDict("GTS_PDFX", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile)),
