@@ -11,6 +11,10 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
+// maxPagePasses bounds the page-by-page raster passes of the backstop, each of
+// which verifies the whole graph. A document that needs more flattens every page.
+const maxPagePasses = 8
+
 // backstop is the run's last-resort remediation: it rasterizes the residual
 // pages so that a resolvable graph always converts. Only fixer-addressable
 // issues trigger it; structural violations (no registered fixer) are fixed by
@@ -31,12 +35,24 @@ func (r *run) backstop() error {
 	if err := r.ctx.Err(); err != nil {
 		return err
 	}
-	if drops, rasterized, changed := applyRasterFallback(r.ctx, &r.trailer, r.cr.Result.Issues, r.o.dpi()); changed {
+	// The verifier reports a shared object once, on the first page it finds it
+	// on, so flattening that page can expose the same object on a later one.
+	// Those pages are flattened in turn, which leaves the pages that never used
+	// it as they are.
+	flattened := map[int]bool{}
+	for range maxPagePasses {
+		drops, rasterized, changed := applyRasterFallback(r.ctx, &r.trailer, r.cr.Result.Issues, flattened, r.o.dpi())
+		if !changed {
+			break
+		}
 		// A cancelled pass rasterized only some pages; the run is abandoned.
 		if err := r.ctx.Err(); err != nil {
 			return err
 		}
 		r.recordRaster(drops, rasterized)
+		if r.cr.Result.Valid || !hasFixableIssue(r.cr.Result.Issues, r.fixers, false) {
+			break
+		}
 	}
 	if !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, true) {
 		if drops, rasterized, changed := flattenAllPages(r.ctx, &r.trailer, r.o.dpi()); changed {
@@ -61,14 +77,17 @@ func (r *run) recordRaster(drops []RasterDrop, rasterized []int) {
 
 // applyRasterFallback rebuilds every page carrying a residual issue as a flat
 // raster image (flattenPageToImage), the last-resort remediation for content
-// no targeted fixer could repair. Page numbers in issues align with the
-// graph's page order, since both come from the same Root/Pages/Kids walk.
-func applyRasterFallback(ctx context.Context, trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) ([]RasterDrop, []int, bool) {
+// no targeted fixer could repair. A page in flattened was rebuilt by an earlier
+// pass and is left alone, and the pages of this pass are added to it. Page numbers
+// in issues align with the graph's page order, since both come from the same
+// Root/Pages/Kids walk.
+func applyRasterFallback(ctx context.Context, trailer *pdf.PDFDict, issues []pdf.PDFError, flattened map[int]bool, dpi int) ([]RasterDrop, []int, bool) {
 	pages := orderedPages(*trailer)
 	flag := map[int]bool{}
 	for _, iss := range issues {
-		if iss.Page() > 0 {
+		if iss.Page() > 0 && !flattened[iss.Page()] {
 			flag[iss.Page()] = true
+			flattened[iss.Page()] = true
 		}
 	}
 	var flagged []pageTarget
