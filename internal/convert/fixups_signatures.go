@@ -17,9 +17,9 @@ var signaturePerms = []string{"DocMDP", "UR", "UR3"}
 // signatures of the catalog's Perms go too. Each signature removed is reported
 // once in lost, also when both a field and Perms hold it.
 //
-// It runs before the fix loop, whose verify reads the input's bytes, where
-// the signatures are still intact. It is no pre-emptive step of repairs because
-// it needs the profile and lost, which those steps do not receive.
+// It runs before the fix loop, so the loop verifies the graph without the
+// removed signatures. It is not a pre-emptive repair: those steps receive
+// neither the profile nor lost, which this function needs.
 func dropSignatures(trailer pdf.PDFDict, p *pdf.Profile, lost *[]pdf.PDFError) {
 	if !p.Has(pdf.Checks.Form.SignatureByteRange) {
 		return

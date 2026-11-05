@@ -235,9 +235,10 @@ func TestCheckSignatureMalformedEntries(t *testing.T) {
 	}
 }
 
-// sigRevisionDoc returns a document whose object 2 is sigBody, followed by tail
-// after its final %%EOF, and the ByteRange that covers the document's one
-// revision, computed from the first "<abcd>" in sigBody, the Contents string.
+// sigRevisionDoc returns a document in which object 2 is sigBody and tail
+// follows the final %%EOF. It also returns the ByteRange that covers the
+// document's single revision, where the Contents string is the first "<abcd>"
+// in sigBody.
 func sigRevisionDoc(t *testing.T, sigBody, tail string) (*pdf.Reader, [4]int64) {
 	t.Helper()
 	b := pdfgen.NewBuilder("%PDF-1.7\n")

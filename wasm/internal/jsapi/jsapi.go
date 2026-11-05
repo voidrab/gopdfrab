@@ -82,8 +82,8 @@ func Verify(_ js.Value, args []js.Value) any {
 	})
 }
 
-// InputArgs returns the arguments of the function called fn: a copy of the
-// input bytes in args[0], and the profile named by the optional args[1].
+// InputArgs returns a copy of the input bytes in args[0] and the profile named
+// by the optional args[1]. fn names the calling function in errors.
 func InputArgs(fn string, args []js.Value) ([]byte, *verify.Profile, error) {
 	if len(args) < 1 {
 		return nil, nil, fmt.Errorf("%s: expected 1 or 2 arguments", fn)
@@ -96,9 +96,9 @@ func InputArgs(fn string, args []js.Value) ([]byte, *verify.Profile, error) {
 }
 
 // profileArg returns the profile named by args[1], the optional second
-// argument of the function called fn: the name of a ready-made profile
-// ("pdfa1b", "legacy1b", "pdfa2b" or "pdf"). A missing, undefined or null
-// argument selects PDFA1B; any other value is an error.
+// argument, which must name a ready-made profile: "pdfa1b", "legacy1b",
+// "pdfa2b" or "pdf". A missing, undefined or null argument selects PDFA1B.
+// Any other non-string value, or an unknown name, is an error.
 func profileArg(fn string, args []js.Value) (*verify.Profile, error) {
 	if len(args) < 2 || args[1].IsUndefined() || args[1].IsNull() {
 		return verify.PDFA1B, nil

@@ -2,9 +2,9 @@ package pdf
 
 // ContentsSpan returns the offsets of the first byte of the direct Contents
 // string of the dictionary that is object sig, and of the byte after it. ok is
-// false when the dictionary cannot be located in the file, such as one held in
-// an object stream, and when its Contents is a reference, which veraPDF cannot
-// follow either.
+// false when the dictionary cannot be located in the file, as for one held in
+// an object stream, or when its Contents is a reference, which veraPDF does not
+// follow.
 func (d *Reader) ContentsSpan(sig PDFRef) (start, end int64, ok bool) {
 	l, ok := d.objectBodyLexer(sig.ObjNum)
 	if !ok || l.NextToken().Type != TokenDictStart {
