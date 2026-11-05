@@ -356,7 +356,7 @@ func TestInjectedOutputIntentNamesTheLevel(t *testing.T) {
 			t.Errorf("injected /S = %v, want /%s", got, subtype)
 		}
 		// An intent of the level's own subtype is one the next run keeps.
-		if _, ok := validPDFAOutputIntentN(trailer.Entries.Get("Root").(pdf.PDFDict), s); !ok {
+		if !hasValidOutputIntent(trailer.Entries.Get("Root").(pdf.PDFDict), s) {
 			t.Errorf("the injected /%s intent is not a valid output intent of its own level", subtype)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
@@ -385,6 +386,35 @@ func verifyXMPMetadataPart2(d *pdf.Reader, ctx *ValidationContext) []pdf.PDFErro
 		errs = append(errs, checkPDFAIdentificationPart2(x.pkt, *ctx.Spec)...)
 	}
 	return withRef(errs, x.meta)
+}
+
+// DocumentXMPConforms reports whether data, in UTF-8, passes the Part 2 rules
+// for a document's own XMP packet at the level of spec.
+func DocumentXMPConforms(data []byte, spec pdfa.Spec) bool {
+	pkt, err := parseXMPPacket(data)
+	if err != nil {
+		return false
+	}
+	defs := xmpExtensionDefs(pkt.schemas, nil)
+	return len(checkXMPPackagePart2(data, pkt, defs, nil)) == 0 && len(checkPDFAIdentificationPart2(pkt, spec)) == 0
+}
+
+// ObjectXMPChecker returns a function reporting whether the UTF-8 XMP of a
+// metadata stream other than the document's passes the Part 2 rules. document
+// is the document's own XMP packet. It is parsed on the first call, and its
+// extension schemas are used to check the others; an unparsable document
+// contributes none.
+func ObjectXMPChecker(document []byte) func(data []byte) bool {
+	var main map[string]*xmpSchemaDef
+	parse := sync.OnceFunc(func() {
+		if pkt, err := parseXMPPacket(pdf.DecodeXMPEncoding(document)); err == nil {
+			main = xmpExtensionDefs(pkt.schemas, nil)
+		}
+	})
+	return func(data []byte) bool {
+		parse()
+		return len(checkObjectXMPPart2(data, main)) == 0
+	}
 }
 
 // checkObjectXMPPart2 checks the XMP of a metadata stream other than the

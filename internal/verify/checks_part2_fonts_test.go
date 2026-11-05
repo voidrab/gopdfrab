@@ -2,8 +2,10 @@ package verify
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
@@ -589,7 +591,7 @@ func TestFontRulesWithoutSpec(t *testing.T) {
 	}
 }
 
-func TestExactCharSet(t *testing.T) {
+func TestExactSubsetSets(t *testing.T) {
 	// The test program defines /A only, and the font shows code 65 (/A).
 	for _, tc := range []struct {
 		charSet  string
@@ -618,6 +620,137 @@ func TestExactCharSet(t *testing.T) {
 			if got != lc.want {
 				t.Errorf("CharSet %s, Part %d: reported %q, want %q", tc.charSet, lc.spec.Part, got, lc.want)
 			}
+		}
+	}
+}
+
+// cidSetIssue runs the exact CIDSet check on a CIDFont and returns its message.
+func cidSetIssue(font, desc pdf.PDFDict) string {
+	ctx := &ValidationContext{Spec: a2bSpec}
+	validateCIDSetExact(font, desc, ctx)
+	for _, e := range ctx.errs {
+		if e.Check() == pdf.Checks.Font.CIDSubsetCIDSet {
+			return e.Messages()[0]
+		}
+	}
+	return ""
+}
+
+func cidSetStream(bits ...byte) pdf.PDFDict {
+	return pdf.NewStreamDict(pdf.NewDict(), bits)
+}
+
+func TestValidateCIDSetExactCFF(t *testing.T) {
+	program := pdf.NewStreamDict(pdf.NewDict(), buildMinimalCIDCFF())
+	td, ok := fontprog.ParseCFFTopDict(buildMinimalCIDCFF())
+	if !ok {
+		t.Fatal("test program does not parse")
+	}
+	count := int(binary.BigEndian.Uint16(buildMinimalCIDCFF()[td.CSOffset:]))
+	cids := fontprog.ParseCFFCharsetCIDs(buildMinimalCIDCFF(), td.CharsetOffset, count)
+	exact := make([]byte, 16)
+	for _, cid := range cids {
+		exact[cid/8] |= 0x80 >> (cid % 8)
+	}
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "CIDFontType0"}})}
+	desc := func(set pdf.PDFValue, ff pdf.PDFValue) pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDSet": set, "FontFile3": ff})}
+	}
+
+	if got := cidSetIssue(font, desc(cidSetStream(exact...), program)); got != "" {
+		t.Errorf("exact set reported: %s", got)
+	}
+	extra := append([]byte(nil), exact...)
+	extra[15] |= 1
+	if got := cidSetIssue(font, desc(cidSetStream(extra...), program)); !strings.Contains(got, "lists CID 127") {
+		t.Errorf("extra bit: %q", got)
+	}
+	if len(cids) > 1 {
+		if got := cidSetIssue(font, desc(cidSetStream(0), program)); !strings.Contains(got, "does not list") {
+			t.Errorf("missing bit: %q", got)
+		}
+	}
+	for name, d := range map[string]pdf.PDFDict{
+		"no CIDSet":           {Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontFile3": program})},
+		"undecodable CIDSet":  desc(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), []byte("x")), program),
+		"no program":          {Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDSet": cidSetStream(0xFF)})},
+		"undecodable program": desc(cidSetStream(0xFF), pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), []byte("x"))),
+		"unparsable program":  desc(cidSetStream(0xFF), pdf.NewStreamDict(pdf.NewDict(), []byte("x"))),
+	} {
+		if got := cidSetIssue(font, d); got != "" {
+			t.Errorf("%s: reported %q", name, got)
+		}
+	}
+	// A name-keyed program has no CIDs at all.
+	nameKeyed := pdf.NewStreamDict(pdf.NewDict(), buildMinimalCFF())
+	if got := cidSetIssue(font, desc(cidSetStream(0x40), nameKeyed)); !strings.Contains(got, "lists CID 1") {
+		t.Errorf("name-keyed program: %q", got)
+	}
+}
+
+func TestValidateCIDSetExactTrueType(t *testing.T) {
+	_, ff, _, _ := buildCIDTrueTypeFont(t)
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables, ok := fontprog.ParseSfnt(data)
+	if !ok {
+		t.Fatal("test program does not parse")
+	}
+	numGlyphs := fontprog.TTNumGlyphs(tables)
+	nHM := fontprog.TTNumHMetrics(tables)
+	font := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
+		entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
+		return pdf.PDFDict{Entries: pdf.DictOf(entries)}
+	}
+	desc := func(set pdf.PDFValue, file pdf.PDFValue) pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDSet": set, "FontFile2": file})}
+	}
+	bitsFor := func(from, to int) []byte {
+		bits := make([]byte, to/8+1)
+		for cid := from; cid < to; cid++ {
+			bits[cid/8] |= 0x80 >> (cid % 8)
+		}
+		return bits
+	}
+
+	// Identity map: every metric-bearing CID must be listed, none past the
+	// glyphs.
+	identity := font(map[string]pdf.PDFValue{})
+	if got := cidSetIssue(identity, desc(cidSetStream(bitsFor(1, nHM)...), ff)); got != "" {
+		t.Errorf("identity, exact set: %s", got)
+	}
+	if nHM > 1 {
+		if got := cidSetIssue(identity, desc(cidSetStream(0), ff)); !strings.Contains(got, "does not list") {
+			t.Errorf("identity, empty set: %q", got)
+		}
+	}
+	if got := cidSetIssue(identity, desc(cidSetStream(bitsFor(1, numGlyphs+8)...), ff)); !strings.Contains(got, "lists CID") {
+		t.Errorf("identity, past the glyphs: %q", got)
+	}
+
+	// Stream map: CID 1 maps to glyph 0, CID 2 past the last glyph.
+	gidMap := []byte{0, 0, 0, 0, 0xFF, 0xFF}
+	mapped := font(map[string]pdf.PDFValue{"CIDToGIDMap": pdf.NewStreamDict(pdf.NewDict(), gidMap)})
+	if got := cidSetIssue(mapped, desc(cidSetStream(0x40), ff)); got != "" {
+		t.Errorf("stream map, exact set: %s", got)
+	}
+	if got := cidSetIssue(mapped, desc(cidSetStream(0x20), ff)); got == "" {
+		t.Error("stream map, a CID past the glyphs was not reported")
+	}
+
+	bad := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), []byte("x"))
+	for name, tc := range map[string]struct{ font, desc pdf.PDFDict }{
+		"no program":          {identity, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDSet": cidSetStream(0xFF)})}},
+		"undecodable program": {identity, desc(cidSetStream(0xFF), bad)},
+		"unparsable program":  {identity, desc(cidSetStream(0xFF), pdf.NewStreamDict(pdf.NewDict(), []byte("x")))},
+		"map not a stream":    {font(map[string]pdf.PDFValue{"CIDToGIDMap": pdf.PDFName{Value: "Other"}}), desc(cidSetStream(0xFF), ff)},
+		"undecodable map":     {font(map[string]pdf.PDFValue{"CIDToGIDMap": bad}), desc(cidSetStream(0xFF), ff)},
+		"other font subtype":  {pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Type1"}})}, desc(cidSetStream(0xFF), ff)},
+	} {
+		if got := cidSetIssue(tc.font, tc.desc); got != "" {
+			t.Errorf("%s: reported %q", name, got)
 		}
 	}
 }

@@ -93,6 +93,20 @@ Everything under `internal/` may change in any release without notice.
 
 ### Changed
 
+- The renderer behind the raster fallback and the fidelity check draws blend
+  modes and ExtGState soft masks, luminosity and alpha, with their backdrop and
+  transfer function. A group is treated as isolated unless it can paint straight
+  onto its backdrop. A page with an enormous amount of such content stops
+  applying them past a work limit and reports it in `RasterDrops`.
+- Converting to PDF/A-2b converts an embedded PDF that fails the level's rule,
+  under limits of two nested levels and 256 MB of decoded input per document,
+  and reports what the embedded file lost in `LostObjects`. A file that cannot
+  be converted is removed and reported, as before.
+- Converting to PDF/A-2b keeps the document's XMP packet, under the level's
+  identification, when it passes the level's rules, and keeps other objects'
+  metadata that passes. A packet that does not pass is rebuilt from the Info
+  dictionary, as at PDF/A-1b. A PDF/X output intent stays, and the file's
+  PDF/A intent joins it over the same profile.
 - Converting a signed file removes its digital signatures at every level and
   reports each one in `LostObjects`. PDF/A-1b, legacy1b and plain PDF output
   used to keep a signature that the rewrite had invalidated, without a report.
@@ -100,6 +114,16 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- PDF/A-2b requires a subset font's CIDSet to list exactly the CIDs of its
+  embedded program, used or not; only the used ones were checked. Convert
+  removes a CIDSet that does not, as it is optional at this level.
+- A CMap range is checked over every CID it maps, not only its first, and
+  convert cuts a range short at the limit. A range that started within the
+  limit and ran past it passed verification, and conversion could produce one.
+- A conversion keeps a valid output intent even when another colour model
+  dominates the content.
+- Conversion to PDF/A-2b flattens only DeviceN spaces over 32 colorants, not
+  every space over the PDF/A-1 limit of 8.
 - `Result.Summary` leaves out the subclause of a check that has none, rather
   than printing `/0`.
 - Verify reads the newest revision of an incrementally updated file

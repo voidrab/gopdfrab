@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -582,9 +583,9 @@ func outputIntentDict(s string, identifier bool, profile pdf.PDFValue) pdf.PDFDi
 	return oi
 }
 
-// TestValidPDFAOutputIntentN walks every rejection path of the "is there
-// already a usable PDF/A OutputIntent, and for which N" probe.
-func TestValidPDFAOutputIntentN(t *testing.T) {
+// TestHasValidOutputIntent verifies that hasValidOutputIntent accepts a usable
+// PDF/A OutputIntent and rejects each invalid shape in the table.
+func TestHasValidOutputIntent(t *testing.T) {
 	good := iccProfileStream(pdf.PDFInteger(3), srgbICCProfile)
 	rootOf := func(items ...pdf.PDFValue) pdf.PDFDict {
 		r := pdf.NewPDFDict()
@@ -594,30 +595,99 @@ func TestValidPDFAOutputIntentN(t *testing.T) {
 		return r
 	}
 	cases := []struct {
-		name  string
-		root  pdf.PDFDict
-		wantN int
-		want  bool
+		name string
+		root pdf.PDFDict
+		want bool
 	}{
-		{"no OutputIntents", rootOf(), 0, false},
-		{"valid after a non-dict entry", rootOf(pdf.PDFInteger(1), outputIntentDict("GTS_PDFA1", true, good)), 3, true},
+		{"no OutputIntents", rootOf(), false},
+		{"valid", rootOf(outputIntentDict("GTS_PDFA1", true, good)), true},
+		{"valid after a non-dict entry", rootOf(pdf.PDFInteger(1), outputIntentDict("GTS_PDFA1", true, good)), false},
 		{"different profile objects", rootOf(
 			outputIntentDict("GTS_PDFA1", true, good),
-			outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile))), 0, false},
-		{"non-dict entry only", rootOf(pdf.PDFInteger(1)), 0, false},
-		{"wrong subtype S", rootOf(outputIntentDict("GTS_PDFX", true, good)), 0, false},
-		{"missing identifier", rootOf(outputIntentDict("GTS_PDFA1", false, good)), 0, false},
-		{"no profile", rootOf(outputIntentDict("GTS_PDFA1", true, nil)), 0, false},
-		{"profile not a stream", rootOf(outputIntentDict("GTS_PDFA1", true, pdf.NewPDFDict())), 0, false},
-		{"missing N", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(nil, srgbICCProfile))), 0, false},
-		{"N not 1/3/4", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(2), srgbICCProfile))), 0, false},
-		{"profile bytes invalid", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(3), []byte("junk")))), 0, false},
+			outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile))), false},
+		{"non-dict entry only", rootOf(pdf.PDFInteger(1)), false},
+		{"wrong subtype S", rootOf(outputIntentDict("GTS_PDFX", true, good)), false},
+		{"missing identifier", rootOf(outputIntentDict("GTS_PDFA1", false, good)), false},
+		{"no profile", rootOf(outputIntentDict("GTS_PDFA1", true, nil)), false},
+		{"profile not a stream", rootOf(outputIntentDict("GTS_PDFA1", true, pdf.NewPDFDict())), false},
+		{"missing N", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(nil, srgbICCProfile))), false},
+		{"N not 1/3/4", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(2), srgbICCProfile))), false},
+		{"profile bytes invalid", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(3), []byte("junk")))), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, ok := validPDFAOutputIntentN(tc.root, a1b())
-			if n != tc.wantN || ok != tc.want {
-				t.Errorf("validPDFAOutputIntentN = %d, %v; want %d, %v", n, ok, tc.wantN, tc.want)
+			if got := hasValidOutputIntent(tc.root, a1b()); got != tc.want {
+				t.Errorf("hasValidOutputIntent = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestInjectOutputIntentKeepsValidIntent verifies that a valid output intent is
+// kept when the content's colour model differs from the profile's.
+func TestInjectOutputIntentKeepsValidIntent(t *testing.T) {
+	intent := outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile))
+	root := pdf.NewPDFDict()
+	root.Entries.Set("OutputIntents", pdf.PDFArray{intent})
+	root.Entries.Set("Image", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ColorSpace": pdf.PDFName{Value: "DeviceRGB"}})})
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", root)
+
+	if err := injectOutputIntent(&trailer, nil, a1b()); err != nil {
+		t.Fatal(err)
+	}
+	got := root.Entries.Get("OutputIntents").(pdf.PDFArray)
+	if len(got) != 1 || got[0].(pdf.PDFDict).Entries != intent.Entries {
+		t.Errorf("OutputIntents = %v, want the original intent", got)
+	}
+}
+
+// TestInjectOutputIntentSharesOtherIntentsProfile verifies that a level
+// allowing other intents keeps a PDF/X intent and adds its own over the same
+// profile. An intent that cannot be shared is replaced.
+func TestInjectOutputIntentSharesOtherIntentsProfile(t *testing.T) {
+	a2b, _ := pdfa.For(pdf.A2B)
+	good := iccProfileStream(pdf.PDFInteger(3), srgbICCProfile)
+	refIntent := outputIntentDict("GTS_PDFX", true, good)
+	refIntent.Entries.Set("DestOutputProfileRef", pdf.NewPDFDict())
+	cases := []struct {
+		name    string
+		intents pdf.PDFArray
+		spec    pdfa.Spec
+		wantLen int
+	}{
+		{"shared", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, good)}, a2b, 2},
+		{"level without other intents", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, good)}, a1b(), 1},
+		{"no identifier", pdf.PDFArray{outputIntentDict("GTS_PDFX", false, good)}, a2b, 1},
+		{"no profile to share", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, nil)}, a2b, 2},
+		{"invalid profile", pdf.PDFArray{outputIntentDict("GTS_PDFX", true, iccProfileStream(pdf.PDFInteger(3), []byte("junk")))}, a2b, 1},
+		{"non-dict entry", pdf.PDFArray{pdf.PDFInteger(1)}, a2b, 1},
+		{"no intents", pdf.PDFArray{}, a2b, 1},
+		{"beside a faulty intent", pdf.PDFArray{
+			outputIntentDict("GTS_PDFA1", true, nil),
+			outputIntentDict("GTS_PDFX", true, good),
+		}, a2b, 1},
+		{"with a profile reference", pdf.PDFArray{refIntent}, a2b, 1},
+		{"two profiles", pdf.PDFArray{
+			outputIntentDict("GTS_PDFX", true, good),
+			outputIntentDict("GTS_PDFX", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile)),
+		}, a2b, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := pdf.NewPDFDict()
+			root.Entries.Set("OutputIntents", tc.intents)
+			trailer := pdf.NewPDFDict()
+			trailer.Entries.Set("Root", root)
+			if err := injectOutputIntent(&trailer, nil, tc.spec); err != nil {
+				t.Fatal(err)
+			}
+			got := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("OutputIntents").(pdf.PDFArray)
+			if len(got) != tc.wantLen {
+				t.Fatalf("got %d intents, want %d", len(got), tc.wantLen)
+			}
+			if !hasValidOutputIntent(trailer.Entries.Get("Root").(pdf.PDFDict), tc.spec) {
+				t.Error("the result has no valid output intent")
 			}
 		})
 	}
@@ -704,5 +774,21 @@ func TestDeviceColourModelDomain(t *testing.T) {
 		default:
 			t.Errorf("DeviceColourModel(%v) = %q, outside {rgb, cmyk, gray, \"\"}", in, m)
 		}
+	}
+}
+
+// TestDetectColourModelUsageReadsContentArrays verifies that a page's content
+// counts when its Contents is an array of streams.
+func TestDetectColourModelUsageReadsContentArrays(t *testing.T) {
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Contents": pdf.PDFArray{
+			pdf.NewStreamDict(pdf.NewDict(), []byte("0 0 0 1 k")),
+			pdf.PDFInteger(1),
+		},
+	})}
+	trailer := trailerWith("Pages", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})})
+	if got := detectColourModelUsage(trailer, pdf.DecodeStream)["cmyk"]; got != 1 {
+		t.Errorf("cmyk uses = %d, want 1", got)
 	}
 }

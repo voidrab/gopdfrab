@@ -2,7 +2,8 @@
 //
 // It is a complete content-stream renderer: paths, images (including inline
 // images and soft masks), shadings and mesh shadings, shading patterns,
-// Type 3 fonts, and embedded TrueType, CFF and Type 1 glyph outlines. The
+// Type 3 fonts, embedded TrueType, CFF and Type 1 glyph outlines, transparency
+// groups, blend modes and ExtGState soft masks. The
 // converter uses it as its last resort: content that cannot be repaired is
 // drawn here and embedded as an image, so the render has to match the
 // original page. The converter's fidelity gate also renders input and output

@@ -20,7 +20,7 @@ import (
 // violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
 // string stands in as the glyph set when the program is unparseable. A level
 // whose subsets may omit the CharSet checks the program alone when the CharSet
-// is absent. A level that sets Spec.ExactCharSet instead compares the whole
+// is absent. A level that sets Spec.ExactSubsetSets instead compares the whole
 // CharSet with the program.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	var charSet map[string]bool
@@ -61,7 +61,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	if glyphSet == nil {
 		return // Without a CharSet or a readable program, nothing can be checked.
 	}
-	if haveProgram && charSet != nil && ctx.exactCharSet() {
+	if haveProgram && charSet != nil && ctx.exactSubsetSets() {
 		if msg := CharSetMismatch(charSet, glyphSet); msg != "" {
 			ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, msg)
 		}
@@ -310,6 +310,109 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 			return
 		}
 	}
+}
+
+// validateCIDSetExact checks that the FontDescriptor's CIDSet lists exactly the
+// CIDs of the embedded program, .notdef aside, used or not (ISO 19005-2
+// 6.2.11.4.2). A program that does not parse is skipped here, because
+// ValidateFontProgram reports it as Font.InvalidProgram.
+func validateCIDSetExact(obj, desc pdf.PDFDict, ctx *ValidationContext) {
+	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
+	if !ok || !cidSet.IsStream() {
+		return
+	}
+	bitmap, err := ctx.decodeStreamCached(cidSet)
+	if err != nil {
+		return
+	}
+	listed, present, ok := programCIDs(obj, desc, ctx)
+	if !ok {
+		return
+	}
+	for _, cid := range listed {
+		if cid != 0 && (cid/8 >= len(bitmap) || bitmap[cid/8]&(0x80>>(cid%8)) == 0) {
+			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet does not list CID %d of the embedded font program", cid))
+			return
+		}
+	}
+	for i, b := range bitmap {
+		for j := range 8 {
+			if cid := i*8 + j; cid != 0 && b&(0x80>>j) != 0 && !present(cid) {
+				ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet lists CID %d, which the embedded font program does not have", cid))
+				return
+			}
+		}
+	}
+}
+
+// programCIDs returns the CIDs that the embedded program of the CIDFont obj
+// lists, and a test of whether the program has a given CID. Both follow
+// veraPDF, which for a TrueType program with an identity map lists one CID per
+// horizontal metric and accepts every CID below the glyph count. ok is false
+// when the program cannot be read.
+func programCIDs(obj, desc pdf.PDFDict, ctx *ValidationContext) (listed []int, present func(int) bool, ok bool) {
+	switch obj.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "CIDFontType0"}:
+		ff, isDict := desc.Entries.Get("FontFile3").(pdf.PDFDict)
+		if !isDict {
+			return nil, nil, false
+		}
+		data, err := ctx.decodeStreamCached(ff)
+		if err != nil {
+			return nil, nil, false
+		}
+		td, parsed := fontprog.ParseCFFTopDict(data)
+		if !parsed || td.CSOffset < 0 || td.CSOffset+2 > len(data) {
+			return nil, nil, false
+		}
+		if td.IsCIDKeyed {
+			csCount := int(binary.BigEndian.Uint16(data[td.CSOffset : td.CSOffset+2]))
+			listed = fontprog.ParseCFFCharsetCIDs(data, td.CharsetOffset, csCount)
+		}
+		set := make(map[int]bool, len(listed))
+		for _, cid := range listed {
+			set[cid] = true
+		}
+		return listed, func(cid int) bool { return set[cid] }, true
+	case pdf.PDFName{Value: "CIDFontType2"}:
+		ff, isDict := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+		if !isDict {
+			return nil, nil, false
+		}
+		data, err := ctx.decodeStreamCached(ff)
+		if err != nil {
+			return nil, nil, false
+		}
+		tables, parsed := fontprog.ParseSfnt(data)
+		if !parsed {
+			return nil, nil, false
+		}
+		numGlyphs := fontprog.TTNumGlyphs(tables)
+		if IdentityCIDToGIDMap(obj) {
+			for cid := range fontprog.TTNumHMetrics(tables) {
+				listed = append(listed, cid)
+			}
+			return listed, func(cid int) bool { return cid < numGlyphs }, true
+		}
+		m, isDict := obj.Entries.Get("CIDToGIDMap").(pdf.PDFDict)
+		if !isDict || !m.IsStream() {
+			return nil, nil, false
+		}
+		gids, err := ctx.decodeStreamCached(m)
+		if err != nil {
+			return nil, nil, false
+		}
+		present = func(cid int) bool {
+			return 2*cid+1 < len(gids) && int(binary.BigEndian.Uint16(gids[2*cid:])) < numGlyphs
+		}
+		for cid := 1; 2*cid+1 < len(gids); cid++ {
+			if present(cid) {
+				listed = append(listed, cid)
+			}
+		}
+		return listed, present, true
+	}
+	return nil, nil, false
 }
 
 // validateCIDSetBitmap checks that the FontDescriptor's CIDSet bitmap marks

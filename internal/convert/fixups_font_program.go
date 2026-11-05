@@ -693,8 +693,13 @@ func fixType3Widths(v pdf.PDFDict) bool {
 // /CharSet or /CIDSet from the glyphs actually present in the embedded
 // program, mirroring validateType1SubsetCoverage's CharSet-presence check
 // and validateCIDSetBitmap (checks_font.go/checks_font_program.go). exact
-// is the level's Spec.ExactCharSet.
-type fontSubsetMetaFixer struct{ exact bool }
+// is the level's Spec.ExactSubsetSets.
+type fontSubsetMetaFixer struct {
+	exact bool
+	// dropCIDSet is set when the CIDSet is optional and exact. A CIDSet
+	// that fails its rule is removed rather than rebuilt.
+	dropCIDSet bool
+}
 
 func (fontSubsetMetaFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -707,7 +712,7 @@ func (fontSubsetMetaFixer) Applies(c pdf.Check) bool {
 func (f fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if fixFontSubsetMetaDict(d, f.exact) {
+		if fixFontSubsetMetaDict(d, f.exact, f.dropCIDSet) {
 			changed = true
 		}
 	})
@@ -722,7 +727,7 @@ func (f fontSubsetMetaFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (cha
 		return false, false, nil
 	}
 	for _, d := range targets {
-		if fixFontSubsetMetaDict(d, f.exact) {
+		if fixFontSubsetMetaDict(d, f.exact, f.dropCIDSet) {
 			changed = true
 		}
 	}
@@ -731,8 +736,9 @@ func (f fontSubsetMetaFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (cha
 
 // fixFontSubsetMetaDict synthesizes /CharSet or /CIDSet for a subset font
 // dict; it re-checks the predicate so a stale or already-fixed target is a
-// no-op. exact is passed on to fixType1CharSet.
-func fixFontSubsetMetaDict(d pdf.PDFDict, exact bool) bool {
+// no-op. exact is passed on to fixType1CharSet, and dropCIDSet removes a CID
+// font's CIDSet instead of rebuilding it.
+func fixFontSubsetMetaDict(d pdf.PDFDict, exact, dropCIDSet bool) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 		return false
 	}
@@ -746,6 +752,11 @@ func fixFontSubsetMetaDict(d pdf.PDFDict, exact bool) bool {
 	}
 
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	if dropCIDSet && (subtype.Value == "CIDFontType0" || subtype.Value == "CIDFontType2") {
+		_, present := desc.Entries.Lookup("CIDSet")
+		desc.Entries.Del("CIDSet")
+		return present
+	}
 	switch subtype.Value {
 	case "Type1", "MMType1":
 		return fixType1CharSet(desc, exact)

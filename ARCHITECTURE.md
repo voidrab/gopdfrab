@@ -22,7 +22,7 @@ The entire project is a single Go module with no dependencies other than `klausp
 | `internal/fontedit`  | Rewrites font programs for the converter: subsets, cmaps, width repairs.         |
 | `internal/fontsubst` | Bundles the Liberation and Noto fonts substituted for missing ones.              |
 | `internal/pdfa`      | Holds each conformance level's rules: limits, allowed sets, switches, identity.  |
-| `internal/verify`    | Contains the PDF/A-1b checks.                                                    |
+| `internal/verify`    | Contains the PDF/A checks.                                                       |
 | `internal/raster`    | Renders page content to images, for the raster fallback and the fidelity gate.   |
 | `internal/convert`   | Contains the fixers and the fix loop.                                            |
 | `internal/fidelity`  | Compares input and output renders page by page, for the fidelity gate.           |
@@ -141,6 +141,8 @@ The fixers themselves are defined in `fixups_*.go` files, named according to wha
 
 When content cannot be made conformant by any other means, the converter renders it with `internal/raster` and embeds the resulting image in its place (`raster_fallback.go`). Rasterization is lossy, so a conversion reports how much of the output was produced that way.
 
+A conversion changes only what its level's `Spec` makes it change, because fixers respond to the checks that level reports. Under PDF/A-2 this keeps transparency, optional content and valid existing metadata. An existing XMP packet is patched to the level's identification and kept if it passes (`fixups_xmp_keep.go`), and an embedded PDF that fails is converted in turn, under limits on nesting and decoded size, rather than removed (`convertEmbedded`).
+
 `internal/fidelity` guards against the opposite failure mode: producing a perfectly conformant but blank page. It renders both the input and output and compares them to ensure that the conversion has not lost the page's visual content.
 
 `convert.go` holds the entry points and the `run` struct that carries one conversion through the loop, the raster backstop and the final serialize-and-verify. `result.go` holds `ConvertResult` and its output methods, and `batch.go` the batch engine behind `ConvertAll` and `ConvertEach`.
@@ -150,6 +152,8 @@ When content cannot be made conformant by any other means, the converter renders
 ## internal/raster — the renderer
 
 The rasterizer is the converter's last resort and the fidelity gate's eyes. It is a full renderer because it must reproduce the visual appearance of the original page. `raster.go` runs the content-stream operator loop and graphics state; `path.go` fills and strokes; `image.go` and `inline.go` decode and composite images; `shading.go`, `shading_mesh.go`, and `pattern.go` paint shadings and shading patterns; `glyph.go` turns TrueType, CFF, and Type 1 outlines into paths; `type3.go` runs Type 3 glyph procedures; and `geom.go` holds the `Matrix` and `Point` types.
+
+`effects.go` applies blend modes and ExtGState soft masks by painting each operation onto a layer and compositing the layer, with a per-render budget on the pixels this may cost.
 
 What it cannot draw it does not guess at. Every render returns a list of the operators and resources it dropped, so the converter can report the loss.
 

@@ -144,7 +144,7 @@ jobs:
     # Cross-checks gopdfrab's verdict against the veraPDF binary over both
     # committed conformance corpora (TestDifferentialVeraPDFCorpora)
     - name: Differential cross-check
-      run: go test -run 'TestDifferentialVeraPDFCorpora|TestConvertNoResidualIssues' -v .
+      run: go test -run 'TestDifferentialVeraPDFCorpora|TestDifferentialConvertedOutputs|TestConvertNoResidualIssues' -v .
 
   fuzz:
     runs-on: ubuntu-latest
