@@ -1482,8 +1482,8 @@ func OutputIntentsConform(intents pdf.PDFArray, spec pdfa.Spec) bool {
 	return len(outputIntentIssues(intents, spec, nil)) == 0
 }
 
-// outputIntentIssues checks an OutputIntents array. An issue with no intent of
-// its own to name refers to cat, the catalog.
+// outputIntentIssues returns the problems with an OutputIntents array. An issue
+// that is not tied to a single intent refers to cat, the document catalog.
 func outputIntentIssues(intents pdf.PDFArray, spec pdfa.Spec, cat pdf.PDFValue) []pdf.PDFError {
 	errs := []pdf.PDFError{}
 

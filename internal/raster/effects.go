@@ -88,7 +88,8 @@ func (r *renderer) renderSoftMask(d, resources pdf.PDFDict, gs *renderState) *so
 	canvasClip := [4]float64{float64(canvasBounds.Min.X), float64(canvasBounds.Min.Y), float64(canvasBounds.Max.X), float64(canvasBounds.Max.Y)}
 	ctm := formCTM(form, gs.CTM)
 	clip := formClip(form, ctm, canvasClip)
-	// Nothing paints outside the group's box, where the mask is a single value.
+	// Nothing paints outside the group's box, so the mask holds one value
+	// beyond bounds.
 	bounds := clipToBounds(canvasBounds, clip)
 	if !r.chargeEffects(bounds) {
 		return nil
@@ -120,7 +121,8 @@ func (r *renderer) renderSoftMask(d, resources pdf.PDFDict, gs *renderState) *so
 		}
 		mask.alpha[i] = transfer[v]
 	}
-	// An alpha mask's backdrop is the zero value, so nothing paints there either.
+	// An alpha mask's backdrop is zero, so its value outside bounds is
+	// transfer[0].
 	mask.outside = transfer[uint8(lum(backdrop)*255+0.5)]
 	return mask
 }
@@ -199,9 +201,10 @@ func blendModeOf(v pdf.PDFValue) string {
 	return ""
 }
 
-// withEffects runs paint, which marks the canvas. Under a soft mask or blend
-// mode, it marks a separate layer over the area reach returns, which is then
-// composited with them; paint runs with neither set in gs.
+// withEffects runs paint, which marks the canvas. If gs has a soft mask or
+// blend mode, paint marks a separate layer over the area that reach returns,
+// and that layer is composited through the mask and mode. paint runs with
+// neither set in the graphics state.
 func (r *renderer) withEffects(gs *renderState, reach func() image.Rectangle, paint func()) {
 	if gs.softMask == nil && gs.blendMode == "" {
 		paint()
@@ -227,8 +230,8 @@ func (r *renderer) withEffects(gs *renderState, reach func() image.Rectangle, pa
 	compositeLayer(r.canvas, layer, mask, mode, 1)
 }
 
-// chargeEffects counts area against effectPixelBudget and reports whether it
-// fitted. When not, it records the drop.
+// chargeEffects adds area to effectPixels and reports whether the total stays
+// within effectPixelBudget. Past the budget, it records the drop.
 func (r *renderer) chargeEffects(area image.Rectangle) bool {
 	r.effectPixels += int64(area.Dx()) * int64(area.Dy())
 	if r.effectPixels > effectPixelBudget {
@@ -248,7 +251,7 @@ func (r *renderer) onLayer(layer *image.RGBA, paint func()) {
 
 // compositeLayer composites layer onto dst at the opacity alpha, through mask
 // and the blend mode, by the basic compositing formula of ISO 32000-1 11.3.6.
-// Both hold premultiplied samples.
+// Both layer and dst hold premultiplied samples.
 func compositeLayer(dst, layer *image.RGBA, mask *softMask, mode string, alpha float64) {
 	area := layer.Bounds()
 	mix := blendModes[mode]
@@ -293,7 +296,7 @@ func compositeLayer(dst, layer *image.RGBA, mask *softMask, mode string, alpha f
 	}
 }
 
-// separable makes a blend mode of a function of one component.
+// separable returns a blend mode that applies fn to each colour component.
 func separable(fn func(cb, cs float64) float64) func(cb, cs [3]float64) [3]float64 {
 	return func(cb, cs [3]float64) [3]float64 {
 		return [3]float64{fn(cb[0], cs[0]), fn(cb[1], cs[1]), fn(cb[2], cs[2])}
@@ -413,7 +416,7 @@ func imageReach(gs *renderState) image.Rectangle {
 	return clipToBounds(noHint, deviceBounds(0, 0, 1, 1, gs.CTM, 1))
 }
 
-// xobjectReach is the device area a Do of the named XObject can mark.
+// xobjectReach is the device area that the XObject xobj can mark.
 func xobjectReach(xobj pdf.PDFDict, gs *renderState) image.Rectangle {
 	if xobj.Entries.Get("Subtype") == pdf.PDFValue(pdf.PDFName{Value: "Image"}) {
 		return imageReach(gs)
@@ -433,7 +436,8 @@ func deviceBounds(x, y, w, h float64, ctm content.Matrix, margin float64) [4]flo
 	return [4]float64{minX - margin, minY - margin, maxX + margin, maxY + margin}
 }
 
-// tjReach is textReach for the operand array of a TJ.
+// tjReach is textReach for the array operand of a show-text-with-positioning
+// operation (TJ).
 func tjReach(operands []pdf.PDFValue, gs *renderState) image.Rectangle {
 	if len(operands) == 0 {
 		return image.Rectangle{}

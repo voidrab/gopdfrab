@@ -173,7 +173,7 @@ func (e CMapCIDEntry) LastCID() (cid int64, ok bool) {
 }
 
 // cmapHexDigits returns the hex digits of a hex string token such as "<00 ff>",
-// without the white space a hex string may hold. ok is false for any other token.
+// without the white space the string may hold. ok is false for any other token.
 func cmapHexDigits(tok string) (string, bool) {
 	if len(tok) < 3 || tok[0] != '<' || tok[len(tok)-1] != '>' {
 		return "", false

@@ -458,8 +458,8 @@ func TestNamedXObject(t *testing.T) {
 	}
 }
 
-// TestIsolatedGroupOutsideTheClipPaintsNothing covers a group with nothing left
-// of its area to paint.
+// TestIsolatedGroupOutsideTheClipPaintsNothing verifies that an isolated group
+// whose clip lies outside the canvas paints nothing.
 func TestIsolatedGroupOutsideTheClipPaintsNothing(t *testing.T) {
 	form := formWith("0 g 0 0 10 10 re f", map[string]pdf.PDFValue{"I": pdf.PDFBoolean(true)})
 	if got := renderForm(t, "20 20 1 1 re W n /Fm Do", form, nil); !near(got, [3]uint8{255, 255, 255}) {
@@ -467,8 +467,8 @@ func TestIsolatedGroupOutsideTheClipPaintsNothing(t *testing.T) {
 	}
 }
 
-// TestEffectLayerStaysWithinAMaskThatHidesTheRest verifies a mask opaque nowhere
-// outside its box limits the layer to that box.
+// TestEffectLayerStaysWithinAMaskThatHidesTheRest verifies that an effect layer
+// is limited to the box of a soft mask that is transparent outside that box.
 func TestEffectLayerStaysWithinAMaskThatHidesTheRest(t *testing.T) {
 	r := &renderer{canvas: image.NewRGBA(image.Rect(0, 0, 100, 100))}
 	gs := &renderState{softMask: &softMask{bounds: image.Rect(1, 1, 3, 3), alpha: make([]uint8, 4)}, clip: [4]float64{0, 0, 100, 100}}

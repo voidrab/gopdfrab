@@ -696,8 +696,8 @@ func fixType3Widths(v pdf.PDFDict) bool {
 // is the level's Spec.ExactSubsetSets.
 type fontSubsetMetaFixer struct {
 	exact bool
-	// dropCIDSet says the level makes a CIDSet optional and its rule exact, so a
-	// CIDSet that fails is removed rather than rebuilt.
+	// dropCIDSet is set when the CIDSet is optional and exact. A CIDSet
+	// that fails its rule is removed rather than rebuilt.
 	dropCIDSet bool
 }
 

@@ -392,7 +392,8 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "W*":
 			pendingClip, pendingClipEvenOdd = true, true
 		case "f", "F", "f*", "S", "s", "B", "B*", "b", "b*", "n":
-			// An n path only sets a clip, and paints nothing.
+			// The end-path operator (n) only sets a clip and
+			// paints nothing.
 			if op != "n" {
 				r.withEffects(&gs, func() image.Rectangle { return pathReach(&path, &gs) }, func() { r.paintPath(&path, &gs, op) })
 			}
@@ -603,9 +604,10 @@ func pathReach(path *pathBuilder, gs *renderState) image.Rectangle {
 	return clipToBounds(noHint, [4]float64{minX - grow, minY - grow, maxX + grow, maxY + grow})
 }
 
-// paintDo paints the XObject a Do names, through the graphics state's effects. A
-// form that is no transparency group is not an object of its own, so what it
-// paints takes them one operation at a time; anything else is one object.
+// paintDo paints the XObject named by the XObject operator (Do), through the
+// graphics state's effects. A form that is not a transparency group is not an
+// object of its own, so each operation in its content takes effects separately;
+// any other XObject is painted as one object.
 func (r *renderer) paintDo(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
 	xobj, ok := namedXObject(operands, resources)
 	if !ok || r.oc.Hides(xobj.Entries.Get("OC")) {
@@ -624,7 +626,8 @@ func (r *renderer) showTextWithEffects(raw []byte, resources pdf.PDFDict, gs *re
 	r.withEffects(gs, func() image.Rectangle { return textReach(len(raw), 0, gs) }, func() { r.showText(raw, resources, gs) })
 }
 
-// namedXObject returns the XObject stream a Do's operands name.
+// namedXObject returns the XObject stream that the last operand names. It
+// reports false when that operand is not a name, or names no XObject stream.
 func namedXObject(operands []pdf.PDFValue, resources pdf.PDFDict) (pdf.PDFDict, bool) {
 	if len(operands) == 0 {
 		return pdf.PDFDict{}, false
@@ -699,10 +702,10 @@ func formClip(form pdf.PDFDict, ctm content.Matrix, clip [4]float64) [4]float64 
 	return intersectRect(clip, deviceBounds(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1], ctm, 0))
 }
 
-// paintsThrough reports whether a group drawn under gs is the same as painting
-// its content straight onto the backdrop: non-isolated, not knockout, at full
-// opacity. Its content then blends with what the group is drawn over, which a
-// separate canvas could not show it.
+// paintsThrough reports whether a group drawn in the graphics state gs is the
+// same as painting its content straight onto the backdrop: non-isolated, not
+// knockout, at full opacity. Painting it that way lets its content blend with
+// what the group is drawn over, which a separate canvas cannot do.
 func paintsThrough(group pdf.PDFDict, gs *renderState) bool {
 	return group.Entries.Get("I") != pdf.PDFValue(pdf.PDFBoolean(true)) &&
 		group.Entries.Get("K") != pdf.PDFValue(pdf.PDFBoolean(true)) && gs.fillAlpha >= 1
@@ -717,8 +720,9 @@ func isTransparencyGroup(group pdf.PDFDict) bool {
 // paintGroup paints a transparency group as specified in ISO 32000-1 11.6.6.
 // The content is rendered onto a separate transparent canvas starting at
 // alpha 1, and the result is composited onto the current canvas at alpha, the
-// fill alpha in effect where the group is drawn. Every group that reaches here
-// is treated as isolated and non-knockout.
+// fill alpha in effect where the group is drawn. Every group passed here is
+// treated as isolated and non-knockout; doXObject paints the others straight
+// onto the backdrop (see paintsThrough).
 func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState, alpha float64) {
 	area := clipToBounds(r.canvas.Bounds(), gs.clip)
 	if area.Empty() {

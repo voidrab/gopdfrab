@@ -76,7 +76,8 @@ func (d *Reader) RawXMP() (data []byte, meta PDFDict, err error) {
 	return DecodeXMPEncoding(data), meta, nil
 }
 
-// The XML namespaces of the RDF model and of the PDF/A identification schema.
+// RDFNamespace and PDFAIDNamespace are the XML namespaces of the RDF model and
+// of the PDF/A identification schema.
 const (
 	RDFNamespace    = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 	PDFAIDNamespace = "http://www.aiim.org/pdfa/ns/id/"

@@ -400,9 +400,9 @@ func DocumentXMPConforms(data []byte, spec pdfa.Spec) bool {
 }
 
 // ObjectXMPChecker returns a function reporting whether the UTF-8 XMP of a
-// metadata stream other than the document's passes the Part 2 rules. document is
-// the document's own XMP packet, read once on the first call: the extension
-// schemas it defines are used to check the others, and an unparsable document
+// metadata stream other than the document's passes the Part 2 rules. document
+// is the document's own XMP packet. It is parsed on the first call, and its
+// extension schemas are used to check the others; an unparsable document
 // contributes none.
 func ObjectXMPChecker(document []byte) func(data []byte) bool {
 	var main map[string]*xmpSchemaDef

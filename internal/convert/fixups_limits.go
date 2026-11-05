@@ -678,8 +678,8 @@ type splice struct {
 	text       string
 }
 
-// applySplices returns data with the splices, in ascending order and disjoint,
-// made in it.
+// applySplices returns data with each splice applied. The splices must be in
+// ascending order and must not overlap.
 func applySplices(data []byte, splices []splice) []byte {
 	out := make([]byte, 0, len(data))
 	at := 0

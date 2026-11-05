@@ -80,7 +80,7 @@ func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa
 }
 
 // objectXMPConforms reports whether the packet of meta, a metadata stream other
-// than the catalog's, passes conforms.
+// than the catalog's, passes conforms (see verify.ObjectXMPChecker).
 func objectXMPConforms(meta pdf.PDFDict, conforms func(data []byte) bool) bool {
 	if !meta.IsStream() {
 		return false

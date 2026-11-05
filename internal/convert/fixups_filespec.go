@@ -110,7 +110,7 @@ func reportLost(lost *[]pdf.PDFError, c pdf.Check, d pdf.PDFDict, msg string) {
 type embeddedFileFixer struct {
 	ctx     context.Context
 	profile *pdf.Profile
-	// options are what the conversion of an embedded file runs under.
+	// options are the Options an embedded file's conversion runs with.
 	options Options
 	lost    *[]pdf.PDFError
 }
@@ -232,8 +232,8 @@ func (f embeddedFileFixer) convertEmbedded(fs, ef pdf.PDFDict) bool {
 	return true
 }
 
-// replaceWithConversion is convertEmbedded once the limits have passed, with data
-// the decoded file.
+// replaceWithConversion converts data, the decoded stream of ef, and replaces
+// ef with the result. convertEmbedded calls it once the limits have passed.
 func (f embeddedFileFixer) replaceWithConversion(ctx context.Context, fs, ef pdf.PDFDict, data []byte) bool {
 	cr, err := ConvertBytesContext(ctx, data, f.profile, f.options)
 	if err != nil {

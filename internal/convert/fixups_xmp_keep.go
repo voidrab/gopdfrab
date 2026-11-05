@@ -122,9 +122,9 @@ func identificationDescription(rdf, about string, spec pdfa.Spec) string {
 		"</" + rdf + ":Description>\n"
 }
 
-// setXMPPacket makes meta the metadata stream holding packet, unfiltered.
-// Deliberately not MarkStreamDirty, which would have the writer Flate-encode it:
-// PDF/A-1 forbids a filter on the metadata stream.
+// setXMPPacket makes meta the metadata stream holding packet, unfiltered. It
+// does not call MarkStreamDirty, which makes the writer Flate-encode the
+// stream, and PDF/A-1 forbids a filter on the metadata stream (6.7.2).
 func setXMPPacket(meta pdf.PDFDict, packet []byte) {
 	dropFilters(&meta)
 	meta.Entries.Del("DP")

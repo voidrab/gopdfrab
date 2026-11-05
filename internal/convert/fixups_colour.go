@@ -48,8 +48,8 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 	}
 
 	// A valid intent is kept even when another colour model dominates the
-	// content, since deviceColourFixer handles that model's device colour without
-	// replacing the intent.
+	// content, because deviceColourFixer handles that model's device colour
+	// without replacing the intent.
 	if hasValidOutputIntent(root, spec) {
 		return nil
 	}
@@ -96,8 +96,8 @@ func newOutputIntent(trailer pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) pdf.P
 }
 
 // sharedIntent returns a new intent of the level's own subtype that takes the
-// output condition and profile of the first of intents that has them, since all
-// the intents of a file must share a profile. ok is false when none does.
+// output condition and profile of the first intent that has both. All intents
+// of a file must share a profile. ok is false when no intent has them.
 func sharedIntent(intents pdf.PDFArray, spec pdfa.Spec) (pdf.PDFDict, bool) {
 	for _, v := range intents {
 		intent, ok := v.(pdf.PDFDict)
@@ -316,8 +316,9 @@ type scanJob struct {
 	resources pdf.PDFDict
 }
 
-// hasValidOutputIntent reports whether root's OutputIntents array holds an intent
-// of the level's own subtype and passes all of the level's output intent checks.
+// hasValidOutputIntent reports whether the OutputIntents array of root holds an
+// intent of the level's own subtype and passes all of the level's output intent
+// checks.
 func hasValidOutputIntent(root pdf.PDFDict, spec pdfa.Spec) bool {
 	intents, ok := root.Entries.Get("OutputIntents").(pdf.PDFArray)
 	if !ok {

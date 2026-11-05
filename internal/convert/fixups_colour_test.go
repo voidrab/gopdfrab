@@ -583,8 +583,8 @@ func outputIntentDict(s string, identifier bool, profile pdf.PDFValue) pdf.PDFDi
 	return oi
 }
 
-// TestHasValidOutputIntent walks every rejection path of the "is there
-// already a usable PDF/A OutputIntent, and for which N" probe.
+// TestHasValidOutputIntent verifies that hasValidOutputIntent accepts a usable
+// PDF/A OutputIntent and rejects each invalid shape in the table.
 func TestHasValidOutputIntent(t *testing.T) {
 	good := iccProfileStream(pdf.PDFInteger(3), srgbICCProfile)
 	rootOf := func(items ...pdf.PDFValue) pdf.PDFDict {
