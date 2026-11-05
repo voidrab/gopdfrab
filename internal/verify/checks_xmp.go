@@ -1114,6 +1114,17 @@ func xmpScalarValue(xmp, prop string) (string, bool) {
 	return decodeXMLEntities(strings.TrimSpace(m[2])), true
 }
 
+// completeDateDigits fills in the fields a date's digits leave out with their
+// ISO 32000-1 7.9.4 defaults, up to the seconds: month and day 01, the rest 00.
+// Digits without a whole year stay as they are.
+func completeDateDigits(digits string) string {
+	const defaults = "00000101000000"
+	if len(digits) < 4 || len(digits) >= len(defaults) {
+		return digits
+	}
+	return digits + defaults[len(digits):]
+}
+
 // checkInfoXMPSync verifies that document information dictionary entries are
 // reflected in the XMP metadata (6.7.3).
 func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
@@ -1191,7 +1202,8 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 	}
 
 	// Dates use different representations (PDF "D:YYYYMMDD..." vs ISO 8601);
-	// compare their numeric components at the same precision.
+	// compare their numeric components, a field left out taking its ISO 32000-1
+	// 7.9.4 default.
 	infoDateMismatch := func(infoKey, label string, xmpDateRe *regexp.Regexp) {
 		cd := strings.TrimSpace(info[infoKey])
 		if cd == "" {
@@ -1203,8 +1215,8 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 			return
 		}
 		xmpDate, _ := pdf.FirstRegexpGroup(xmpDateRe, xmp)
-		infoDigits := digitsOf(cd)
-		xmpDigits := digitsOf(xmpDate)
+		infoDigits := completeDateDigits(digitsOf(cd))
+		xmpDigits := completeDateDigits(digitsOf(xmpDate))
 		n := min(len(infoDigits), len(xmpDigits), 14)
 		if n < 8 || infoDigits[:n] != xmpDigits[:n] || len(infoDigits) < len(xmpDigits) {
 			errs = append(errs, xmpErr(pdf.Checks.Metadata.InfoXMPSync, fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))

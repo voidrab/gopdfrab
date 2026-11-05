@@ -191,9 +191,9 @@ func TestPdfDateToXMP(t *testing.T) {
 	}{
 		{"too short", "D:19", "", false},
 		{"non-digit year", "D:19ab", "", false},
-		{"year only", "D:1999", "1999", true},
-		{"year+month", "D:199912", "1999-12", true},
-		{"year+month+day", "D:19991231", "1999-12-31", true},
+		{"year only", "D:1999", "1999-01-01T00:00:00Z", true},
+		{"year+month", "D:199912", "1999-12-01T00:00:00Z", true},
+		{"year+month+day", "D:19991231", "1999-12-31T00:00:00Z", true},
 		{"datetime, minute/second defaulted", "D:1999123123", "1999-12-31T23:00:00Z", true},
 		{"full datetime, no timezone", "D:19991231235959", "1999-12-31T23:59:59Z", true},
 		{"timezone, sign but no digits", "D:19991231235959+", "1999-12-31T23:59:59Z", true},

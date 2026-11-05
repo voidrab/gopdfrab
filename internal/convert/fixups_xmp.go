@@ -360,10 +360,11 @@ func xmlEscapeAttr(s string) string {
 }
 
 // pdfDateToXMP converts a PDF date string ("D:YYYYMMDDHHmmSSOHH'mm'", ISO
-// 32000-1 7.9.4) to an XMP/ISO-8601 date string, preserving however much
-// precision the source provides (down to just a year), defaulting an
-// unspecified timezone to UTC. ok is false if cd doesn't start with "D:" or
-// has fewer than four digits of year.
+// 32000-1 7.9.4) to a full XMP/ISO-8601 date string, using the defaults of 7.9.4
+// for the fields the source leaves out and UTC for an unspecified timezone. An
+// XMP date without a time would be read in the reader's local timezone, so its
+// equivalence with the Info date would depend on where the file is checked. ok
+// is false if cd doesn't start with "D:" or has fewer than four digits of year.
 func pdfDateToXMP(cd string) (out string, ok bool) {
 	cd = strings.TrimPrefix(cd, "D:")
 	if len(cd) < 4 || !isAllDigits(cd[:4]) {
@@ -373,19 +374,19 @@ func pdfDateToXMP(cd string) (out string, ok bool) {
 
 	month, rest, ok := takeDigits2(rest)
 	if !ok {
-		return out, true
+		return out + "-01-01T00:00:00Z", true
 	}
 	out += "-" + month
 
 	day, rest, ok := takeDigits2(rest)
 	if !ok {
-		return out, true
+		return out + "-01T00:00:00Z", true
 	}
 	out += "-" + day
 
 	hour, rest, ok := takeDigits2(rest)
 	if !ok {
-		return out, true
+		return out + "T00:00:00Z", true
 	}
 	minute, rest, ok := takeDigits2(rest)
 	if !ok {

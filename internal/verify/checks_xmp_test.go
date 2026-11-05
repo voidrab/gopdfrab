@@ -509,6 +509,25 @@ func TestCheckInfoXMPSyncBadDateFormat(t *testing.T) {
 	}
 }
 
+// TestCompleteDateDigits verifies that the fields a date leaves out take their
+// ISO 32000-1 7.9.4 defaults.
+func TestCompleteDateDigits(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                 "",
+		"199":              "199",
+		"1999":             "19990101000000",
+		"199912":           "19991201000000",
+		"19991231":         "19991231000000",
+		"1999123123":       "19991231230000",
+		"19991231235959":   "19991231235959",
+		"1999123123595905": "1999123123595905",
+	} {
+		if got := completeDateDigits(in); got != want {
+			t.Errorf("completeDateDigits(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestCheckInfoXMPSyncCorpus(t *testing.T) {
 	failPath := firstFileMatching(t, infoSyncDir, "t01-fail")
 	doc, xmp := rawXMPOf(t, failPath)

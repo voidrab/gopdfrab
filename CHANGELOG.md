@@ -114,6 +114,10 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- A partial Info date, such as `D:20150310`, became an XMP date without a time,
+  which a validator reads in its local timezone, so the output's conformance
+  depended on where it was checked. XMP dates now always carry a time and a
+  timezone.
 - A font used only by the glyph procedures of a shown Type 3 font did not count
   as used, so an unembedded one passed verify. Verify now reports it and convert
   embeds a substitute.
