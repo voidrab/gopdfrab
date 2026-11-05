@@ -198,7 +198,8 @@ reports loss separately from `cr.Result.Valid`:
   what the rasterizer could not draw on them.
 - `cr.LostObjects` lists content that could not be carried over at all: an
   unresolvable object, an undecodable stream, an embedded file or annotation
-  the level forbids, a layer the document hides.
+  the level forbids, a layer the document hides, a digital signature, which
+  rewriting the file invalidates at every level.
 - `Options.CheckFidelity` renders input and output with the same rasterizer
   and fills `cr.Fidelity` with a per-page comparison; `Blanked()` flags a page
   that lost its content.

@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -20,28 +21,37 @@ func signedFieldDoc() []byte {
 	return b.FinishClassic("<< /Size 7 /Root 1 0 R >>")
 }
 
+// TestConvertDropsSignatures verifies that every level removes the signatures
+// and reports each one once: the field's V and Perms hold the same signature.
+// Only a level with the check numbers the record.
 func TestConvertDropsSignatures(t *testing.T) {
 	for _, tc := range []struct {
-		p    *pdf.Profile
-		lost int
+		name   string
+		p      *pdf.Profile
+		clause string
 	}{
-		{pdf.PDFA1B, 0},
-		{pdf.PDFA2B, 1}, // The field's V and Perms hold the same signature.
+		{"pdfa1b", pdf.PDFA1B, ""},
+		{"legacy1b", pdf.Legacy1B, ""},
+		{"pdf", pdf.PDF, ""},
+		{"pdfa2b", pdf.PDFA2B, "6.4.3"},
 	} {
-		t.Run(string(tc.p.Level), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			cr, err := ConvertBytes(signedFieldDoc(), tc.p, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer cr.Close()
-			var lost int
+			var lost []pdf.PDFError
 			for _, e := range cr.LostObjects {
 				if e.Check() == pdf.Checks.Form.SignatureByteRange {
-					lost++
+					lost = append(lost, e)
 				}
 			}
-			if lost != tc.lost {
-				t.Errorf("lost %d signatures, want %d: %v", lost, tc.lost, cr.LostObjects)
+			if len(lost) != 1 {
+				t.Fatalf("lost %d signature records, want 1: %v", len(lost), cr.LostObjects)
+			}
+			if clause, _ := lost[0].Clause(); clause != tc.clause {
+				t.Errorf("record clause = %q, want %q", clause, tc.clause)
 			}
 			out, err := cr.Output()
 			if err != nil {
@@ -53,9 +63,11 @@ func TestConvertDropsSignatures(t *testing.T) {
 			}
 			defer doc.Close()
 			root, _ := doc.ResolveGraphByPath([]string{"Root"})
-			_, hasPerms := root.(pdf.PDFDict).Entries.Lookup("Perms")
-			if signed := tc.lost == 0; hasPerms != signed {
-				t.Errorf("output has Perms = %v, want %v", hasPerms, signed)
+			if _, hasPerms := root.(pdf.PDFDict).Entries.Lookup("Perms"); hasPerms {
+				t.Error("output keeps Perms")
+			}
+			if bytes.Contains(out, []byte("/ByteRange")) {
+				t.Error("output keeps a signature dictionary")
 			}
 		})
 	}
@@ -72,7 +84,7 @@ func TestDropSignaturesKeepsOtherPerms(t *testing.T) {
 	trailer.Entries.Set("Root", root)
 
 	var lost []pdf.PDFError
-	dropSignatures(trailer, pdf.PDFA2B, &lost)
+	dropSignatures(trailer, &lost)
 	if len(lost) != 1 || perms.Entries.Get("UR3") != nil || root.Entries.Get("Perms") == nil {
 		t.Errorf("lost %v, Perms %v: want UR3 dropped and Perms kept", lost, root.Entries.Get("Perms"))
 	}

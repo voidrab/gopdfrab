@@ -91,6 +91,13 @@ Everything under `internal/` may change in any release without notice.
   specification of each one it keeps the F or UF string it lacks, and deletes
   the presentation and requirements entries.
 
+### Changed
+
+- Converting a signed file removes its digital signatures at every level and
+  reports each one in `LostObjects`. PDF/A-1b, legacy1b and plain PDF output
+  used to keep a signature that the rewrite had invalidated, without a report.
+  Under those levels the record has no clause.
+
 ### Fixed
 
 - `Result.Summary` leaves out the subclause of a check that has none, rather

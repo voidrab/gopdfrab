@@ -9,21 +9,18 @@ import (
 // dictionaries.
 var signaturePerms = []string{"DocMDP", "UR", "UR3"}
 
-// dropSignatures removes the digital signatures of trailer's document when p
-// checks that a signature's ByteRange covers its revision (PDF/A-2 6.4.3).
-// Converting rewrites the file, so no ByteRange can cover the output, and the
-// signature would not verify in the output either. Each signature field loses
+// dropSignatures removes the digital signatures of trailer's document.
+// Converting rewrites the file, so no signature's ByteRange can cover the
+// output and none would verify there, at any level. Each signature field loses
 // its value and stays as an unsigned field, its widget untouched; the
 // signatures of the catalog's Perms go too. Each signature removed is reported
-// once in lost, also when both a field and Perms hold it.
+// once in lost, also when both a field and Perms hold it. Under a level without
+// the check, such as PDF/A-1b, the record has no clause.
 //
 // It runs before the fix loop, so the loop verifies the graph without the
-// removed signatures. It is not a pre-emptive repair: those steps receive
-// neither the profile nor lost, which this function needs.
-func dropSignatures(trailer pdf.PDFDict, p *pdf.Profile, lost *[]pdf.PDFError) {
-	if !p.Has(pdf.Checks.Form.SignatureByteRange) {
-		return
-	}
+// removed signatures. It is not a pre-emptive repair: those steps do not
+// receive lost, which this function needs.
+func dropSignatures(trailer pdf.PDFDict, lost *[]pdf.PDFError) {
 	const msg = "digital signature removed: converting the file invalidates it"
 	root, _ := trailer.Entries.Get("Root").(pdf.PDFDict)
 	dropped := map[uintptr]bool{}
