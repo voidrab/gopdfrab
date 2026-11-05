@@ -142,11 +142,49 @@ func CmapTokenize(data []byte) []CmapToken {
 	return tokens
 }
 
-// EachCMapCID calls fn with the CID token of each cidrange and cidchar entry
-// in CMap PostScript content: the third token of a "<lo> <hi> cid" range,
-// and the second of a "<code> cid" mapping.
-func EachCMapCID(data []byte, fn func(tok CmapToken)) {
+// CMapCIDEntry is one cidrange or cidchar entry of a CMap: the CID token, and
+// for a range the codes it spans.
+type CMapCIDEntry struct {
+	// Lo and Hi are the first and last code of a range; they are zero for a
+	// cidchar entry.
+	Lo, Hi CmapToken
+	// CID is the token holding the CID, which for a range is the first code's.
+	CID CmapToken
+}
+
+// CodeSpan returns how many CIDs a range runs past its first one, or 0 for a
+// cidchar entry and for codes that are malformed or out of order.
+func (e CMapCIDEntry) CodeSpan() int64 {
+	lo, okLo := cmapHexValue(e.Lo.Text)
+	hi, okHi := cmapHexValue(e.Hi.Text)
+	if !okLo || !okHi || hi < lo {
+		return 0
+	}
+	return hi - lo
+}
+
+// LastCID returns the largest CID the entry maps to. ok is false when its CID
+// token is not a number.
+func (e CMapCIDEntry) LastCID() (cid int64, ok bool) {
+	first, ok := CmapParseInt(e.CID.Text)
+	return first + e.CodeSpan(), ok
+}
+
+// cmapHexValue returns the value of a hex string token such as "<00ff>". ok is
+// false for any other token, and for one too long to hold a code.
+func cmapHexValue(tok string) (int64, bool) {
+	if len(tok) < 3 || tok[0] != '<' || tok[len(tok)-1] != '>' {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(tok[1:len(tok)-1], 16, 64)
+	return v, err == nil
+}
+
+// EachCMapCID calls fn with each cidrange and cidchar entry in CMap PostScript
+// content: a "<lo> <hi> cid" range or a "<code> cid" mapping.
+func EachCMapCID(data []byte, fn func(e CMapCIDEntry)) {
 	entryLen, pos := 0, 0
+	var held [2]CmapToken
 	for _, tok := range CmapTokenize(data) {
 		switch tok.Text {
 		case "begincidrange":
@@ -163,10 +201,16 @@ func EachCMapCID(data []byte, fn func(tok CmapToken)) {
 			if entryLen == 0 {
 				continue
 			}
-			if pos++; pos == entryLen {
-				fn(tok)
-				pos = 0
+			if pos++; pos < entryLen {
+				held[pos-1] = tok
+				continue
 			}
+			e := CMapCIDEntry{CID: tok}
+			if entryLen == 3 {
+				e.Lo, e.Hi = held[0], held[1]
+			}
+			fn(e)
+			pos = 0
 		}
 	}
 }

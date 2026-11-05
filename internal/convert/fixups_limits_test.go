@@ -590,6 +590,29 @@ func TestClampCMapCIDsClampsEveryOutOfRangeCID(t *testing.T) {
 	}
 }
 
+func TestClampCMapCIDsCutsRangesAtTheLimit(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"range runs over", "1 begincidrange\n<3f00> <3fff> 65500\nendcidrange\n", "1 begincidrange\n<3f00> <3f23> 65500\nendcidrange\n"},
+		{"range starts over", "1 begincidrange\n<3f00> <3fff> 70000\nendcidrange\n", "1 begincidrange\n<3f00> <3f00> 65535\nendcidrange\n"},
+		{"single code range starts over", "1 begincidrange\n<3f> <3f> 70000\nendcidrange\n", "1 begincidrange\n<3f> <3f> 65535\nendcidrange\n"},
+		{"malformed codes", "1 begincidrange\na b 70000\nendcidrange\n", "1 begincidrange\na b 65535\nendcidrange\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := clampCMapCIDs([]byte(tc.in), maxCMapCID)
+			if !ok || string(got) != tc.want {
+				t.Errorf("clamped = %q, %v; want %q", got, ok, tc.want)
+			}
+		})
+	}
+	if _, ok := clampCMapCIDs([]byte("1 begincidrange\n<00> <ff> 65280\nendcidrange\n"), maxCMapCID); ok {
+		t.Error("a range ending exactly at the limit was changed")
+	}
+	if _, ok := clampCMapCIDs([]byte("1 begincidrange\n<00> <ff> x\nendcidrange\n"), maxCMapCID); ok {
+		t.Error("a range with no numeric CID was changed")
+	}
+}
+
 // TestComputeResourceUsageInheritedResources verifies that a page's content
 // marks the resources it names as used when the page inherits its
 // /Resources from the page tree, so pruning cannot delete them.

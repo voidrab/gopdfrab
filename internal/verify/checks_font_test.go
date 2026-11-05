@@ -774,3 +774,23 @@ func TestValidateCMapStreamUndecodable(t *testing.T) {
 		t.Error("a broken CMap stream must not be scanned")
 	}
 }
+
+// TestCheckCMapCIDLimitsCountsTheWholeRange verifies that a range starting
+// within the limit is reported when the CIDs it maps run past it.
+func TestCheckCMapCIDLimitsCountsTheWholeRange(t *testing.T) {
+	for _, tc := range []struct {
+		name, cmap string
+		want       bool
+	}{
+		{"runs over", "1 begincidrange\n<3f00> <3fff> 65535\nendcidrange\n", true},
+		{"ends at the limit", "1 begincidrange\n<00> <ff> 65280\nendcidrange\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{Spec: a1bSpec}
+			checkCMapCIDLimits(pdf.PDFDict{}, []byte(tc.cmap), ctx)
+			if got := len(ctx.errs) > 0; got != tc.want {
+				t.Errorf("reported = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package convert
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -589,10 +590,9 @@ func resourceOperatorTarget(op string) (category string, fromEnd int) {
 // --- CMapCIDOutOfRange: clamping a CID value inside a CMap stream ---
 
 // cmapCIDClampFixer remediates Checks.Structure.CMapCIDOutOfRange by
-// clamping any cidrange/cidchar CID value over 65535 down to 65535 directly
-// within the CMap's PostScript stream bytes, mirroring
-// checkCMapCIDLimits' own token-position state machine so it only ever
-// touches the exact values that check would flag.
+// clamping any cidrange/cidchar entry that reaches over 65535 directly within
+// the CMap's PostScript stream bytes, using the same entries
+// checkCMapCIDLimits reads so it only ever touches what that check would flag.
 type cmapCIDClampFixer struct{ spec *pdfa.Spec }
 
 func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
@@ -644,33 +644,53 @@ func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
 	return d, true
 }
 
-// clampCMapCIDs rewrites every cidrange/cidchar CID token over limit in data
-// to limit, splicing the replacement directly into the original
-// bytes (preserving everything else byte-for-byte) so it never needs to
-// re-serialize the surrounding PostScript.
+// clampCMapCIDs rewrites the cidrange and cidchar entries of data that reach
+// over limit, splicing into the original bytes so it never has to re-serialize
+// the surrounding PostScript. A range is cut short at limit, and one starting
+// over it, like a cidchar, maps its first code to limit. Codes a range no longer
+// covers map to no CID.
 func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
-	type span struct{ start, end int }
-	var spans []span
-	fontprog.EachCMapCID(data, func(tok fontprog.CmapToken) {
-		if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > int64(limit) {
-			spans = append(spans, span{tok.Start, tok.End})
+	type splice struct {
+		start, end int
+		text       string
+	}
+	var splices []splice
+	max := int64(limit)
+	fontprog.EachCMapCID(data, func(e fontprog.CMapCIDEntry) {
+		cid, ok := fontprog.CmapParseInt(e.CID.Text)
+		last, _ := e.LastCID()
+		if !ok || last <= max {
+			return
+		}
+		if cid > max {
+			splices = append(splices, splice{e.CID.Start, e.CID.End, strconv.Itoa(limit)})
+			cid = max
+		}
+		if e.CodeSpan() > 0 {
+			splices = append(splices, splice{e.Hi.Start, e.Hi.End, offsetCMapCode(e.Lo.Text, max-cid)})
 		}
 	})
-	if len(spans) == 0 {
+	if len(splices) == 0 {
 		return nil, false
 	}
 
-	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
-	clampedText := []byte(fmt.Sprintf("%d", limit))
+	sort.Slice(splices, func(i, j int) bool { return splices[i].start < splices[j].start })
 	var out []byte
 	prev := 0
-	for _, s := range spans {
+	for _, s := range splices {
 		out = append(out, data[prev:s.start]...)
-		out = append(out, clampedText...)
+		out = append(out, s.text...)
 		prev = s.end
 	}
-	out = append(out, data[prev:]...)
-	return out, true
+	return append(out, data[prev:]...), true
+}
+
+// offsetCMapCode returns the hex string token, as wide as code, for the value
+// of code plus n. code is a well-formed hex string token.
+func offsetCMapCode(code string, n int64) string {
+	digits := code[1 : len(code)-1]
+	v, _ := strconv.ParseInt(digits, 16, 64)
+	return fmt.Sprintf("<%0*x>", len(digits), v+n)
 }
 
 // --- shared content-stream resource-aware rewriting ---

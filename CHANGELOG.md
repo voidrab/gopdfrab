@@ -93,6 +93,11 @@ Everything under `internal/` may change in any release without notice.
 
 ### Changed
 
+- Converting to PDF/A-2b keeps the document's XMP packet, under the level's
+  identification, when it passes the level's rules, and keeps other objects'
+  metadata that passes. A packet that does not pass is rebuilt from the Info
+  dictionary, as at PDF/A-1b. A PDF/X output intent stays, and the file's
+  PDF/A intent joins it over the same profile.
 - Converting a signed file removes its digital signatures at every level and
   reports each one in `LostObjects`. PDF/A-1b, legacy1b and plain PDF output
   used to keep a signature that the rewrite had invalidated, without a report.
@@ -100,6 +105,13 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- A CMap range is checked over every CID it maps, not only its first, and
+  convert cuts a range short at the limit. A range that started within the
+  limit and ran past it passed verification, and conversion could produce one.
+- A conversion keeps a valid output intent even when another colour model
+  dominates the content.
+- Conversion to PDF/A-2b flattens only DeviceN spaces over 32 colorants, not
+  every space over the PDF/A-1 limit of 8.
 - `Result.Summary` leaves out the subclause of a check that has none, rather
   than printing `/0`.
 - Verify reads the newest revision of an incrementally updated file

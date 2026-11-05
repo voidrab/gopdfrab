@@ -468,11 +468,11 @@ func validateCMapStream(v pdf.PDFDict, ctx *ValidationContext) {
 }
 
 // checkCMapCIDLimits scans CMap PostScript content for CID values over the
-// level's limit.
+// level's limit, counting every CID a range maps to and not only its first.
 func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 	maxCID := ctx.Spec.Limits.MaxCID
-	fontprog.EachCMapCID(data, func(tok fontprog.CmapToken) {
-		if cid, ok := fontprog.CmapParseInt(tok.Text); ok && overLimit(cid, maxCID) {
+	fontprog.EachCMapCID(data, func(e fontprog.CMapCIDEntry) {
+		if cid, ok := e.LastCID(); ok && overLimit(cid, maxCID) {
 			ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of %d", cid, maxCID))
 		}
 	})
