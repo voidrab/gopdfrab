@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
@@ -1421,5 +1422,42 @@ func TestXmpValidatePropValueErrors(t *testing.T) {
 	}
 	if errs := xmpValidateProp(tiff, "BitsPerSample", xmpKindSeq, "", []xmpPropItem{{text: "8"}, {text: ""}}); len(errs) != 0 {
 		t.Errorf("valid Seq items reported: %v", errs)
+	}
+}
+
+func TestXMPConforms(t *testing.T) {
+	spec, _ := pdfa.For(pdf.A2B)
+	wrap := func(body string) []byte {
+		return []byte("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>" +
+			`<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
+			body + `</rdf:RDF></x:xmpmeta><?xpacket end="r"?>`)
+	}
+	id := func(part string) string {
+		return `<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"><pdfaid:part>` + part +
+			`</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance></rdf:Description>`
+	}
+	const undeclared = `<rdf:Description rdf:about="" xmlns:acme="http://acme.example/ns/"><acme:x>1</acme:x></rdf:Description>`
+
+	if !DocumentXMPConforms(wrap(id("2")), spec) {
+		t.Error("a packet identifying part 2 should conform")
+	}
+	if DocumentXMPConforms(wrap(id("1")), spec) {
+		t.Error("a packet identifying part 1 should not conform")
+	}
+	if DocumentXMPConforms(wrap(id("2")+undeclared), spec) {
+		t.Error("a packet with an undeclared property should not conform")
+	}
+	if DocumentXMPConforms([]byte("not xml"), spec) {
+		t.Error("an unparsable packet should not conform")
+	}
+
+	if !ObjectXMPConforms(wrap(""), wrap(id("2"))) {
+		t.Error("an empty object packet should conform")
+	}
+	if !ObjectXMPConforms(wrap(""), []byte("not xml")) {
+		t.Error("an unparsable document packet should not affect an empty object packet")
+	}
+	if ObjectXMPConforms(wrap(undeclared), wrap(id("2"))) {
+		t.Error("an object packet with an undeclared property should not conform")
 	}
 }

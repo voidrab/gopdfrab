@@ -7,6 +7,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // regenerateXMP replaces the document's XMP metadata (Root/Metadata) with a
@@ -21,6 +22,7 @@ import (
 // an arbitrary existing one into compliance, and doing so resolves the large
 // majority of clause 6.7's many sub-checks (and the Info/XMP sync checks,
 // 6.7.3/6.1.5, since the packet is generated directly from Info) in one pass.
+// A packet that keepExistingXMP can keep is left in place instead.
 func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 	if !spec.PDFA {
 		return nil
@@ -31,10 +33,14 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 	}
 
 	normalizeInfoDict(trailer)
+	meta, _ := root.Entries.Get("Metadata").(pdf.PDFDict)
+	if keepExistingXMP(meta, spec) {
+		return nil
+	}
+
 	info, _ := trailer.Entries.Get("Info").(pdf.PDFDict)
 	xmp := buildXMPPacket(info, spec)
 
-	meta, _ := root.Entries.Get("Metadata").(pdf.PDFDict)
 	meta.Entries.Del("Filter")
 	meta.Entries.Del("DecodeParms")
 	meta.Entries.Del("DP")
@@ -55,26 +61,39 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 
 // stripEmbeddedMetadataVisitor is stripEmbeddedMetadata's per-dict visitor
 // for the shared pre-emptive walk; nil when there is no catalog to protect or
-// the level is not PDF/A.
+// the level is not PDF/A. Under Part 2, which checks the metadata of other
+// objects property by property, metadata that passes stays.
 func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok || !spec.PDFA {
 		return nil
 	}
 	var catalogMetaPtr uintptr
+	var document []byte
 	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
+		document = meta.Stream()
 	}
 	return func(d pdf.PDFDict) {
 		meta, ok := d.Entries.Get("Metadata").(pdf.PDFDict)
-		if !ok {
+		if !ok || pdf.ValuePointer(meta.Entries) == catalogMetaPtr {
 			return
 		}
-		// Keep the catalog's metadata; strip all others.
-		if pdf.ValuePointer(meta.Entries) != catalogMetaPtr {
-			d.Entries.Del("Metadata")
+		if spec.Part == 2 && objectXMPConforms(meta, document) {
+			return
 		}
+		d.Entries.Del("Metadata")
 	}
+}
+
+// objectXMPConforms reports whether meta, a metadata stream other than the
+// catalog's, passes the Part 2 metadata rules given the document's own packet.
+func objectXMPConforms(meta pdf.PDFDict, document []byte) bool {
+	if !meta.IsStream() {
+		return false
+	}
+	data, err := pdf.DecodeStream(meta)
+	return err == nil && verify.ObjectXMPConforms(pdf.DecodeXMPEncoding(data), document)
 }
 
 // normalizeInfoDict coerces the Info dictionary's standard entries (Table
