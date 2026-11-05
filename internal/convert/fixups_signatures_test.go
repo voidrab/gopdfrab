@@ -22,8 +22,8 @@ func signedFieldDoc() []byte {
 }
 
 // TestConvertDropsSignatures verifies that every level removes the signatures
-// and reports each one once: the field's V and Perms hold the same signature.
-// Only a level with the check numbers the record.
+// and reports each one once, because the field's V and Perms hold the same
+// signature. The record carries a clause only at a level that has the check.
 func TestConvertDropsSignatures(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
