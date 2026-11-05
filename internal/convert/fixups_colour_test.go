@@ -767,3 +767,19 @@ func TestDeviceColourModelDomain(t *testing.T) {
 		}
 	}
 }
+
+// TestDetectColourModelUsageReadsContentArrays verifies that a page's content
+// counts when its Contents is an array of streams.
+func TestDetectColourModelUsageReadsContentArrays(t *testing.T) {
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Contents": pdf.PDFArray{
+			pdf.NewStreamDict(pdf.NewDict(), []byte("0 0 0 1 k")),
+			pdf.PDFInteger(1),
+		},
+	})}
+	trailer := trailerWith("Pages", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})})
+	if got := detectColourModelUsage(trailer, pdf.DecodeStream)["cmyk"]; got != 1 {
+		t.Errorf("cmyk uses = %d, want 1", got)
+	}
+}

@@ -653,9 +653,9 @@ func formCTM(form pdf.PDFDict, ctm content.Matrix) content.Matrix {
 	return ctm
 }
 
-// formClip intersects clip with a form's /BBox, since a form paints only inside
-// it (ISO 32000-1 8.10.1). ctm is the form's own, and the box applies like a W
-// clip, as its device-space bounds.
+// formClip intersects clip with a form's bounding box (/BBox), since a form
+// paints only inside it (ISO 32000-1 8.10.1). ctm is the form's own CTM. The
+// box is applied like a clipping path, by its device-space bounds.
 func formClip(form pdf.PDFDict, ctm content.Matrix, clip [4]float64) [4]float64 {
 	bbox, err := pdf.FloatArray(form.Entries.Get("BBox"))
 	if err != nil || len(bbox) != 4 {

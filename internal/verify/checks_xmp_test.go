@@ -1448,6 +1448,9 @@ func TestXMPConforms(t *testing.T) {
 		t.Error("a packet with an undeclared property should not conform")
 	}
 	if DocumentXMPConforms([]byte("not xml"), spec) {
+		t.Error("a packet with no XML should not conform")
+	}
+	if DocumentXMPConforms([]byte("<a><b></a>"), spec) {
 		t.Error("an unparsable packet should not conform")
 	}
 

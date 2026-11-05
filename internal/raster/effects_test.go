@@ -113,7 +113,7 @@ func TestNonSeparableBlends(t *testing.T) {
 	if got := blend("Hue", cs, [3]float64{0.1, 0.9, 0.1}); got == cs {
 		t.Errorf("Hue left the colour unchanged: %v", got)
 	}
-	// Results out of range come back inside it, whichever end they left.
+	// setLum brings components outside [0, 1] back into it.
 	for _, c := range []([3]float64){setLum([3]float64{1, 1, 0}, 0.95), setLum([3]float64{0, 0, 1}, 0.02)} {
 		for _, v := range c {
 			if v < -1e-9 || v > 1+1e-9 {
@@ -186,8 +186,9 @@ func TestSoftMaskGroupColourSpace(t *testing.T) {
 	}
 }
 
-// TestSoftMaskIsReusedAndScopedToTheCTM verifies a mask follows the CTM at the
-// gs operator, and that drawing with it twice gives one rendered mask.
+// TestSoftMaskIsReusedAndScopedToTheCTM verifies that a soft mask follows the
+// CTM in force at the gs operator, and that drawing with it twice is still
+// masked correctly.
 func TestSoftMaskIsReusedAndScopedToTheCTM(t *testing.T) {
 	half := maskForm("Luminosity", "1 g 0 0 5 10 re f", nil)
 	states := map[string]pdf.PDFValue{"E": dictOf(map[string]pdf.PDFValue{"SMask": half})}
@@ -264,8 +265,8 @@ func TestPathReach(t *testing.T) {
 	}
 }
 
-// TestFormClipWithoutBBox verifies a form with no usable /BBox does not narrow
-// the clip.
+// TestFormClipWithoutBBox verifies that a form with no usable bounding box
+// (/BBox) does not narrow the clip.
 func TestFormClipWithoutBBox(t *testing.T) {
 	clip := [4]float64{1, 2, 3, 4}
 	if got := formClip(pdf.NewPDFDict(), content.IdentityMatrix, clip); got != clip {

@@ -8,8 +8,8 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// dropEffects is the raster-drop feature for transparency effects the renderer
-// stopped applying because a page ran out of effectPixelBudget.
+// dropEffects is the feature recorded when a page exceeds effectPixelBudget and
+// its blend modes and soft masks are painted without them.
 const dropEffects = "blend mode or soft mask"
 
 // effectPixelBudget bounds the pixels one render composites through a blend mode
@@ -33,14 +33,15 @@ func (m *softMask) at(x, y int) float64 {
 }
 
 // softMaskKey identifies a rendered mask: the same dictionary under another CTM
-// is a different mask, since a mask's coordinates are those in force at the gs.
+// is a different mask, since a mask's coordinates are those in force at the gs
+// operator.
 type softMaskKey struct {
 	dict uintptr
 	ctm  content.Matrix
 }
 
-// applySoftMask sets gs's soft mask from an ExtGState /SMask value. /None clears
-// it, and so does a value that cannot be drawn.
+// applySoftMask sets gs's soft mask from an ExtGState soft mask (/SMask) value.
+// /None clears it, and so does a value that cannot be drawn.
 func (r *renderer) applySoftMask(v pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
 	d, ok := v.(pdf.PDFDict)
 	if !ok {
@@ -124,7 +125,7 @@ func luminosityOf(px []uint8) uint8 {
 }
 
 // softMaskBackdrop returns the colour a luminosity mask's group starts on: the
-// /BC entry in the group's colour space, or black.
+// backdrop colour (/BC) in the group's colour space, or black.
 func softMaskBackdrop(d, form, resources pdf.PDFDict) [3]float64 {
 	comps, err := pdf.FloatArray(d.Entries.Get("BC"))
 	if err != nil {
@@ -148,8 +149,9 @@ func softMaskBackdrop(d, form, resources pdf.PDFDict) [3]float64 {
 	return [3]float64{red, green, blue}
 }
 
-// softMaskTransfer tabulates a soft-mask dictionary's /TR function, which maps
-// mask values to opacities. Identity, absent or unusable, it changes nothing.
+// softMaskTransfer tabulates the transfer function (/TR) of a soft-mask
+// dictionary, which maps mask values to opacities. An identity, absent or
+// unusable function changes nothing.
 func softMaskTransfer(d pdf.PDFDict) *[256]uint8 {
 	table := new([256]uint8)
 	var fn pdf.Function
@@ -168,8 +170,9 @@ func softMaskTransfer(d pdf.PDFDict) *[256]uint8 {
 	return table
 }
 
-// blendModeOf returns the blend mode a /BM value selects: the first one the
-// renderer knows of a name or array, or "" for Normal.
+// blendModeOf returns the blend mode selected by a blend mode (/BM) value: the
+// first name the renderer knows, taken from a name or an array of names, or ""
+// for Normal.
 func blendModeOf(v pdf.PDFValue) string {
 	names := []pdf.PDFValue{v}
 	if arr, ok := v.(pdf.PDFArray); ok {
@@ -190,9 +193,9 @@ func blendModeOf(v pdf.PDFValue) string {
 	return ""
 }
 
-// withEffects runs paint, which marks the canvas. Under a soft mask or blend
-// mode, it marks a separate layer over hint, the area paint can reach, that is
-// then composited with them; paint sees neither in gs.
+// withEffects runs paint, which marks the canvas. If gs has a soft mask or blend
+// mode, paint marks a separate layer over hint, the area paint can reach, and
+// that layer is composited with them. paint runs with neither set in gs.
 func (r *renderer) withEffects(gs *renderState, hint image.Rectangle, paint func()) {
 	if gs.softMask == nil && gs.blendMode == "" {
 		paint()

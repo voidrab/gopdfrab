@@ -308,6 +308,20 @@ func TestEmbeddedFileFixerConvertsPDFs(t *testing.T) {
 			t.Errorf("Params not updated: Size %v, CheckSum %v", params.Entries.Get("Size"), params.Entries.Get("CheckSum"))
 		}
 	})
+	t.Run("a stream shared by two file specifications converts once", func(t *testing.T) {
+		ef := pdf.NewStreamDict(nil, readCorpus(t, "6-5-1-t01-fail-b.pdf"))
+		spec := func() pdf.PDFDict {
+			return specDict("Type", specName("Filespec"), "F", pdf.PDFString{Value: "a"}, "UF", pdf.PDFString{Value: "a"}, "EF", specDict("F", ef))
+		}
+		first, second := spec(), spec()
+		trailer := trailerWith("X", pdf.PDFArray{first, second})
+		if _, err := (embeddedFileFixer{ctx: ctx, profile: pdf.PDFA2B}).Fix(&trailer, issuesOf(pdf.Checks.Structure.EmbeddedFileNotPDFA)); err != nil {
+			t.Fatal(err)
+		}
+		if first.Entries.Get("EF") == nil || second.Entries.Get("EF") == nil {
+			t.Error("a converted file was removed")
+		}
+	})
 	t.Run("loss inside is reported", func(t *testing.T) {
 		_, lost, kept := fix(ctx, readCorpus(t, "6-3-1-t01-fail-a.pdf"))
 		if !kept || len(lost) == 0 || !strings.Contains(lost[0].Error(), `"a.pdf" converted to PDF/A: `) {

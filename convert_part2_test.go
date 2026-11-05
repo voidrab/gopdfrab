@@ -67,7 +67,8 @@ func retainedFeatures(t *testing.T, path string) map[string]int {
 	return counts
 }
 
-// usesJPX reports whether a /Filter value names JPXDecode.
+// usesJPX reports whether a filter (/Filter) value names JPXDecode, either
+// alone or in an array.
 func usesJPX(filter pdf.PDFValue) bool {
 	jpx := pdf.PDFValue(pdf.PDFName{Value: "JPXDecode"})
 	if arr, ok := filter.(pdf.PDFArray); ok {
@@ -110,9 +111,9 @@ func TestConvertLeavesConformingPart2FilesIntact(t *testing.T) {
 	}
 }
 
-// TestDifferentialConvertedOutputs has veraPDF validate the conversion of every
-// fixture of a PDF/A-2 corpus: the verifier here passing its own output proves
-// less, since a gap in a check hides the same gap in a fixer.
+// TestDifferentialConvertedOutputs verifies that veraPDF accepts the conversion
+// of every fixture in each PDF/A-2b corpus. The package's own verifier is not
+// used, because a gap in a check hides the same gap in a fixer.
 func TestDifferentialConvertedOutputs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("differential cross-check skipped in short mode")
