@@ -328,10 +328,10 @@ func (ctx *ValidationContext) subsetSetsOptional() bool {
 	return ctx.Spec != nil && ctx.Spec.SubsetSetsOptional
 }
 
-// exactCharSet reports whether a Type 1 subset's CharSet must name exactly
-// the glyphs of its embedded program.
-func (ctx *ValidationContext) exactCharSet() bool {
-	return ctx.Spec != nil && ctx.Spec.ExactCharSet
+// exactSubsetSets reports whether a subset's CharSet or CIDSet must list
+// exactly the glyphs of its embedded program.
+func (ctx *ValidationContext) exactSubsetSets() bool {
+	return ctx.Spec != nil && ctx.Spec.ExactSubsetSets
 }
 
 // symbolCmapAmongOthers reports whether a symbolic TrueType font may have

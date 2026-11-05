@@ -158,3 +158,12 @@ func TestParseSfntAndCFFIndexMalformed(t *testing.T) {
 		t.Error("cffStringIndexEntries should be nil for too-short input")
 	}
 }
+
+func TestTTNumHMetrics(t *testing.T) {
+	if got := TTNumHMetrics(map[string][]byte{"hhea": hheaWithNumHMetrics(7)}); got != 7 {
+		t.Errorf("TTNumHMetrics = %d, want 7", got)
+	}
+	if got := TTNumHMetrics(map[string][]byte{}); got != 0 {
+		t.Errorf("TTNumHMetrics without hhea = %d, want 0", got)
+	}
+}

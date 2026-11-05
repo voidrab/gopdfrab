@@ -166,6 +166,7 @@ func TestCMapCIDEntryLastCID(t *testing.T) {
 		{"reversed codes", CMapCIDEntry{Lo: tok("<10>"), Hi: tok("<01>"), CID: tok("7")}, 7, true},
 		{"low code malformed", CMapCIDEntry{Lo: tok("10"), Hi: tok("<11>"), CID: tok("7")}, 7, true},
 		{"high code not hex", CMapCIDEntry{Lo: tok("<10>"), Hi: tok("<zz>"), CID: tok("7")}, 7, true},
+		{"signed code", CMapCIDEntry{Lo: tok("<-1>"), Hi: tok("<11>"), CID: tok("7")}, 7, true},
 		{"empty code", CMapCIDEntry{Lo: tok("<>"), Hi: tok("<11>"), CID: tok("7")}, 7, true},
 		{"CID not a number", CMapCIDEntry{CID: tok("x")}, 0, false},
 	}

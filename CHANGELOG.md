@@ -105,6 +105,9 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- PDF/A-2b requires a subset font's CIDSet to list exactly the CIDs of its
+  embedded program, used or not; only the used ones were checked. Convert
+  removes a CIDSet that does not, as it is optional at this level.
 - A CMap range is checked over every CID it maps, not only its first, and
   convert cuts a range short at the limit. A range that started within the
   limit and ran past it passed verification, and conversion could produce one.

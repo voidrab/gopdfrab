@@ -390,10 +390,10 @@ func TestFontSubsetMetaFixerSynthesizesType1CharSet(t *testing.T) {
 	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
 }
 
-// TestFontSubsetMetaFixerExactCharSet verifies that a CharSet naming a glyph
+// TestFontSubsetMetaFixerExactSubsetSets verifies that a CharSet naming a glyph
 // the program does not define is kept by default and rebuilt when the level
 // wants the exact set.
-func TestFontSubsetMetaFixerExactCharSet(t *testing.T) {
+func TestFontSubsetMetaFixerExactSubsetSets(t *testing.T) {
 	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t02-fail-a.pdf"
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
@@ -923,6 +923,30 @@ func TestFixType1CharSetRejectsNonStreamFontFile(t *testing.T) {
 		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{key: pdf.PDFInteger(1)})}
 		if fixType1CharSet(desc, false) {
 			t.Errorf("%s: a non-stream program changed the descriptor", key)
+		}
+	}
+}
+
+// TestFixFontSubsetMetaDictRemovesCIDSetWhenExact verifies that a level with
+// exact subset sets drops a CIDSet, for both kinds of CID font, and reports a
+// change only when there was one to drop.
+func TestFixFontSubsetMetaDictRemovesCIDSetWhenExact(t *testing.T) {
+	for _, subtype := range []string{"CIDFontType0", "CIDFontType2"} {
+		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDSet": pdf.NewStreamDict(pdf.NewDict(), []byte{0xFF})})}
+		font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Type":           pdf.PDFName{Value: "Font"},
+			"Subtype":        pdf.PDFName{Value: subtype},
+			"BaseFont":       pdf.PDFName{Value: "ABCDEF+Test"},
+			"FontDescriptor": desc,
+		})}
+		if !fixFontSubsetMetaDict(font, true) {
+			t.Errorf("%s: first pass reported no change", subtype)
+		}
+		if desc.Entries.Get("CIDSet") != nil {
+			t.Errorf("%s: CIDSet still present", subtype)
+		}
+		if fixFontSubsetMetaDict(font, true) {
+			t.Errorf("%s: second pass reported a change", subtype)
 		}
 	}
 }

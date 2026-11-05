@@ -177,8 +177,8 @@ func cmapHexValue(tok string) (int64, bool) {
 	if len(tok) < 3 || tok[0] != '<' || tok[len(tok)-1] != '>' {
 		return 0, false
 	}
-	v, err := strconv.ParseInt(tok[1:len(tok)-1], 16, 64)
-	return v, err == nil
+	v, err := strconv.ParseUint(tok[1:len(tok)-1], 16, 63)
+	return int64(v), err == nil
 }
 
 // EachCMapCID calls fn with each cidrange and cidchar entry in CMap PostScript

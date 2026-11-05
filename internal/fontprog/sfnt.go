@@ -30,6 +30,16 @@ func TTLocaHasGlyph(tables map[string][]byte) func(gid int) bool {
 	}
 }
 
+// TTNumHMetrics returns the number of horizontal metrics the hhea table
+// declares, or 0 when it is missing or too short.
+func TTNumHMetrics(tables map[string][]byte) int {
+	hhea := tables["hhea"]
+	if len(hhea) < 36 {
+		return 0
+	}
+	return int(binary.BigEndian.Uint16(hhea[34:36]))
+}
+
 // TTNumGlyphs returns the number of glyphs in the font from the maxp table,
 // or 0 if unavailable. A glyph ID is valid (present in the font) when it is
 // in [0, numGlyphs-1]; empty outlines (space/whitespace) are still valid.

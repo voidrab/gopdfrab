@@ -149,6 +149,8 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 			if !ctx.subsetSetsOptional() {
 				ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
 			}
+		} else if subset && ctx.exactSubsetSets() {
+			validateCIDSetExact(v, desc, ctx)
 		} else if subset && !renderingMode3 {
 			switch subtype.Value {
 			case "CIDFontType0":
@@ -467,8 +469,9 @@ func validateCMapStream(v pdf.PDFDict, ctx *ValidationContext) {
 	checkCMapCIDLimits(v, data, ctx)
 }
 
-// checkCMapCIDLimits scans CMap PostScript content for CID values over the
-// level's limit, counting every CID a range maps to and not only its first.
+// checkCMapCIDLimits scans CMap PostScript content for entries that map a CID
+// over the level's limit. A range is checked by its last CID, which is the
+// largest one it maps to.
 func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 	maxCID := ctx.Spec.Limits.MaxCID
 	fontprog.EachCMapCID(data, func(e fontprog.CMapCIDEntry) {

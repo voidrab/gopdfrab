@@ -693,7 +693,7 @@ func fixType3Widths(v pdf.PDFDict) bool {
 // /CharSet or /CIDSet from the glyphs actually present in the embedded
 // program, mirroring validateType1SubsetCoverage's CharSet-presence check
 // and validateCIDSetBitmap (checks_font.go/checks_font_program.go). exact
-// is the level's Spec.ExactCharSet.
+// is the level's Spec.ExactSubsetSets.
 type fontSubsetMetaFixer struct{ exact bool }
 
 func (fontSubsetMetaFixer) Applies(c pdf.Check) bool {
@@ -746,6 +746,13 @@ func fixFontSubsetMetaDict(d pdf.PDFDict, exact bool) bool {
 	}
 
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	if exact && (subtype.Value == "CIDFontType0" || subtype.Value == "CIDFontType2") {
+		// A level with exact sets makes them optional, and a program's own
+		// glyph list is no more than a CIDSet could say, so the set just goes.
+		_, present := desc.Entries.Lookup("CIDSet")
+		desc.Entries.Del("CIDSet")
+		return present
+	}
 	switch subtype.Value {
 	case "Type1", "MMType1":
 		return fixType1CharSet(desc, exact)
