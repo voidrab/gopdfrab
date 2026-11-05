@@ -114,6 +114,10 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- A form XObject or Type 3 font without resources of its own was excused from
+  the device colour rules by the page's Default colour spaces, which apply only
+  in the resources that define them. Verify now reports such a stream, and
+  convert gives the holder its own resources with the Default colour space.
 - The string length limit was not applied to hexadecimal strings, in the
   document or in content streams. Verify now reports them and convert truncates
   them.

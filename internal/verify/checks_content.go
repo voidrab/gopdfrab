@@ -172,15 +172,14 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 }
 
 // reportContentColour flags a device colour model not covered by an output
-// intent (6.2.3.3), unless a Default* colour space override applies.
+// intent (6.2.3.3), unless the stream's own resources define a Default* colour
+// space for it. A form XObject or Type 3 font without resources of its own has
+// none: the Default* spaces of the page do not reach it.
 func reportContentColour(obj pdf.PDFValue, model string, resources pdf.PDFDict, ctx *ValidationContext) {
 	if ctx.deviceColourAllowed(model) {
 		return
 	}
 	if DefaultColorSpaceDefined(model, resources) {
-		return
-	}
-	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
 	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))

@@ -396,14 +396,13 @@ func BaseColourModel(cs pdf.PDFValue) string {
 
 // checkBaseColour reports an Indexed or Pattern colour space based on a
 // device colour space that no output intent and no Default colour space in
-// resources or the enclosing scope covers.
+// resources covers.
 func checkBaseColour(cs pdf.PDFValue, resources pdf.PDFDict, obj pdf.PDFValue, ctx *ValidationContext) {
 	if !ctx.part2() {
 		return
 	}
 	model := BaseColourModel(cs)
-	if model == "" || ctx.deviceColourAllowed(model) ||
-		DefaultColorSpaceDefined(model, resources) || DefaultColorSpaceDefined(model, ctx.resourceScope) {
+	if model == "" || ctx.deviceColourAllowed(model) || DefaultColorSpaceDefined(model, resources) {
 		return
 	}
 	head, _ := cs.(pdf.PDFArray)[0].(pdf.PDFName)

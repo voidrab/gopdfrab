@@ -114,7 +114,7 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
-	checkBaseColour(cs, pdf.PDFDict{}, obj, ctx)
+	checkBaseColour(cs, ctx.resourceScope, obj, ctx)
 	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
 }
 

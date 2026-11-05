@@ -194,7 +194,7 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 				decode: f.decode, visited: map[uintptr]bool{},
 			}
 			forEachContentStream(d, func(cs pdf.PDFDict) {
-				if in.run(cs, resources) {
+				if in.follow(cs, resources) {
 					changed = true
 				}
 			})
@@ -228,9 +228,6 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 		needRGB: needRGB, needCMYK: needCMYK,
 		rgb: sharedRGB, cmyk: sharedCMYK,
 		decode: decode, visited: map[uintptr]bool{},
-		// An appearance stream stands on its own resources, so it can
-		// be given a resource dict it did not have.
-		create: true,
 	}
 	changed := false
 	switch v := n.(type) {
@@ -274,19 +271,24 @@ type defaultCSInjection struct {
 	rgb, cmyk         pdf.PDFArray
 	decode            decodeFunc
 	visited           map[uintptr]bool
-	// create allows a stream that has no /Resources of its own to be given
-	// one. A form XObject inside a page must not be: it reads the page's
-	// resources for every name it uses, so handing it a resource dict holding
-	// nothing but a colour space would cut it off from all of them. Its
-	// content is read in the page's scope anyway, which is where the page-level
-	// injection put the same entry.
-	create bool
 }
 
-// run injects into stream's own resources and follows every form XObject it
-// draws, resolving names in scope -- the stream's own /Resources when it has
-// them, the enclosing dict's otherwise.
+// run injects into the resources of stream, a form XObject or tiling pattern,
+// and follows what it draws. scope holds the names the stream reads: its own
+// /Resources when it has them, the enclosing dict's otherwise.
 func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
+	if in.visited[pdf.ValuePointer(stream.Entries)] {
+		return false
+	}
+	adoptResources(stream, scope)
+	changed := injectDefaultCS(stream, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
+	return in.follow(stream, scope) || changed
+}
+
+// follow injects into every form XObject and tiling pattern that stream draws
+// and every Type 3 font it selects. stream itself takes no entry, which suits
+// a page's content and a glyph procedure: both read their holder's resources.
+func (in defaultCSInjection) follow(stream, scope pdf.PDFDict) bool {
 	ptr := pdf.ValuePointer(stream.Entries)
 	if in.visited[ptr] {
 		return false
@@ -294,10 +296,6 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 	in.visited[ptr] = true
 
 	changed := false
-	if _, own := stream.Entries.Get("Resources").(pdf.PDFDict); own || in.create {
-		changed = injectDefaultCS(stream, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
-	}
-
 	decode := in.decode
 	if decode == nil {
 		decode = pdf.DecodeStream
@@ -341,28 +339,41 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 	return changed
 }
 
+// adoptResources gives a holder without /Resources a copy of the resources it
+// reads names from. A Default colour space applies only in a holder's own
+// resources, and a dictionary holding nothing else would cut it off from every
+// name it uses.
+func adoptResources(holder, scope pdf.PDFDict) {
+	if _, own := holder.Entries.Get("Resources").(pdf.PDFDict); own {
+		return
+	}
+	res := pdf.NewPDFDict()
+	if scope.Entries != nil {
+		res = pdf.PDFDict{Entries: scope.Entries.Clone()}
+	}
+	holder.Entries.Set("Resources", res)
+}
+
 // runType3 injects Default colour spaces into the resources of the Type 3 font
-// that a Tf operand names, if the font has its own Resources, and follows the
-// form XObjects its glyph procedures draw. The glyph procedures are checked
-// against the font's resources, which the page's Default colour spaces do not
-// reach.
+// that a Tf operand names and follows the form XObjects its glyph procedures
+// draw. The glyph procedures are checked against the font's resources, which
+// the page's Default colour spaces do not reach.
 func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) bool {
 	font, ok := namedType3Font(operand, scope)
 	if !ok {
 		return false
 	}
-	res, own := font.Entries.Get("Resources").(pdf.PDFDict)
 	ptr := pdf.ValuePointer(font.Entries)
-	if !own || in.visited[ptr] {
+	if in.visited[ptr] {
 		return false
 	}
 	in.visited[ptr] = true
+	adoptResources(font, scope)
 	// injectDefaultCS edits the font's resources in place.
 	changed := injectDefaultCS(font, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
-	glyphs := in
-	glyphs.create = false
+	res, _ := font.Entries.Get("Resources").(pdf.PDFDict)
 	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
-		if glyphs.run(r.Stream, res) {
+		if in.follow(r.Stream, res) {
 			changed = true
 		}
 	})

@@ -230,8 +230,8 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Fown", owned)
 	xobjects.Entries.Set("Fborrowed", borrowed)
-	// The page already carries DefaultCMYK, so the form that borrows the page's
-	// resources needs no injection.
+	// The page already carries DefaultCMYK, which does not reach the forms it
+	// draws.
 	pageCS := pdf.NewPDFDict()
 	pageCS.Entries.Set("DefaultCMYK", iccBasedColourSpace(4, cmykICCProfile))
 	pageRes := pdf.NewPDFDict()
@@ -267,8 +267,14 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	if !verify.DefaultColorSpaceDefined("cmyk", ownRes) {
 		t.Error("DefaultCMYK not injected into the form's own resources")
 	}
-	if _, has := borrowed.Entries.Lookup("Resources"); has {
-		t.Error("a form without its own resources was given one")
+	// A form without resources of its own gets a copy of those it reads names
+	// from, so the entry applies and every name still resolves.
+	adopted, _ := borrowed.Entries.Get("Resources").(pdf.PDFDict)
+	if !verify.DefaultColorSpaceDefined("cmyk", adopted) {
+		t.Error("DefaultCMYK not injected into a form without its own resources")
+	}
+	if adopted.Entries.Get("XObject") == nil {
+		t.Error("the adopted resources lost the names the form reads")
 	}
 }
 
@@ -666,9 +672,9 @@ func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 	}
 }
 
-// TestDefaultCSInjectionReachesType3Glyphs verifies that a Type 3 font with
-// its own resources gets the Default colour space, and that the forms its
-// glyphs draw are followed.
+// TestDefaultCSInjectionReachesType3Glyphs verifies that a Type 3 font gets the
+// Default colour space, with or without resources of its own, and that the forms
+// its glyphs draw are followed.
 func TestDefaultCSInjectionReachesType3Glyphs(t *testing.T) {
 	inner := pdf.NewStreamDict(kv("Subtype", nm("Form"), "Resources", kv()).Entries, []byte("1 0 0 rg"))
 	glyph := pdf.NewStreamDict(nil, []byte("/X0 Do"))
@@ -684,7 +690,7 @@ func TestDefaultCSInjectionReachesType3Glyphs(t *testing.T) {
 	}{
 		{"Type 3 font", nm("T3"), true},
 		{"Type 3 font again", nm("T3"), false},
-		{"Type 3 font without resources", nm("T0"), false},
+		{"Type 3 font without resources", nm("T0"), true},
 		{"not a Type 3 font", nm("F1"), false},
 		{"unknown font", nm("F9"), false},
 		{"operand not a name", pdf.PDFInteger(1), false},
@@ -693,7 +699,7 @@ func TestDefaultCSInjectionReachesType3Glyphs(t *testing.T) {
 			t.Errorf("%s: runType3 = %v, want %v", tc.desc, got, tc.want)
 		}
 	}
-	for _, d := range []pdf.PDFDict{type3, inner} {
+	for _, d := range []pdf.PDFDict{type3, bare, inner} {
 		if !verify.DefaultColorSpaceDefined("rgb", resourcesOf(d, pdf.PDFDict{})) {
 			t.Errorf("%v got no DefaultRGB", d)
 		}
