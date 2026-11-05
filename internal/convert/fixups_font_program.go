@@ -1035,9 +1035,10 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 }
 
 // cidsWithGlyphs returns the CIDs of a CIDFontType2 that select a glyph of its
-// program. Under an Identity CIDToGIDMap they are the glyphs present. Under a stream
-// they are the CIDs from 1 up that it maps within the program, as veraPDF counts
-// them. ok is false for a program without glyphs or an unusable map.
+// program. Under an Identity CIDToGIDMap they are the glyphs present. Under a
+// stream they are the CIDs from 1 up that it maps within the program, as
+// veraPDF counts them. ok is false for a program without glyphs or an unusable
+// map.
 func cidsWithGlyphs(d pdf.PDFDict, tables map[string][]byte) (cids []int, ok bool) {
 	numGlyphs := fontprog.TTNumGlyphs(tables)
 	if numGlyphs <= 0 {
@@ -1067,9 +1068,9 @@ func cidsWithGlyphs(d pdf.PDFDict, tables map[string][]byte) (cids []int, ok boo
 	}
 }
 
-// fixTrueTypeCIDSet synthesizes or completes /CIDSet from the CIDs a CIDFontType2
-// has glyphs for. It handles both a missing CIDSet and an existing one that omits
-// a present glyph.
+// fixTrueTypeCIDSet synthesizes or completes /CIDSet from the CIDs a
+// CIDFontType2 has glyphs for. It handles both a missing CIDSet and an existing
+// one that omits a present glyph.
 func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	tables, ok := decodeSfnt(ff)
 	if !ok {

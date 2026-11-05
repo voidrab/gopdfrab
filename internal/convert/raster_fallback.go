@@ -72,8 +72,9 @@ func (r *run) residual(docWide bool) bool {
 	return !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, docWide)
 }
 
-// withFixers returns the last verify's issues that have a fixer. The writer repairs
-// the others by construction, so they are no reason to flatten the page they name.
+// withFixers returns the last verify's issues that have a fixer. The writer
+// repairs the others by construction, so they are no reason to flatten the page
+// they name.
 func (r *run) withFixers() []pdf.PDFError {
 	var issues []pdf.PDFError
 	for _, iss := range r.cr.Result.Issues {
