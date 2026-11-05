@@ -348,8 +348,9 @@ func TestEmbeddedFileFixerConvertsPDFs(t *testing.T) {
 		}
 	})
 	t.Run("output stays invalid", func(t *testing.T) {
-		// More files than the judge may verify leaves one undecided, which the
-		// nested conversion keeps, so its output cannot be called valid.
+		// The judge verifies a fixed number of embedded files per run, so with
+		// 65 files one is left undecided. The nested conversion keeps that
+		// file, so its output cannot be valid.
 		ok2B, err := os.ReadFile(compliant2B)
 		if err != nil {
 			t.Fatal(err)

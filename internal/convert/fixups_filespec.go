@@ -101,13 +101,13 @@ func reportLost(lost *[]pdf.PDFError, c pdf.Check, d pdf.PDFDict, msg string) {
 // --- 6.8 Embedded files (PDF/A-2) ---
 
 // embeddedFileFixer repairs the file specifications of embedded files, those
-// found by their Filespec type and those of the EmbeddedFiles name tree, each
-// repair only when its own check was reported. An embedded PDF that does not
-// comply with PDF/A-1b or PDF/A-2b is converted to the profile's level; a file
-// specification with an embedded file that cannot be converted loses its EF
-// entry, and the removal is reported to lost, when non-nil. One that keeps its
-// EF entry but lacks an F or UF string gets the one from the other, or both
-// from its name in the tree, or else a generic name.
+// found by their Filespec type and those in the EmbeddedFiles name tree. Each
+// repair runs only when its own check was reported. An embedded PDF that does
+// not comply with PDF/A-1b or PDF/A-2b is converted to the profile's level. If
+// it cannot be converted, its EF entry is removed and the removal is reported
+// to lost when lost is non-nil. A file specification that keeps its EF entry
+// but lacks an F or UF string gets the one from the other, or both from its
+// name in the tree, or else a generic name.
 type embeddedFileFixer struct {
 	ctx     context.Context
 	profile *pdf.Profile
@@ -179,16 +179,16 @@ func (f embeddedFileFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 	return changed, nil
 }
 
-// The limits on converting embedded files. Each file is decoded into memory and
-// converted with all of the same machinery, so an input must not be able to ask
-// for this without bound.
+// Bounds on the conversion of embedded PDFs. Each file is decoded into memory
+// and converted by the same pipeline, so the nesting depth and the total
+// decoded bytes are capped to keep an input from forcing unbounded work.
 const (
 	maxEmbedConvertDepth = 2
 	maxEmbedConvertBytes = 256 << 20
 )
 
-// embedConvert is what the conversions of a document's embedded files, and those
-// of the files they embed in turn, share through the run's context.
+// embedConvert is the state that the conversions of a document's embedded
+// files, and of the files they embed in turn, share through the context.
 type embedConvert struct {
 	depth int
 	// left is how many more decoded bytes may be converted.
@@ -198,10 +198,10 @@ type embedConvert struct {
 type embedConvertKey struct{}
 
 // convertEmbedded replaces the embedded file ef of the file specification fs
-// with a conversion to the fixer's profile. It reports whether it did: the file
-// may not be a PDF, may not convert to a valid one, or may exceed the limits.
-// What the conversion had to give up is reported to lost, since the output
-// hides it.
+// with its conversion to the fixer's profile. It reports whether the
+// replacement was made. The replacement is not made when the data does not
+// decode, the conversion does not yield a valid PDF, or a limit is exceeded.
+// Losses made by the conversion are reported to lost.
 func (f embeddedFileFixer) convertEmbedded(fs, ef pdf.PDFDict) bool {
 	state, ok := f.ctx.Value(embedConvertKey{}).(embedConvert)
 	if !ok {
