@@ -37,8 +37,9 @@ func TestIterationCapDoesNotRasterizeFixedPages(t *testing.T) {
 	}
 }
 
-// cjkPagesPDF builds a document with an unembedded CID font no fixer can embed,
-// which the pages in shows hold in their resources and show.
+// cjkPagesPDF builds a document of pages pages and an unembedded CID font that
+// no fixer can embed. A page numbered in shows holds the font in its resources
+// and shows it; the other pages draw a rectangle only.
 func cjkPagesPDF(pages int, shows map[int]bool) []byte {
 	const objsPerPage = 2
 	kids := ""
@@ -62,9 +63,9 @@ func cjkPagesPDF(pages int, shows map[int]bool) []byte {
 	return b.FinishClassic(fmt.Sprintf("<< /Size %d /Root 1 0 R /ID [<00112233445566778899aabbccddeeff><00112233445566778899aabbccddeeff>] >>", 5+objsPerPage*pages))
 }
 
-// TestRasterBackstopFlattensOnlyPagesShowingTheFont verifies that a font no fixer
-// can embed flattens exactly the pages that show it, in one pass, however many
-// they are, although the verifier reports the font once.
+// TestRasterBackstopFlattensOnlyPagesShowingTheFont verifies that a font no
+// fixer can embed flattens exactly the pages that show it, although the
+// verifier reports the font once.
 func TestRasterBackstopFlattensOnlyPagesShowingTheFont(t *testing.T) {
 	shows := map[int]bool{}
 	want := []int{}

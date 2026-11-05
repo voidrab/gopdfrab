@@ -384,9 +384,10 @@ func TestFontMetricFixerGrowsTrueTypeWidthsForShownCode(t *testing.T) {
 	}
 }
 
-// TestFontMetricFixerFullWalkGrowsWidths verifies that the repair reached through
-// the full walk, which an issue without a reference forces, also covers the codes
-// and CIDs shown without a width entry, whether the font is direct or indirect.
+// TestFontMetricFixerFullWalkGrowsWidths verifies that Fix, which walks every
+// font dictionary, adds the widths of codes shown without a /Widths entry to a
+// simple TrueType font, and of CIDs shown without a /W entry to a CIDFontType2
+// font.
 func TestFontMetricFixerFullWalkGrowsWidths(t *testing.T) {
 	ttf := streamOf(fontsubst.LiberationSansRegular)
 	simple := dictOf(map[string]pdf.PDFValue{
@@ -466,8 +467,9 @@ func TestGrowCIDTrueTypeWidths(t *testing.T) {
 	}
 }
 
-// TestShownUsageGrowShownIgnoresOtherDicts verifies that only an embedded TrueType
-// or CIDFontType2 font is considered.
+// TestShownUsageGrowShownIgnoresOtherDicts verifies that growShown considers
+// only a Font dictionary of Subtype TrueType or CIDFontType2 that has an
+// embedded program.
 func TestShownUsageGrowShownIgnoresOtherDicts(t *testing.T) {
 	trailer := dictOf(nil)
 	u := shownUsage{trailer: &trailer}

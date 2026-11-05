@@ -557,8 +557,9 @@ func CIDDefaultWidth(obj pdf.PDFValue) int {
 }
 
 // ValidateCIDTrueTypeSubset checks that every CID referenced for rendering has
-// a glyph in the embedded TrueType program (6.3.5). CIDs that are only declared
-// (in W) but never shown are exempt when usage info is available.
+// a glyph in the embedded TrueType program (6.3.5). When usage is known, only
+// the shown CIDs are checked. Otherwise a CID that the CIDToGIDMap does not
+// cover is skipped, because W may declare it without showing it.
 func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
@@ -929,9 +930,8 @@ func validateType1Metrics(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, fi
 		usedCodes, knownUsage = ctx.usedCodesFor(fontDict)
 	}
 
-	// A code outside /Widths takes its width from /MissingWidth, so a font
-	// whose FirstChar starts past a code it shows is checked there rather than
-	// not at all -- which is where the Isartor 6.3.6 case lives.
+	// A shown code outside /Widths takes its width from /MissingWidth, so such
+	// a code is checked against that width rather than skipped.
 	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
 	for _, cc := range ShownOutsideWidths(usedCodes, firstChar, len(widths)) {
 		if !reportType1WidthMismatch(obj, cc, missing, enc, glyphWidths, ctx) {

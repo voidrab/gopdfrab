@@ -332,10 +332,11 @@ func (u *shownUsage) repair(d pdf.PDFDict) bool {
 	return u.growShown(d) || fixed
 }
 
-// growShown gives font d width entries for what it shows without one: a code
-// outside the /Widths of a simple TrueType font, or a CID absent from the /W of a
-// CIDFontType2. The width such a code or CID takes otherwise can disagree with the
-// embedded program, and only the codes shown are checked.
+// growShown adds width entries to font d for the codes or CIDs it shows that
+// have none: a code outside the /Widths of an embedded simple TrueType font,
+// or a CID absent from the /W of an embedded CIDFontType2. Such a code or CID
+// takes its width from /MissingWidth or /DW, which can disagree with the
+// program.
 func (u *shownUsage) growShown(d pdf.PDFDict) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 		return false

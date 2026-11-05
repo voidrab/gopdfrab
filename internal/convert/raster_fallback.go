@@ -66,8 +66,8 @@ func (r *run) backstop() error {
 	return nil
 }
 
-// residual reports whether the last verify left issues a raster pass can repair;
-// docWide is hasFixableIssue's.
+// residual reports whether the last verify left an issue that a raster pass can
+// repair. docWide selects the document-level rule of hasFixableIssue.
 func (r *run) residual(docWide bool) bool {
 	return !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, docWide)
 }
@@ -84,9 +84,11 @@ func (r *run) recordRaster(drops []RasterDrop, rasterized []int) {
 
 // applyRasterFallback rebuilds every page carrying a residual issue as a flat
 // raster image (flattenPageToImage), the last-resort remediation for content
-// no targeted fixer could repair. A page in flattened was rebuilt by an earlier
-// pass and is left alone, and the pages of this pass are added to it. Page numbers
-// in issues align with the graph's page order, since both come from the same
+// no targeted fixer could repair. An issue that refers to a font reported as
+// unusable flattens the pages showing that font instead of the page the issue
+// was reported on. A page in flattened was rebuilt by an earlier pass and is
+// left alone, and the pages of this pass are added to it. Page numbers in
+// issues align with the graph's page order, since both come from the same
 // Root/Pages/Kids walk.
 func applyRasterFallback(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, issues []pdf.PDFError, flattened map[int]bool, dpi int) ([]RasterDrop, []int, bool) {
 	pages := orderedPages(*trailer)
@@ -119,11 +121,9 @@ func applyRasterFallback(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFD
 	return flattenPagesParallel(ctx, flagged, pageNums, dpi)
 }
 
-// pagesShowingUnusableFonts maps the object number of each font issues report as
-// unusable whatever it shows, not embedded or with a damaged program, to the pages
-// that show it, which is every page that font's report stands for. Other font
-// findings can concern some of its glyphs only, so they stay with the page they
-// were reported on.
+// pagesShowingUnusableFonts maps the object number of each font that issues
+// report as unusable (not embedded, or with a damaged program) to the numbers
+// of the pages that show it with visible text.
 func pagesShowingUnusableFonts(doc *pdf.Reader, trailer pdf.PDFDict, pages []pageTarget, issues []pdf.PDFError) map[int][]int {
 	font := pdf.Checks.Font
 	wanted := map[int]bool{}
@@ -155,10 +155,10 @@ func pagesShowingUnusableFonts(doc *pdf.Reader, trailer pdf.PDFDict, pages []pag
 	return showing
 }
 
-// flattenAllPages rasterizes every page, the final backstop for residuals that
-// applyRasterFallback can't target -- document-level violations with no page
-// number, or anything its page-by-page pass left behind. A page in flattened is
-// flat already and is left alone.
+// flattenAllPages rasterizes each page not in flattened. It is the final
+// backstop for residuals that applyRasterFallback can't target --
+// document-level violations with no page number, or anything its page-by-page
+// pass left behind.
 func flattenAllPages(ctx context.Context, trailer *pdf.PDFDict, flattened map[int]bool, dpi int) ([]RasterDrop, []int, bool) {
 	var pages []pageTarget
 	var pageNums []int

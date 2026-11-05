@@ -289,10 +289,10 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 	return in.follow(stream, scope) || changed
 }
 
-// holderIn returns the dictionary to work on for holder, which scope's category
-// resources name. A holder without /Resources reads its names from where it is
-// drawn, so adoption must not tie it to the first scope: each further scope gets
-// a copy, which takes the holder's place in that scope.
+// holderIn returns the dictionary to edit for holder when it is drawn in scope
+// under category and name. A holder without /Resources reads its names from
+// where it is drawn, so it cannot stay tied to the first scope that draws it:
+// each further scope gets a copy that takes the holder's place there.
 func (in defaultCSInjection) holderIn(holder, scope pdf.PDFDict, category, name string) pdf.PDFDict {
 	if in.adopted == nil {
 		return holder

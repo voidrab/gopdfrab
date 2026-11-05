@@ -221,9 +221,9 @@ func (t *overprintTracker) step(op string, operands []pdf.PDFValue, resources pd
 
 // enterForm checks the form XObject named by the operand of the Do operator, in
 // the state it inherits (ISO 32000-1 8.10.1). The walk already checks every form
-// from the initial state, so enterForm does nothing in that state. Each form is
-// read once per inherited state, which also ends a cycle of forms drawing each
-// other.
+// from the initial state, so enterForm does nothing in that state. Each form
+// is read once per inherited state and resource dictionary, which also ends a
+// cycle of forms drawing each other.
 func (t *overprintTracker) enterForm(operands []pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) {
 	if t.state == (overprint{}) {
 		return

@@ -40,9 +40,9 @@ func (r SimpleTrueTypeCmaps) Windows(cc int) (gid int, tried, found bool) {
 	return int(g), true, ok
 }
 
-// GID returns the glyph cc selects under the rule the width checks rely on: the
-// (3,1) cmap when Windows tried it, a miss there meaning the width cannot be
-// verified, and Fallback otherwise.
+// GID returns the glyph that code cc selects: the (3,1) cmap entry when Windows
+// tries it, where a miss means the width cannot be verified, and the Fallback
+// glyph otherwise.
 func (r SimpleTrueTypeCmaps) GID(cc int) (gid int, found bool) {
 	if gid, tried, found := r.Windows(cc); tried {
 		return gid, found

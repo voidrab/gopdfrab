@@ -670,9 +670,9 @@ func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 }
 
 // TestAdoptionKeepsAFormsNamesPerPage verifies that a form XObject without
-// resources of its own, drawn from two pages whose resources give a name different
-// values, keeps reading each page's value, and that each adopted holder is an
-// object of its own.
+// resources of its own, drawn from two pages whose resources give the same name
+// different values, reads each page's value, and that the adopted resources and
+// the form copy carry no reference of their own.
 func TestAdoptionKeepsAFormsNamesPerPage(t *testing.T) {
 	form := pdf.NewStreamDict(kv("Subtype", nm("Form")).Entries, []byte("/G gs 1 0 0 rg 0 0 1 1 re f"))
 	form.SetRef(pdf.PDFRef{ObjNum: 9})
