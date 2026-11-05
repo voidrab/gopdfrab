@@ -438,6 +438,51 @@ func TestCIDTrueTypeSubsetAndMetrics(t *testing.T) {
 	}
 }
 
+// TestCIDTrueTypeChecksReadCIDToGIDMap verifies that the width and coverage
+// checks look a CID up through a stream CIDToGIDMap rather than read it as a
+// glyph index.
+func TestCIDTrueTypeChecksReadCIDToGIDMap(t *testing.T) {
+	desc, ff, gidA, widthA := buildCIDTrueTypeFont(t)
+	// CID 1 selects glyph gidA; CID 2 selects glyph 0.
+	desc.Entries.Set("CIDToGIDMap", pdf.NewStreamDict(nil, []byte{0, 0, byte(gidA >> 8), byte(gidA), 0, 0}))
+
+	w := func(cid, width int) pdf.PDFArray {
+		return pdf.PDFArray{pdf.PDFInteger(cid), pdf.PDFArray{pdf.PDFInteger(width)}}
+	}
+	metrics := func(wa pdf.PDFArray) bool {
+		ctx := &ValidationContext{Spec: a1bSpec}
+		validateCIDTrueTypeMetrics(desc, ff, wa, ctx)
+		return hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch)
+	}
+	if metrics(w(1, widthA)) {
+		t.Error("AdvanceWidthMismatch for a width that matches the mapped glyph")
+	}
+	if !metrics(w(1, widthA+500)) {
+		t.Error("no AdvanceWidthMismatch for a width that differs from the mapped glyph")
+	}
+	if metrics(w(3, widthA+500)) {
+		t.Error("AdvanceWidthMismatch for a CID the map does not cover")
+	}
+
+	coverage := func(wa pdf.PDFArray) bool {
+		ctx := &ValidationContext{Spec: a1bSpec}
+		ValidateCIDTrueTypeSubset(desc, ff, wa, ctx)
+		return hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage)
+	}
+	if coverage(w(1, widthA)) {
+		t.Error("SubsetGlyphCoverage for a CID mapped to a glyph")
+	}
+	if !coverage(w(3, widthA)) {
+		t.Error("no SubsetGlyphCoverage for a CID the map does not cover")
+	}
+
+	// A map that is no stream or does not decode leaves both checks silent.
+	desc.Entries.Set("CIDToGIDMap", pdf.PDFInteger(1))
+	if metrics(w(1, widthA+500)) || coverage(w(3, widthA)) {
+		t.Error("a check reported through an unusable CIDToGIDMap")
+	}
+}
+
 func TestValidateCIDSetTrueType(t *testing.T) {
 	_, ff, _, _ := buildCIDTrueTypeFont(t)
 	ttf := loadTTF(t)

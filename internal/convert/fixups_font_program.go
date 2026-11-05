@@ -581,8 +581,8 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	return true
 }
 
-// fixCIDTrueTypeWidths rewrites mismatched /W entries to the embedded
-// TrueType program's hmtx advance width, mirroring validateCIDTrueTypeMetrics
+// fixCIDTrueTypeWidths rewrites mismatched /W entries to the hmtx advance width
+// of the glyph the font's CIDToGIDMap selects, mirroring validateCIDTrueTypeMetrics
 // (checks_font_program.go).
 func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	w, ok := v.Entries.Get("W").(pdf.PDFArray)
@@ -598,10 +598,19 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
+	gidOf, ok := verify.CIDToGIDMapping(v.Entries.Get("CIDToGIDMap"), pdf.DecodeStream)
+	if !ok {
+		return false
+	}
+
 	pairs := fontprog.ParseCIDWidths(w)
 	changed := false
 	for i, pair := range pairs {
-		fontWidth := fontprog.TTAdvanceWidth(tables, pair[0])
+		gid, mapped := gidOf(pair[0])
+		if !mapped {
+			continue
+		}
+		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
 		if fontWidth < 0 || math.Abs(fontWidth-float64(pair[1])) <= 1 {
 			continue
 		}

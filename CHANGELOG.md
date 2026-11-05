@@ -114,6 +114,10 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- The width and glyph coverage checks of a CIDFontType2 font read a CID as a
+  glyph index and ignored a CIDToGIDMap stream. Verify reported a correct `/W`
+  as mismatched, and convert replaced it with the widths of other glyphs. Both
+  now look the CID up through the map.
 - PDF/A-2b requires a subset font's CIDSet to list exactly the CIDs of its
   embedded program, used or not; only the used ones were checked. Convert
   removes a CIDSet that does not, as it is optional at this level.

@@ -173,7 +173,7 @@ func cidGlyphPresence(cid pdf.PDFDict, ctx *ValidationContext) (func(int) bool, 
 		if !ok {
 			return nil, false
 		}
-		gidOf, ok := cidToGID(cid.Entries.Get("CIDToGIDMap"), ctx)
+		gidOf, ok := CIDToGIDMapping(cid.Entries.Get("CIDToGIDMap"), ctx.decodeStreamCached)
 		if !ok {
 			return nil, false
 		}
@@ -214,11 +214,11 @@ func cidGlyphPresence(cid pdf.PDFDict, ctx *ValidationContext) (func(int) bool, 
 	return nil, false
 }
 
-// cidToGID returns the CID-to-glyph mapping that a CIDToGIDMap value gives:
-// the identity for Identity or no entry, or the two-byte glyph indices of a
-// stream. CIDs past the end of the stream are unmapped. ok is false for any
-// other value.
-func cidToGID(c2g pdf.PDFValue, ctx *ValidationContext) (gidOf func(int) (int, bool), ok bool) {
+// CIDToGIDMapping returns the CID-to-glyph mapping that a CIDToGIDMap value
+// gives: the identity for Identity or no entry, or the two-byte glyph indices
+// of a stream, decoded with decode. A CID past the end of the stream is
+// unmapped. ok is false for any other value or a stream that does not decode.
+func CIDToGIDMapping(c2g pdf.PDFValue, decode func(pdf.PDFDict) ([]byte, error)) (gidOf func(int) (int, bool), ok bool) {
 	if c2g == nil || c2g == (pdf.PDFName{Value: "Identity"}) {
 		return func(c int) (int, bool) { return c, true }, true
 	}
@@ -226,7 +226,7 @@ func cidToGID(c2g pdf.PDFValue, ctx *ValidationContext) (gidOf func(int) (int, b
 	if !isDict || !stream.IsStream() {
 		return nil, false
 	}
-	data, err := ctx.decodeStreamCached(stream)
+	data, err := decode(stream)
 	if err != nil {
 		return nil, false
 	}

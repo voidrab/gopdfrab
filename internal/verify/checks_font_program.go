@@ -557,10 +557,15 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 	if !ok {
 		return
 	}
+	dict, _ := obj.(pdf.PDFDict)
+	gidOf, ok := CIDToGIDMapping(dict.Entries.Get("CIDToGIDMap"), ctx.decodeStreamCached)
+	if !ok {
+		return // reported as Font.CIDToGIDMapMissing, or the map does not decode
+	}
 	cids, _ := cidsToCheck(obj, w, ctx)
 	glyphPresent := fontprog.TTGlyphPresent(tables)
 	for _, cid := range cids {
-		if !glyphPresent(cid) {
+		if gid, mapped := gidOf(cid); !mapped || !glyphPresent(gid) {
 			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced for rendering has no glyph in embedded program", cid))
 			return
 		}
@@ -569,7 +574,9 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 
 // validateCIDTrueTypeMetrics checks that CID advance widths match the embedded
 // TrueType hmtx table (6.3.6): every W entry, plus rendered CIDs that fall back
-// to the default width DW because they are absent from W.
+// to the default width DW because they are absent from W. A CID is looked up
+// through the font's CIDToGIDMap; one the map does not cover has no glyph, which
+// the 6.3.5 coverage check handles.
 func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
@@ -580,25 +587,31 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray,
 	if !ok {
 		return
 	}
+	gidOf, ok := CIDToGIDMapping(obj.Entries.Get("CIDToGIDMap"), ctx.decodeStreamCached)
+	if !ok {
+		return // reported as Font.CIDToGIDMapMissing, or the map does not decode
+	}
 	glyphPresent := fontprog.TTGlyphPresent(tables)
-	mismatched := func(cid, pdfWidth int) bool {
-		if !glyphPresent(cid) {
+	// reportMismatch reports cid if its glyph's width differs from pdfWidth by
+	// more than the ±1 rounding tolerance.
+	reportMismatch := func(cid, pdfWidth int) bool {
+		gid, mapped := gidOf(cid)
+		if !mapped || !glyphPresent(gid) {
 			return false // absent glyph: 6.3.5 coverage handles it
 		}
-		fontWidth := fontprog.TTAdvanceWidth(tables, cid)
-		// Allow ±1 rounding tolerance.
-		return fontWidth >= 0 && math.Abs(fontWidth-float64(pdfWidth)) > 1
-	}
-	report := func(cid, pdfWidth int, fontWidth float64) {
+		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
+		if fontWidth < 0 || math.Abs(fontWidth-float64(pdfWidth)) <= 1 {
+			return false
+		}
 		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %s",
 			cid, pdfWidth, formatWidth(fontWidth)))
+		return true
 	}
 
 	widthOf := map[int]int{}
 	for _, pair := range fontprog.ParseCIDWidths(w) {
 		widthOf[pair[0]] = pair[1]
-		if mismatched(pair[0], pair[1]) {
-			report(pair[0], pair[1], fontprog.TTAdvanceWidth(tables, pair[0]))
+		if reportMismatch(pair[0], pair[1]) {
 			return
 		}
 	}
@@ -617,8 +630,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray,
 	}
 	sort.Ints(cids)
 	for _, cid := range cids {
-		if mismatched(cid, dw) {
-			report(cid, dw, fontprog.TTAdvanceWidth(tables, cid))
+		if reportMismatch(cid, dw) {
 			return
 		}
 	}

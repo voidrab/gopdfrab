@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"math"
 	"strconv"
 	"testing"
 
@@ -292,6 +293,45 @@ func TestFixCIDTrueTypeWidths(t *testing.T) {
 		if fixFontMetricsDict(d) {
 			t.Errorf("%s: fixFontMetricsDict = true, want false", name)
 		}
+	}
+}
+
+// TestFixCIDTrueTypeWidthsReadsCIDToGIDMap verifies that a width is taken from
+// the glyph a stream CIDToGIDMap selects, so a correct /W stays as it is.
+func TestFixCIDTrueTypeWidthsReadsCIDToGIDMap(t *testing.T) {
+	ttf := streamOf(fontsubst.LiberationSansRegular)
+	tables, ok := fontprog.ParseSfnt(fontsubst.LiberationSansRegular)
+	if !ok {
+		t.Fatal("ParseSfnt failed")
+	}
+	const gidA = 36
+	want := int(math.Round(fontprog.TTAdvanceWidth(tables, gidA)))
+	// CID 1 selects glyph 36.
+	c2g := pdf.NewStreamDict(nil, []byte{0, 0, 0, gidA})
+
+	correct := cidFont("CIDFontType2", "FontFile2", ttf, pdf.PDFArray{pdf.PDFInteger(1), ints(want)})
+	correct.Entries.Set("CIDToGIDMap", c2g)
+	if fixFontMetricsDict(correct) {
+		t.Errorf("rewrote a correct width: W = %v", correct.Entries.Get("W"))
+	}
+
+	wrong := cidFont("CIDFontType2", "FontFile2", ttf, pdf.PDFArray{pdf.PDFInteger(1), ints(want + 100), pdf.PDFInteger(9), ints(1)})
+	wrong.Entries.Set("CIDToGIDMap", c2g)
+	if !fixFontMetricsDict(wrong) {
+		t.Fatal("did not repair a wrong width")
+	}
+	pairs := fontprog.ParseCIDWidths(wrong.Entries.Get("W").(pdf.PDFArray))
+	if pairs[0][1] != want {
+		t.Errorf("CID 1 width = %d, want %d", pairs[0][1], want)
+	}
+	if pairs[1][1] != 1 {
+		t.Errorf("CID 9, which the map does not cover, changed to %d", pairs[1][1])
+	}
+
+	unusable := cidFont("CIDFontType2", "FontFile2", ttf, pdf.PDFArray{pdf.PDFInteger(1), ints(want + 100)})
+	unusable.Entries.Set("CIDToGIDMap", pdf.PDFInteger(1))
+	if fixFontMetricsDict(unusable) {
+		t.Error("repaired widths through an unusable CIDToGIDMap")
 	}
 }
 
