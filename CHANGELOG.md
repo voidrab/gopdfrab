@@ -93,6 +93,10 @@ Everything under `internal/` may change in any release without notice.
 
 ### Changed
 
+- The renderer behind the raster fallback and the fidelity check draws blend
+  modes and ExtGState soft masks, luminosity and alpha, with their backdrop and
+  transfer function. A page with an enormous amount of such content stops
+  applying them past a work limit and reports it in `RasterDrops`.
 - Converting to PDF/A-2b converts an embedded PDF that fails the level's rule,
   under limits of two nested levels and 256 MB of decoded input per document,
   and reports what the embedded file lost in `LostObjects`. A file that cannot

@@ -156,6 +156,10 @@ func PageContentBytes(page pdf.PDFDict) ([]byte, error) {
 type renderState struct {
 	content.GState
 	fillAlpha, strokeAlpha float64
+	// blendMode is the current blend mode, "" for Normal, and softMask the
+	// current soft mask, nil for none.
+	blendMode string
+	softMask  *softMask
 	// fillPattern and strokePattern are the pattern dictionaries the
 	// colours' pattern names select, zero when none is selected or usable.
 	// A colour that paints with a pattern paints it or nothing, never the
@@ -193,6 +197,11 @@ type renderer struct {
 	dropped map[string]bool
 	// oc hides the optional content the document turns off.
 	oc *content.OptionalContent
+	// softMasks holds rendered soft masks; nil records one with nothing to draw.
+	softMasks map[softMaskKey]*softMask
+	// effectPixels counts what blend modes and soft masks have composited, for
+	// effectPixelBudget.
+	effectPixels int64
 }
 
 // raster-drop feature names, reported so a rasterized conversion does not
@@ -371,7 +380,11 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "W*":
 			pendingClip, pendingClipEvenOdd = true, true
 		case "f", "F", "f*", "S", "s", "B", "B*", "b", "b*", "n":
-			r.paintPath(&path, &gs, op)
+			if op == "n" {
+				r.paintPath(&path, &gs, op)
+			} else {
+				r.withEffects(&gs, pathReach(&path, &gs), func() { r.paintPath(&path, &gs, op) })
+			}
 			applyPendingClip()
 			_ = pendingClipEvenOdd
 			path.reset()
@@ -383,7 +396,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "gs":
 			r.applyExtGState(operands, resources, &gs)
 		case "Do":
-			r.doXObject(operands, resources, &gs)
+			r.withEffects(&gs, noHint, func() { r.doXObject(operands, resources, &gs) })
 		case "BT":
 			gs.tm, gs.tlm = content.IdentityMatrix, content.IdentityMatrix
 		case "Tf":
@@ -417,27 +430,27 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "Tj":
-			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
+			r.withEffects(&gs, noHint, func() { r.showText(pdf.ShownStringBytes(op, operands), resources, &gs) })
 		case "'":
 			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
+			r.withEffects(&gs, noHint, func() { r.showText(pdf.ShownStringBytes(op, operands), resources, &gs) })
 		case "\"":
 			a3 := nums(2) // aw ac on top, string is the operand itself, handled by shownStringBytes
 			gs.wordSpace, gs.charSpace = a3[0], a3[1]
 			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
+			r.withEffects(&gs, noHint, func() { r.showText(pdf.ShownStringBytes(op, operands), resources, &gs) })
 		case "TJ":
-			r.showTextArray(operands, resources, &gs)
+			r.withEffects(&gs, noHint, func() { r.showTextArray(operands, resources, &gs) })
 		case "Ts":
 			gs.rise = nums(1)[0]
 		case "Tr":
 			gs.renderMode = int(nums(1)[0])
 		case "sh":
-			r.paintShadingOp(operands, resources, &gs)
+			r.withEffects(&gs, noHint, func() { r.paintShadingOp(operands, resources, &gs) })
 		case "INLINEIMAGE":
-			r.paintInlineImage(operands, resources, &gs)
+			r.withEffects(&gs, noHint, func() { r.paintInlineImage(operands, resources, &gs) })
 		}
 	})
 }
@@ -538,11 +551,8 @@ func ctmScale(ctm content.Matrix) float64 {
 	return (sx + sy) / 2
 }
 
-// applyExtGState applies a gs operator's ca/CA alpha from the named
-// ExtGState resource (soft-mask groups are out of scope -- see raster.go's
-// doc comment; the dedicated ImageWithSoftMask check is handled per-image
-// in doXObject, and ExtGState /SMask is already neutralized by extGStateFixer
-// before this renderer ever runs).
+// applyExtGState applies a gs operator's alpha, blend mode and soft mask from
+// the named ExtGState resource.
 func (r *renderer) applyExtGState(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
 	if len(operands) == 0 {
 		return
@@ -562,6 +572,26 @@ func (r *renderer) applyExtGState(operands []pdf.PDFValue, resources pdf.PDFDict
 	if CA, ok := pdf.PDFNumberToFloat(egs.Entries.Get("CA")); ok {
 		gs.strokeAlpha = CA
 	}
+	if bm, ok := egs.Entries.Lookup("BM"); ok {
+		gs.blendMode = blendModeOf(bm)
+	}
+	if sm, ok := egs.Entries.Lookup("SMask"); ok {
+		r.applySoftMask(sm, resources, gs)
+	}
+}
+
+// noHint is the reach of a painting operation that may mark anywhere.
+var noHint = image.Rect(math.MinInt32, math.MinInt32, math.MaxInt32, math.MaxInt32)
+
+// pathReach is the device area a path's fill and stroke can mark.
+func pathReach(path *pathBuilder, gs *renderState) image.Rectangle {
+	contours := path.deviceContours(gs.CTM)
+	if len(contours) == 0 {
+		return image.Rectangle{}
+	}
+	minX, minY, maxX, maxY := boundsOfContours(contours)
+	grow := gs.lineWidth*ctmScale(gs.CTM) + 2
+	return clipToBounds(noHint, [4]float64{minX - grow, minY - grow, maxX + grow, maxY + grow})
 }
 
 // doXObject paints a Form (recursing with composed CTM/Resources) or Image
@@ -587,23 +617,10 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 		}
 		r.depth++
 		defer func() { r.depth-- }()
-		formRes, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
-		if formRes.Entries == nil {
-			formRes = resources
-		}
+		formRes := resourcesOr(xobj, resources)
 		childGS := *gs
-		if m, err := pdf.FloatArray(xobj.Entries.Get("Matrix")); err == nil && len(m) == 6 {
-			fm := content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
-			childGS.CTM = fm.Mul(gs.CTM)
-		}
-		// The form paints only inside its /BBox (ISO 32000-1 8.10.1), mapped
-		// through Matrix and CTM -- like a W clip, as its device-space bounds.
-		if bbox, err := pdf.FloatArray(xobj.Entries.Get("BBox")); err == nil && len(bbox) == 4 {
-			var box pathBuilder
-			box.rect(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1])
-			minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(childGS.CTM))
-			childGS.clip = intersectRect(childGS.clip, [4]float64{minX, minY, maxX, maxY})
-		}
+		childGS.CTM = formCTM(xobj, gs.CTM)
+		childGS.clip = formClip(xobj, childGS.CTM, childGS.clip)
 		data, err := pdf.DecodeStream(xobj)
 		if err != nil {
 			return
@@ -616,6 +633,38 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 	case "Image":
 		r.paintImage(xobj, resources, gs)
 	}
+}
+
+// resourcesOr returns the resources a form's content reads names from: its own,
+// or those of what draws it.
+func resourcesOr(form, inherited pdf.PDFDict) pdf.PDFDict {
+	if res, _ := form.Entries.Get("Resources").(pdf.PDFDict); res.Entries != nil {
+		return res
+	}
+	return inherited
+}
+
+// formCTM is the CTM a form's content runs under, given the one it is drawn
+// under.
+func formCTM(form pdf.PDFDict, ctm content.Matrix) content.Matrix {
+	if m, err := pdf.FloatArray(form.Entries.Get("Matrix")); err == nil && len(m) == 6 {
+		return content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}.Mul(ctm)
+	}
+	return ctm
+}
+
+// formClip intersects clip with a form's /BBox, since a form paints only inside
+// it (ISO 32000-1 8.10.1). ctm is the form's own, and the box applies like a W
+// clip, as its device-space bounds.
+func formClip(form pdf.PDFDict, ctm content.Matrix, clip [4]float64) [4]float64 {
+	bbox, err := pdf.FloatArray(form.Entries.Get("BBox"))
+	if err != nil || len(bbox) != 4 {
+		return clip
+	}
+	var box pathBuilder
+	box.rect(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1])
+	minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(ctm))
+	return intersectRect(clip, [4]float64{minX, minY, maxX, maxY})
 }
 
 // isTransparencyGroup reports whether a form's /Group is a transparency group.
