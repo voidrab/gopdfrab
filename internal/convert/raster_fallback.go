@@ -30,7 +30,7 @@ func (r *run) backstop() error {
 	if !r.graphClean {
 		r.verifyGraph()
 	}
-	if r.cr.Result.Valid || !hasFixableIssue(r.cr.Result.Issues, r.fixers, false) {
+	if !r.residual(false) {
 		return nil
 	}
 	if err := r.ctx.Err(); err != nil {
@@ -51,11 +51,11 @@ func (r *run) backstop() error {
 			return err
 		}
 		r.recordRaster(drops, rasterized)
-		if r.cr.Result.Valid || !hasFixableIssue(r.cr.Result.Issues, r.fixers, false) {
+		if !r.residual(false) {
 			break
 		}
 	}
-	if !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, true) {
+	if r.residual(true) {
 		if drops, rasterized, changed := flattenAllPages(r.ctx, &r.trailer, flattened, r.o.dpi()); changed {
 			if err := r.ctx.Err(); err != nil {
 				return err
@@ -64,6 +64,12 @@ func (r *run) backstop() error {
 		}
 	}
 	return nil
+}
+
+// residual reports whether the last verify left issues a raster pass can repair;
+// docWide is hasFixableIssue's.
+func (r *run) residual(docWide bool) bool {
+	return !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, docWide)
 }
 
 // recordRaster records a completed raster pass and verifies the graph it
@@ -84,14 +90,14 @@ func (r *run) recordRaster(drops []RasterDrop, rasterized []int) {
 // Root/Pages/Kids walk.
 func applyRasterFallback(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, issues []pdf.PDFError, flattened map[int]bool, dpi int) ([]RasterDrop, []int, bool) {
 	pages := orderedPages(*trailer)
-	flag := map[int]bool{}
+	var nums []int
 	mark := func(pageNum int) {
 		if pageNum > 0 && !flattened[pageNum] {
-			flag[pageNum] = true
+			nums = append(nums, pageNum)
 			flattened[pageNum] = true
 		}
 	}
-	showing := pagesShowingUnembeddedFonts(doc, *trailer, pages, issues)
+	showing := pagesShowingUnusableFonts(doc, *trailer, pages, issues)
 	for _, iss := range issues {
 		if ref, ok := iss.ObjectRef(); ok && len(showing[ref.ObjNum]) > 0 {
 			for _, pageNum := range showing[ref.ObjNum] {
@@ -103,10 +109,6 @@ func applyRasterFallback(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFD
 	}
 	var flagged []pageTarget
 	var pageNums []int
-	nums := make([]int, 0, len(flag))
-	for pageNum := range flag {
-		nums = append(nums, pageNum)
-	}
 	sort.Ints(nums)
 	for _, pageNum := range nums {
 		if i := pageNum - 1; i >= 0 && i < len(pages) {
@@ -117,14 +119,16 @@ func applyRasterFallback(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFD
 	return flattenPagesParallel(ctx, flagged, pageNums, dpi)
 }
 
-// pagesShowingUnembeddedFonts maps the object number of each font issues report as
-// not embedded to the pages that show it, which is every page that font's report
-// stands for. A font whose usage is unknown has no entry.
-func pagesShowingUnembeddedFonts(doc *pdf.Reader, trailer pdf.PDFDict, pages []pageTarget, issues []pdf.PDFError) map[int][]int {
+// pagesShowingUnusableFonts maps the object number of each font issues report as
+// unusable whatever it shows, not embedded or with a damaged program, to the pages
+// that show it, which is every page that font's report stands for. Other font
+// findings can concern some of its glyphs only, so they stay with the page they
+// were reported on.
+func pagesShowingUnusableFonts(doc *pdf.Reader, trailer pdf.PDFDict, pages []pageTarget, issues []pdf.PDFError) map[int][]int {
 	font := pdf.Checks.Font
 	wanted := map[int]bool{}
 	for _, iss := range issues {
-		if c := iss.Check(); c == font.SimpleNotEmbedded || c == font.CIDNotEmbedded {
+		if c := iss.Check(); c == font.SimpleNotEmbedded || c == font.CIDNotEmbedded || c == font.InvalidProgram {
 			if ref, ok := iss.ObjectRef(); ok {
 				wanted[ref.ObjNum] = true
 			}
@@ -141,14 +145,10 @@ func pagesShowingUnembeddedFonts(doc *pdf.Reader, trailer pdf.PDFDict, pages []p
 	})
 	showing := map[int][]int{}
 	for i, page := range pages {
-		_, _, codes, cids, _, _ := verify.ComputeContentUsage(page.dict, verify.NewContext(doc))
-		seen := map[int]bool{}
-		for _, used := range []map[uintptr]map[int]bool{codes, cids} {
-			for ptr := range used {
-				if num, ok := fonts[ptr]; ok && !seen[num] {
-					seen[num] = true
-					showing[num] = append(showing[num], i+1)
-				}
+		visible := verify.VisibleFonts(page.dict, verify.NewContext(doc))
+		for ptr, num := range fonts {
+			if visible[ptr] {
+				showing[num] = append(showing[num], i+1)
 			}
 		}
 	}

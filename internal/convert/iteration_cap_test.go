@@ -48,7 +48,7 @@ func cjkPagesPDF(pages int, shows map[int]bool) []byte {
 	b := pdfgen.NewBuilder("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
 	b.Obj(2, fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids, pages))
-	b.Obj(3, "<< /Type /Font /Subtype /Type0 /BaseFont /HeiseiKakuGo-W5 /Encoding /Identity-H /DescendantFonts [4 0 R] >>")
+	b.Obj(3, "<< /Type /Font /Subtype /Type0 /BaseFont /HeiseiKakuGo-W5 /Encoding /UniJIS-UCS2-H /DescendantFonts [4 0 R] >>")
 	b.Obj(4, "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /HeiseiKakuGo-W5 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> >>")
 	for i := range pages {
 		obj := 5 + objsPerPage*i
@@ -100,8 +100,7 @@ func TestRasterBackstopFlattensEveryPageAfterTheLastPagePass(t *testing.T) {
 	}
 
 	doc := openTrailer(t, trailer)
-	c := pdf.Checks.Colour.OutputIntentNotArray
-	r := backstopRun(context.Background(), doc, trailer, map[pdf.Check]Fixer{c: nil}, pdf.NewError(c, []error{errors.New("synthetic")}, 1, nil))
+	r := backstopRun(context.Background(), doc, trailer, map[pdf.Check]Fixer{issue.Check(): nil}, issue)
 	if err := r.backstop(); err != nil {
 		t.Fatalf("backstop: %v", err)
 	}

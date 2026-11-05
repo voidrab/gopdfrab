@@ -322,10 +322,13 @@ func TestGrowTrueTypeWidths(t *testing.T) {
 		t.Error("second pass grew the widths again")
 	}
 
+	shownA := map[int]bool{'A': true}
+	if growTrueTypeWidths(font(65, ints(667), ttf), shownA) {
+		t.Error("grew /Widths although the shown code lies inside it")
+	}
 	for name, d := range map[string]pdf.PDFDict{
 		"undecodable":       font(66, ints(667), undecodableStream()),
 		"not sfnt":          font(66, ints(667), streamOf([]byte("garbage"))),
-		"no program":        font(66, ints(667), pdf.PDFInteger(1)),
 		"range past a byte": font(255, ints(1, 2), ttf),
 		"negative range":    font(-1, ints(1), ttf),
 		"no widths":         font(66, nil, ttf),
@@ -463,17 +466,18 @@ func TestGrowCIDTrueTypeWidths(t *testing.T) {
 	}
 }
 
-// TestShownUsageGrowWidthsIgnoresOtherDicts verifies that only a TrueType or
-// CIDFontType2 font is considered.
-func TestShownUsageGrowWidthsIgnoresOtherDicts(t *testing.T) {
+// TestShownUsageGrowShownIgnoresOtherDicts verifies that only an embedded TrueType
+// or CIDFontType2 font is considered.
+func TestShownUsageGrowShownIgnoresOtherDicts(t *testing.T) {
 	trailer := dictOf(nil)
 	u := shownUsage{trailer: &trailer}
 	for _, d := range []pdf.PDFDict{
 		dictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "TrueType"}}),
 		dictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type1"}}),
+		dictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"}}),
 	} {
-		if u.growWidths(d) {
-			t.Errorf("growWidths(%v) = true, want false", d)
+		if u.growShown(d) {
+			t.Errorf("growShown(%v) = true, want false", d)
 		}
 	}
 }

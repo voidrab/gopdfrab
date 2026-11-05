@@ -370,11 +370,11 @@ func TestCidsToCheckAndDefaultWidth(t *testing.T) {
 		t.Errorf("cidsToCheck with usage = %v, known=%v, want [3 7] true", cids, known)
 	}
 
-	if cidDefaultWidth(desc) != 1000 {
+	if CIDDefaultWidth(desc) != 1000 {
 		t.Error("cidDefaultWidth should default to 1000 when DW is absent")
 	}
 	desc.Entries.Set("DW", pdf.PDFInteger(2000))
-	if cidDefaultWidth(desc) != 2000 {
+	if CIDDefaultWidth(desc) != 2000 {
 		t.Error("cidDefaultWidth should reflect the DW entry")
 	}
 }
@@ -1792,7 +1792,7 @@ func TestCIDSetTrueTypeGuards(t *testing.T) {
 func TestCIDDefaultWidthReal(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries.Set("DW", pdf.PDFReal(750.9))
-	if got := cidDefaultWidth(d); got != 750 {
+	if got := CIDDefaultWidth(d); got != 750 {
 		t.Errorf("cidDefaultWidth = %d, want 750", got)
 	}
 }
@@ -1865,8 +1865,9 @@ func TestSimpleTrueTypeSubsetWidthsFallback(t *testing.T) {
 func TestSimpleTrueTypeMetricsCodeOutsideWidths(t *testing.T) {
 	ttf := loadTTF(t)
 	tables, _ := fontprog.ParseSfnt(ttf)
-	gidA := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['A']
-	widthA := int(fontprog.TTAdvanceWidth(tables, int(gidA)))
+	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
+	widthA := int(fontprog.TTAdvanceWidth(tables, int(cmap['A'])))
+	widthB := pdf.PDFInteger(fontprog.TTAdvanceWidth(tables, int(cmap['B'])))
 	ff := streamDict(string(ttf))
 
 	for _, tc := range []struct {
@@ -1891,7 +1892,7 @@ func TestSimpleTrueTypeMetricsCodeOutsideWidths(t *testing.T) {
 				pdf.ValuePointer(v.Entries): {tc.shown: true},
 			}}
 			// /Widths holds only B, with its correct width.
-			validateSimpleTrueTypeMetrics(v, ff, 'B', pdf.PDFArray{pdf.PDFInteger(fontprog.TTAdvanceWidth(tables, int(fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['B'])))}, ctx)
+			validateSimpleTrueTypeMetrics(v, ff, 'B', pdf.PDFArray{widthB}, ctx)
 			if got := hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch); got != tc.want {
 				t.Errorf("AdvanceWidthMismatch reported = %v, want %v", got, tc.want)
 			}

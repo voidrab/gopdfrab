@@ -1029,6 +1029,17 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, fu.partialCodes, complete
 }
 
+// VisibleFonts returns the Entries pointers of the fonts page shows with a
+// visible text rendering mode, under any encoding: a Type 0 font and its
+// descendant CIDFont both count.
+func VisibleFonts(page pdf.PDFDict, ctx *ValidationContext) map[uintptr]bool {
+	fu := newFontUsage()
+	reachable := map[uintptr]bool{}
+	collectContentUsage(ctx, page.Entries.Get("Contents"), pdf.PageResources(page), reachable, fu)
+	collectAnnotAppearanceUsage(ctx, page, reachable, fu)
+	return fu.visible
+}
+
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
 // appearance streams, so validateContentStreams scans their colour usage. It
 // reports whether every stream it visited decoded.

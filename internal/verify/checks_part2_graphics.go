@@ -167,13 +167,13 @@ func (t *overprintTracker) step(op string, operands []pdf.PDFValue, resources pd
 			*s, t.saved = t.saved[n-1], t.saved[:n-1]
 		}
 	case "CS":
-		s.strokeCMYK = t.selectsICCBasedCMYK(operands, resources)
+		s.strokeCMYK = len(operands) > 0 && t.isICCBasedCMYK(operands[len(operands)-1], resources)
 	case "cs":
-		s.fillCMYK = t.selectsICCBasedCMYK(operands, resources)
+		s.fillCMYK = len(operands) > 0 && t.isICCBasedCMYK(operands[len(operands)-1], resources)
 	case "K":
-		s.strokeCMYK = !t.borrowed && isICCBasedCMYK(deviceCMYK, resources)
+		s.strokeCMYK = t.isICCBasedCMYK(deviceCMYK, resources)
 	case "k":
-		s.fillCMYK = !t.borrowed && isICCBasedCMYK(deviceCMYK, resources)
+		s.fillCMYK = t.isICCBasedCMYK(deviceCMYK, resources)
 	case "G", "RG":
 		s.strokeCMYK = false
 	case "g", "rg":
@@ -225,12 +225,10 @@ func (t *overprintTracker) step(op string, operands []pdf.PDFValue, resources pd
 // read once per inherited state, which also ends a cycle of forms drawing each
 // other.
 func (t *overprintTracker) enterForm(operands []pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) {
-	if t.state == (overprint{}) || len(operands) == 0 {
+	if t.state == (overprint{}) {
 		return
 	}
-	name, _ := operands[len(operands)-1].(pdf.PDFName)
-	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
-	form, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+	form, ok := lastResource(operands, resources, "XObject")
 	if !ok || !form.IsStream() || form.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) {
 		return
 	}
@@ -253,24 +251,17 @@ func (t *overprintTracker) enterForm(operands []pdf.PDFValue, resources pdf.PDFD
 	})
 }
 
-// selectsICCBasedCMYK reports whether the operand of a cs or CS operator selects
-// an ICCBased colour space of four components.
-func (t *overprintTracker) selectsICCBasedCMYK(operands []pdf.PDFValue, resources pdf.PDFDict) bool {
-	if len(operands) == 0 {
-		return false
-	}
-	operand := operands[len(operands)-1]
-	return !(t.borrowed && operand == deviceCMYK) && isICCBasedCMYK(operand, resources)
-}
-
 // deviceCMYK is the colour space the k and K operators select.
 var deviceCMYK = pdf.PDFName{Value: "DeviceCMYK"}
 
 // isICCBasedCMYK reports whether a colour space operand selects an ICCBased
 // colour space of four components: one it names in resources, or DeviceCMYK when
-// resources define such a DefaultCMYK.
-func isICCBasedCMYK(name pdf.PDFValue, resources pdf.PDFDict) bool {
+// the stream's own resources define such a DefaultCMYK.
+func (t *overprintTracker) isICCBasedCMYK(name pdf.PDFValue, resources pdf.PDFDict) bool {
 	if name == deviceCMYK {
+		if t.borrowed {
+			return false
+		}
 		name = pdf.PDFName{Value: "DefaultCMYK"}
 	}
 	arr, ok := namedColourSpace(name, resources).(pdf.PDFArray)

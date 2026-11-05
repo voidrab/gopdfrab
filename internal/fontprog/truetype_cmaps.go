@@ -40,6 +40,16 @@ func (r SimpleTrueTypeCmaps) Windows(cc int) (gid int, tried, found bool) {
 	return int(g), true, ok
 }
 
+// GID returns the glyph cc selects under the rule the width checks rely on: the
+// (3,1) cmap when Windows tried it, a miss there meaning the width cannot be
+// verified, and Fallback otherwise.
+func (r SimpleTrueTypeCmaps) GID(cc int) (gid int, found bool) {
+	if gid, tried, found := r.Windows(cc); tried {
+		return gid, found
+	}
+	return r.Fallback(cc)
+}
+
 // Fallback resolves cc once (3,1) has not. An encoded (non-symbolic) font
 // has one step left in ISO 32000-1 9.6.6.4: (1,0) by the glyph name's Mac OS
 // Roman code. Its raw code is never looked up -- after /Differences it can

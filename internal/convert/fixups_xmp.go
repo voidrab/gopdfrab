@@ -385,10 +385,7 @@ func pdfDateToXMP(cd string) (out string, ok bool) {
 			return out + "Z", true
 		}
 		rest = strings.TrimPrefix(rest, "'")
-		tzm, _, ok := takeDigits2(rest)
-		if !ok {
-			tzm = "00"
-		}
+		tzm, _ := takeDigits2Or(rest, "00")
 		return out + sign + tzh + ":" + tzm, true
 	}
 	return out + "Z", true

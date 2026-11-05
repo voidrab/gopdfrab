@@ -713,6 +713,48 @@ func TestAdoptionKeepsAFormsNamesPerPage(t *testing.T) {
 	}
 }
 
+// TestDefaultCSInjectionFollowVisitsAStreamOnce verifies that a second visit to a
+// stream adds nothing, for instance a page content stream listed twice.
+func TestDefaultCSInjectionFollowVisitsAStreamOnce(t *testing.T) {
+	form := pdf.NewStreamDict(kv("Subtype", nm("Form"), "Resources", kv()).Entries, []byte("1 0 0 rg"))
+	page := pdf.NewStreamDict(nil, []byte("/F Do"))
+	scope := kv("XObject", kv("F", form))
+	in := defaultCSInjection{needRGB: true, rgb: iccBasedColourSpace(3, srgbICCProfile), visited: map[uintptr]bool{}}
+	if !in.follow(page, scope) {
+		t.Error("the first visit changed nothing")
+	}
+	if in.follow(page, scope) {
+		t.Error("the second visit reported a change")
+	}
+}
+
+// TestAdoptionKeepsSharedXObjectDictionaries verifies that a holder's copy for one
+// scope does not reach a scope that shares its /XObject dictionary.
+func TestAdoptionKeepsSharedXObjectDictionaries(t *testing.T) {
+	form := pdf.NewStreamDict(kv("Subtype", nm("Form")).Entries, []byte("/G gs"))
+	shared := kv("Fm", form)
+	first := kv("XObject", shared, "ExtGState", kv("G", kv("LW", pdf.PDFInteger(2))))
+	second := kv("XObject", shared, "ExtGState", kv("G", kv("LW", pdf.PDFInteger(9))))
+	in := defaultCSInjection{adopted: map[uintptr]map[uintptr]pdf.PDFDict{}}
+
+	if got := in.holderIn(form, first, "XObject", "Fm"); got.Entries != form.Entries {
+		t.Fatal("the first scope did not keep the holder")
+	}
+	copied := in.holderIn(form, second, "XObject", "Fm")
+	if copied.Entries == form.Entries {
+		t.Fatal("the second scope did not get a copy")
+	}
+	if pdf.LookupResource(first, "XObject", "Fm").(pdf.PDFDict).Entries != form.Entries {
+		t.Error("the copy reached the first scope")
+	}
+	if pdf.LookupResource(second, "XObject", "Fm").(pdf.PDFDict).Entries != copied.Entries {
+		t.Error("the copy did not take the holder's place in the second scope")
+	}
+	if again := in.holderIn(copied, second, "XObject", "Fm"); again.Entries != copied.Entries {
+		t.Error("a further visit made another copy")
+	}
+}
+
 // TestDefaultCSInjectionReachesType3Glyphs verifies that a Type 3 font gets the
 // Default colour space, with or without resources of its own, and that the forms
 // its glyphs draw are followed.

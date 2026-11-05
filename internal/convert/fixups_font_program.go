@@ -296,10 +296,7 @@ func (f fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 	changed := false
 	usage := shownUsage{doc: f.doc, trailer: trailer}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if fixFontMetricsDict(d) {
-			changed = true
-		}
-		if usage.growWidths(d) {
+		if usage.repair(d) {
 			changed = true
 		}
 	})
@@ -315,10 +312,7 @@ func (f fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed
 	}
 	usage := shownUsage{doc: f.doc, trailer: p.trailer}
 	for _, d := range targets {
-		if fixFontMetricsDict(d) {
-			changed = true
-		}
-		if usage.growWidths(d) {
+		if usage.repair(d) {
 			changed = true
 		}
 	}
@@ -332,17 +326,27 @@ type shownUsage struct {
 	codes, cid map[uintptr]map[int]bool
 }
 
-// growWidths gives font d width entries for what it shows without one: a code
+// repair recomputes d's width metadata and adds what it shows without one.
+func (u *shownUsage) repair(d pdf.PDFDict) bool {
+	fixed := fixFontMetricsDict(d)
+	return u.growShown(d) || fixed
+}
+
+// growShown gives font d width entries for what it shows without one: a code
 // outside the /Widths of a simple TrueType font, or a CID absent from the /W of a
 // CIDFontType2. The width such a code or CID takes otherwise can disagree with the
 // embedded program, and only the codes shown are checked.
-func (u *shownUsage) growWidths(d pdf.PDFDict) bool {
+func (u *shownUsage) growShown(d pdf.PDFDict) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 		return false
 	}
 	subtype := d.Entries.Get("Subtype")
 	trueType := subtype == pdf.PDFName{Value: "TrueType"}
 	if !trueType && subtype != (pdf.PDFName{Value: "CIDFontType2"}) {
+		return false
+	}
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if _, embedded := desc.Entries.Get("FontFile2").(pdf.PDFDict); !embedded {
 		return false
 	}
 	if u.codes == nil {
@@ -352,6 +356,15 @@ func (u *shownUsage) growWidths(d pdf.PDFDict) bool {
 		return growTrueTypeWidths(d, u.codes[pdf.ValuePointer(d.Entries)])
 	}
 	return growCIDTrueTypeWidths(d, u.cid[pdf.ValuePointer(d.Entries)])
+}
+
+// decodeSfnt decodes and parses an embedded TrueType program.
+func decodeSfnt(ff pdf.PDFDict) (map[string][]byte, bool) {
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return nil, false
+	}
+	return fontprog.ParseSfnt(data)
 }
 
 // fixFontMetricsDict recomputes d's width metadata from its embedded font
@@ -398,23 +411,12 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if !fcOK || !wOK {
 		return false
 	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	tables, ok := decodeSfnt(ff)
 	if !ok {
 		return false
 	}
 
 	r := fontprog.NewSimpleTrueTypeCmaps(v.Entries.Get("Encoding"), tables)
-
-	codeToGID := func(cc int) (int, bool) {
-		if gid, tried, found := r.Windows(cc); tried {
-			return gid, found
-		}
-		return r.Fallback(cc)
-	}
 
 	// A zero width is rewritten as well. Verify checks the width of a shown
 	// code only, and for a code that is not shown the program's width is
@@ -429,7 +431,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		if cc < 0 || cc > 255 {
 			continue
 		}
-		gid, known := codeToGID(cc)
+		gid, known := r.GID(cc)
 		if !known {
 			continue
 		}
@@ -450,16 +452,12 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 func growTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
 	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
 	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
+	if !fcOK || !wOK || len(verify.ShownOutsideWidths(shown, int(firstChar), len(widths))) == 0 {
+		return false
+	}
 	desc, _ := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
-	ff, ffOK := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if !fcOK || !wOK || !ffOK {
-		return false
-	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	ff, _ := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	tables, ok := decodeSfnt(ff)
 	if !ok {
 		return false
 	}
@@ -468,10 +466,7 @@ func growTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
 		if !shown[cc] {
 			return 0, false
 		}
-		gid, tried, found := r.Windows(cc)
-		if !tried {
-			gid, found = r.Fallback(cc)
-		}
+		gid, found := r.GID(cc)
 		if !found {
 			return 0, false
 		}
@@ -676,11 +671,7 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if !ok {
 		return false
 	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	tables, ok := decodeSfnt(ff)
 	if !ok {
 		return false
 	}
@@ -715,16 +706,17 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 // lacks and whose glyph's width differs from the font's default width.
 func growCIDTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
 	w, _ := v.Entries.Get("W").(pdf.PDFArray)
+	pairs := fontprog.ParseCIDWidths(w)
+	missing := maps.Clone(shown)
+	for _, pair := range pairs {
+		delete(missing, pair[0])
+	}
+	if len(missing) == 0 {
+		return false
+	}
 	desc, _ := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
-	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if !ok || len(shown) == 0 {
-		return false
-	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	ff, _ := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	tables, ok := decodeSfnt(ff)
 	if !ok {
 		return false
 	}
@@ -732,20 +724,12 @@ func growCIDTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
 	if !ok {
 		return false
 	}
-	pairs := fontprog.ParseCIDWidths(w)
-	listed := make(map[int]bool, len(pairs))
-	for _, pair := range pairs {
-		listed[pair[0]] = true
-	}
-	dw := 1000
-	if n, ok := pdf.PDFNumberToInt(v.Entries.Get("DW")); ok {
-		dw = n
-	}
+	dw := verify.CIDDefaultWidth(v)
 	glyphPresent := fontprog.TTGlyphPresent(tables)
 	grew := false
-	for _, cid := range slices.Sorted(maps.Keys(shown)) {
+	for cid := range missing {
 		gid, mapped := gidOf(cid)
-		if listed[cid] || !mapped || !glyphPresent(gid) {
+		if !mapped || !glyphPresent(gid) {
 			continue
 		}
 		width := fontprog.TTAdvanceWidth(tables, gid)
