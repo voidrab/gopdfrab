@@ -589,10 +589,10 @@ func resourceOperatorTarget(op string) (category string, fromEnd int) {
 
 // --- CMapCIDOutOfRange: clamping a CID value inside a CMap stream ---
 
-// cmapCIDClampFixer remediates Checks.Structure.CMapCIDOutOfRange by
-// clamping any cidrange/cidchar entry that reaches over 65535 directly within
-// the CMap's PostScript stream bytes, using the same entries
-// checkCMapCIDLimits reads so it only ever touches what that check would flag.
+// cmapCIDClampFixer remediates Checks.Structure.CMapCIDOutOfRange by clamping
+// the cidrange and cidchar entries that checkCMapCIDLimits reports, directly
+// within the CMap's PostScript stream bytes. It reads the same entries as that
+// check, so it changes only what the check would flag.
 type cmapCIDClampFixer struct{ spec *pdfa.Spec }
 
 func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
@@ -644,11 +644,12 @@ func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
 	return d, true
 }
 
-// clampCMapCIDs rewrites the cidrange and cidchar entries of data that reach
-// over limit, splicing into the original bytes so it never has to re-serialize
-// the surrounding PostScript. A range is cut short at limit, and one starting
-// over it, like a cidchar, maps its first code to limit. Codes a range no longer
-// covers map to no CID.
+// clampCMapCIDs rewrites the cidrange and cidchar entries of data that map a
+// CID over limit, splicing the replacements into the original bytes so the
+// rest of the PostScript stays byte for byte. A range that starts at or below
+// limit is cut short so that its last CID is limit. A range that starts over
+// limit keeps only its first code, which maps to limit as in a cidchar. Codes
+// past the new end of a range are left unmapped.
 func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
 	type splice struct {
 		start, end int

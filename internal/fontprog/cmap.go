@@ -171,7 +171,8 @@ func (e CMapCIDEntry) LastCID() (cid int64, ok bool) {
 }
 
 // cmapHexValue returns the value of a hex string token such as "<00ff>". ok is
-// false for any other token, and for one too long to hold a code.
+// false when tok is not enclosed in angle brackets or its digits do not parse
+// as a 64-bit hex integer.
 func cmapHexValue(tok string) (int64, bool) {
 	if len(tok) < 3 || tok[0] != '<' || tok[len(tok)-1] != '>' {
 		return 0, false
