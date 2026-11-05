@@ -72,9 +72,10 @@ func (d *Reader) objectBodyLexer(num int) (*Lexer, bool) {
 	return l, true
 }
 
-// skipValue consumes one dictionary value, an "N G R" reference included, and
-// reports whether it parsed. It leaves nothing pushed back, so l.pos is exact: an
-// integer that opens no reference rewinds the lookahead the parser took.
+// skipValue consumes one dictionary value, including an "N G R" reference,
+// and reports whether it parsed. A bare integer leaves l.pos just after it:
+// the lookahead for a generation number is undone, along with any token it
+// pushed back.
 func skipValue(l *Lexer) bool {
 	tok := l.NextToken()
 	mark := l.pos
@@ -85,10 +86,10 @@ func skipValue(l *Lexer) bool {
 	return err == nil
 }
 
-// XRefSectionOffsets returns the file offsets of the cross-reference section
-// that startxref names and of every earlier one its trailers' Prev entries
-// chain to, in chain order. A Prev that repeats an offset, or a trailer that
-// cannot be read, ends the chain.
+// XRefSectionOffsets returns the offsets, relative to the PDF header, of the
+// cross-reference section that startxref names and of every earlier one its
+// trailers' Prev entries chain to, in chain order. A Prev that repeats an
+// offset, or a trailer that cannot be read, ends the chain.
 func (d *Reader) XRefSectionOffsets() []int64 {
 	offsets := []int64{d.xrefOffset}
 	seen := map[int64]bool{d.xrefOffset: true}
@@ -108,8 +109,8 @@ func (d *Reader) XRefSectionOffsets() []int64 {
 	}
 }
 
-// nextXRefSection returns the offset of the first of sections after off, or off
-// when none follows.
+// nextXRefSection returns the smallest of sections, each offset by pdfStart,
+// that lies after off, or off when none does.
 func (d *Reader) nextXRefSection(sections []int64, off int64) int64 {
 	next := int64(-1)
 	for _, o := range sections {

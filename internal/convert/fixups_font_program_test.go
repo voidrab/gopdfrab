@@ -916,8 +916,8 @@ func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
 	}
 }
 
-// TestFixType1CharSetRejectsNonStreamFontFile verifies that a font program entry
-// that is no stream leaves the descriptor alone.
+// TestFixType1CharSetRejectsNonStreamFontFile verifies that a font program
+// entry that is no stream leaves the descriptor alone.
 func TestFixType1CharSetRejectsNonStreamFontFile(t *testing.T) {
 	for _, key := range []string{"FontFile", "FontFile3"} {
 		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{key: pdf.PDFInteger(1)})}
