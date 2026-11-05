@@ -622,8 +622,8 @@ func TestHasValidOutputIntent(t *testing.T) {
 	}
 }
 
-// TestInjectOutputIntentKeepsValidIntent pins that a valid intent stays even
-// when the content's colour model differs from the profile's.
+// TestInjectOutputIntentKeepsValidIntent verifies that a valid output intent is
+// kept when the content's colour model differs from the profile's.
 func TestInjectOutputIntentKeepsValidIntent(t *testing.T) {
 	intent := outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile))
 	root := pdf.NewPDFDict()
@@ -641,9 +641,9 @@ func TestInjectOutputIntentKeepsValidIntent(t *testing.T) {
 	}
 }
 
-// TestInjectOutputIntentSharesOtherIntentsProfile pins that a level allowing
-// other intents keeps a PDF/X intent and adds its own over the same profile,
-// and that one with no usable profile to share is replaced.
+// TestInjectOutputIntentSharesOtherIntentsProfile verifies that a level
+// allowing other intents keeps a PDF/X intent and adds its own over the same
+// profile. An intent that cannot be shared is replaced.
 func TestInjectOutputIntentSharesOtherIntentsProfile(t *testing.T) {
 	a2b, _ := pdfa.For(pdf.A2B)
 	good := iccProfileStream(pdf.PDFInteger(3), srgbICCProfile)

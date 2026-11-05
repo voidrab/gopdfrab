@@ -52,9 +52,9 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 		return fmt.Errorf("injectOutputIntent: Root is not a dictionary")
 	}
 
-	// A valid intent states the file's real output condition, so it stays even
-	// when another colour model dominates the content: deviceColourFixer covers
-	// that model without replacing it.
+	// A valid intent is kept even when another colour model dominates the
+	// content, since deviceColourFixer handles that model's device colour
+	// without replacing the intent.
 	if hasValidOutputIntent(root, spec) {
 		return nil
 	}
@@ -89,9 +89,10 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 
 // sharedIntent returns a new intent of the level's own subtype for a level that
 // lets intents of other subtypes stand beside it, when intents hold a usable
-// one. The new intent takes the other's output condition and profile, since all
-// the intents of a file must share a profile; ok is false when there is none to
-// share, or more than one.
+// one. The new intent takes the other intent's OutputConditionIdentifier and
+// DestOutputProfile, since all intents of a file must share a profile. ok is
+// false if an entry is not a dictionary, if the intents name different
+// profiles, or if the profile or identifier cannot be used.
 func sharedIntent(intents pdf.PDFArray, spec pdfa.Spec) (pdf.PDFDict, bool) {
 	if !spec.OtherOutputIntents {
 		return pdf.PDFDict{}, false
@@ -325,8 +326,8 @@ type scanJob struct {
 }
 
 // hasValidOutputIntent reports whether an OutputIntent meets all of the level's
-// output intent and ICC profile checks. If multiple intents exist, they must
-// use the same profile object, or the entire array is treated as invalid.
+// output intent and ICC profile checks. Intents that name a profile must all
+// name the same one; otherwise the result is false.
 func hasValidOutputIntent(root pdf.PDFDict, spec pdfa.Spec) bool {
 	intents, ok := root.Entries.Get("OutputIntents").(pdf.PDFArray)
 	if !ok {
@@ -363,8 +364,8 @@ func hasValidOutputIntent(root pdf.PDFDict, spec pdfa.Spec) bool {
 	return false
 }
 
-// usableIntentProfile reports whether intent's profile is a stream with a
-// component count an output intent can have, that passes the level's ICC checks.
+// usableIntentProfile reports whether the DestOutputProfile of intent is a
+// stream with 1, 3 or 4 components that passes the level's ICC checks.
 func usableIntentProfile(intent pdf.PDFDict, spec pdfa.Spec) bool {
 	profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
 	if !ok || !profile.IsStream() {
