@@ -10,6 +10,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -333,22 +334,44 @@ func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
 	}
 }
 
-// TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap covers the CID!=GID guard:
-// a stream (non-/Identity) CIDToGIDMap means CIDs don't correspond to GIDs
-// directly, so fixTrueTypeCIDSet must bail out without touching desc.
-func TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap(t *testing.T) {
-	ttf := loadLiberationSansForTest(t)
-	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"CIDToGIDMap": pdf.NewStreamDict(nil, []byte{0, 1, 0, 2}),
-	})}
-	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
+// TestFixTrueTypeCIDSetReadsStreamCIDToGIDMap verifies that the CIDSet of a font
+// with a stream CIDToGIDMap lists the CIDs mapped within the program, and that an
+// unusable map leaves the descriptor alone.
+func TestFixTrueTypeCIDSetReadsStreamCIDToGIDMap(t *testing.T) {
+	ttf := fontsubst.LiberationSansRegular
+	tables, ok := fontprog.ParseSfnt(ttf)
+	if !ok {
+		t.Fatal("ParseSfnt failed")
+	}
+	numGlyphs := fontprog.TTNumGlyphs(tables)
 	ff := pdf.NewStreamDict(nil, ttf)
 
-	if fixTrueTypeCIDSet(d, desc, ff) {
-		t.Error("fixTrueTypeCIDSet with a stream CIDToGIDMap = true, want false")
+	// CID 0 is skipped, 1 and 3 select glyphs, and 2 selects a glyph past the end.
+	over := numGlyphs + 1
+	c2g := pdf.NewStreamDict(nil, []byte{0, 0, 0, 36, byte(over >> 8), byte(over), 0, 37})
+	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDToGIDMap": c2g})}
+	desc := pdf.NewPDFDict()
+	if !fixTrueTypeCIDSet(d, desc, ff) {
+		t.Fatal("fixTrueTypeCIDSet = false, want true")
 	}
-	if desc.Entries.Get("CIDSet") != nil {
-		t.Error("desc/CIDSet was populated despite the non-Identity CIDToGIDMap guard")
+	set, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("no CIDSet written")
+	}
+	bitmap, err := pdf.DecodeStream(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bitmap) != 1 || bitmap[0] != 0b01010000 {
+		t.Errorf("CIDSet = %08b, want 01010000", bitmap)
+	}
+	if fixTrueTypeCIDSet(d, desc, ff) {
+		t.Error("second pass rewrote a complete CIDSet")
+	}
+
+	unusable := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDToGIDMap": pdf.PDFInteger(1)})}
+	if fixTrueTypeCIDSet(unusable, pdf.NewPDFDict(), ff) {
+		t.Error("fixTrueTypeCIDSet with an unusable map = true, want false")
 	}
 }
 

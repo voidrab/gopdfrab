@@ -156,8 +156,26 @@ func TestOverprintTracker(t *testing.T) {
 		s.Entries.Set("N", pdf.PDFInteger(n))
 		return pdf.PDFArray{name("ICCBased"), s}
 	}
+	form := func(content string, res ...pdf.PDFDict) pdf.PDFDict {
+		f := streamDict(content)
+		f.Entries.Set("Subtype", name("Form"))
+		if len(res) > 0 {
+			f.Entries.Set("Resources", res[0])
+		}
+		return f
+	}
+	loop := form("/Loop Do")
 	resources := kv(
-		"ColorSpace", kv("CMYK", icc(4), "RGB", icc(3), "Cal", pdf.PDFArray{name("CalRGB"), kv()}, "Bad", pdf.PDFArray{name("ICCBased")}),
+		"XObject", kv(
+			"Paints", form("f", kv()),
+			"Sets", form("/CMYK cs f"),
+			"BorrowsK", form("0 0 0 1 k f 0 0 0 1 K S"),
+			"BorrowsCS", form("/DeviceCMYK cs f"),
+			"Plain", form("f", kv()),
+			"Loop", loop,
+			"Img", streamDict(""),
+		),
+		"ColorSpace", kv("CMYK", icc(4), "DefaultCMYK", icc(4), "RGB", icc(3), "Cal", pdf.PDFArray{name("CalRGB"), kv()}, "Bad", pdf.PDFArray{name("ICCBased")}),
 		"ExtGState", kv(
 			"OP", kv("OP", pdf.PDFBoolean(true), "OPM", pdf.PDFInteger(1)),
 			"OPop", kv("OP", pdf.PDFBoolean(true), "op", pdf.PDFBoolean(false), "OPM", pdf.PDFInteger(1)),
@@ -190,6 +208,26 @@ func TestOverprintTracker(t *testing.T) {
 		{"unbalanced Q", []op{{"Q", nil}, gs("OP"), cs("cs", "CMYK"), {"f", nil}}, true},
 		{"gs without operands", []op{{"gs", nil}, cs("cs", "CMYK"), {"f", nil}}, false},
 		{"stroke colour not ICCBased CMYK", []op{gs("OP"), cs("cs", "CMYK"), {"S", nil}}, false},
+		{"k under an ICCBased DefaultCMYK", []op{gs("OP"), {"k", nil}, {"f", nil}}, true},
+		{"K under an ICCBased DefaultCMYK", []op{gs("OP"), {"K", nil}, {"S", nil}}, true},
+		{"cs DeviceCMYK under an ICCBased DefaultCMYK", []op{gs("OP"), cs("cs", "DeviceCMYK"), {"f", nil}}, true},
+		{"g replaces the fill colour space", []op{gs("OP"), cs("cs", "CMYK"), {"g", nil}, {"f", nil}}, false},
+		{"rg replaces the fill colour space", []op{gs("OP"), cs("cs", "CMYK"), {"rg", nil}, {"f", nil}}, false},
+		{"G replaces the stroke colour space", []op{gs("OP"), cs("CS", "CMYK"), {"G", nil}, {"S", nil}}, false},
+		{"RG replaces the stroke colour space", []op{gs("OP"), cs("CS", "CMYK"), {"RG", nil}, {"S", nil}}, false},
+		{"stroked text uses the stroke colour", []op{gs("OP"), cs("CS", "CMYK"), {"Tr", []pdf.PDFValue{pdf.PDFInteger(1)}}, {"Tj", nil}}, true},
+		{"stroked text ignores the fill colour", []op{gs("OP"), cs("cs", "CMYK"), {"Tr", []pdf.PDFValue{pdf.PDFInteger(1)}}, {"Tj", nil}}, false},
+		{"invisible text", []op{gs("OP"), cs("cs", "CMYK"), {"Tr", []pdf.PDFValue{pdf.PDFInteger(3)}}, {"Tj", nil}}, false},
+		{"Tr without operands", []op{gs("OP"), cs("cs", "CMYK"), {"Tr", nil}, {"Tj", nil}}, true},
+		{"form inherits the state", []op{gs("OP"), cs("cs", "CMYK"), {"Do", []pdf.PDFValue{name("Paints")}}}, true},
+		{"form with no resources reads the caller's", []op{gs("OP"), {"Do", []pdf.PDFValue{name("Sets")}}}, true},
+		{"form with no resources ignores the caller's DefaultCMYK", []op{gs("OP"), {"Do", []pdf.PDFValue{name("BorrowsK")}}}, false},
+		{"form with no resources ignores DefaultCMYK through cs", []op{gs("OP"), {"Do", []pdf.PDFValue{name("BorrowsCS")}}}, false},
+		{"form drawn in the initial state", []op{{"Do", []pdf.PDFValue{name("Paints")}}}, false},
+		{"form drawn twice in one state", []op{gs("OP"), {"Do", []pdf.PDFValue{name("Plain")}}, {"Do", []pdf.PDFValue{name("Plain")}}}, false},
+		{"form that draws itself", []op{gs("OP"), {"Do", []pdf.PDFValue{name("Loop")}}}, false},
+		{"image XObject", []op{gs("OP"), cs("cs", "CMYK"), {"Do", []pdf.PDFValue{name("Img")}}}, false},
+		{"Do without operands", []op{gs("OP"), cs("cs", "CMYK"), {"Do", nil}}, false},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
 			ctx := a2bContext()

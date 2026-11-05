@@ -292,10 +292,19 @@ func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits, hex bool) (fixed pdf.PD
 			return pdf.PDFString{Value: val.Value[:l.MaxStringBytes]}, true
 		}
 	case pdf.PDFHexString:
-		if !hex {
-			break
+		repaired := val.Value
+		if hex {
+			repaired = fixHexStringValue(repaired)
 		}
-		if repaired := fixHexStringValue(val.Value); repaired != val.Value {
+		// Normalizing drops non-hex characters and pads an odd digit count with
+		// a zero, so only a string longer than limit characters can exceed
+		// limit digits once normalized.
+		if limit := 2 * l.MaxStringBytes; limit > 0 && len(repaired) > limit {
+			if digits := fixHexStringValue(repaired); len(digits) > limit {
+				repaired = digits[:limit]
+			}
+		}
+		if repaired != val.Value {
 			return pdf.PDFHexString{Value: repaired}, true
 		}
 	case pdf.PDFArray:

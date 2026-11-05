@@ -509,6 +509,51 @@ func TestCheckInfoXMPSyncBadDateFormat(t *testing.T) {
 	}
 }
 
+// TestCompleteDateDigits verifies that the fields a date leaves out take their
+// ISO 32000-1 7.9.4 defaults.
+func TestCompleteDateDigits(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                 "",
+		"199":              "199",
+		"1999":             "19990101000000",
+		"199912":           "19991201000000",
+		"19991231":         "19991231000000",
+		"1999123123":       "19991231230000",
+		"19991231235959":   "19991231235959",
+		"1999123123595905": "1999123123595905",
+	} {
+		if got := completeDateDigits(in); got != want {
+			t.Errorf("completeDateDigits(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestSplitDates verifies that the timezone of a date is kept apart from its date
+// and time fields, however many of those the date gives.
+func TestSplitDates(t *testing.T) {
+	for _, tc := range []struct{ in, fields, zone string }{
+		{"D:20150310", "20150310", ""},
+		{"D:20150310+01'00'", "20150310", "0100"},
+		{"D:2015031012-05'30'", "2015031012", "0530"},
+		{"20150310", "20150310", ""},
+	} {
+		if f, z := splitPDFDate(tc.in); f != tc.fields || z != tc.zone {
+			t.Errorf("splitPDFDate(%q) = %q, %q; want %q, %q", tc.in, f, z, tc.fields, tc.zone)
+		}
+	}
+	for _, tc := range []struct{ in, fields, zone string }{
+		{"2015-03-10", "20150310", ""},
+		{"2015-03-10T00:00:00Z", "20150310000000", ""},
+		{"2015-03-10T00:00:00+01:00", "20150310000000", "0100"},
+		{"2015-03-10T00:00:00.5-05:30", "201503100000005", "0530"},
+		{"2015-03-10T12:30", "201503101230", ""},
+	} {
+		if f, z := splitXMPDate(tc.in); f != tc.fields || z != tc.zone {
+			t.Errorf("splitXMPDate(%q) = %q, %q; want %q, %q", tc.in, f, z, tc.fields, tc.zone)
+		}
+	}
+}
+
 func TestCheckInfoXMPSyncCorpus(t *testing.T) {
 	failPath := firstFileMatching(t, infoSyncDir, "t01-fail")
 	doc, xmp := rawXMPOf(t, failPath)

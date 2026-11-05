@@ -114,6 +114,39 @@ Everything under `internal/` may change in any release without notice.
 
 ### Fixed
 
+- When a font no fixer could embed was shown on several pages, convert rasterized
+  every page of the document, including those that never used it. It now
+  rasterizes the pages that show the font, where it can tell which those are, and
+  a finding only the writer can repair no longer flattens the page it names.
+- Convert could not write the CIDSet of a CIDFontType2 font with a CIDToGIDMap
+  stream, so such a font's pages were rasterized at PDF/A-1b. It now lists the CIDs
+  the map selects a glyph for.
+- A partial Info date, such as `D:20150310`, became an XMP date without a time,
+  which a validator reads in its local timezone, so the output's conformance
+  depended on where it was checked. XMP dates now always carry a time and a
+  timezone.
+- A font used only by the glyph procedures of a shown Type 3 font did not count
+  as used, so an unembedded one passed verify. Verify now reports it and convert
+  embeds a substitute.
+- A code shown by a simple TrueType font outside its `/Widths` was not compared
+  with the embedded program. Verify now compares it through `/MissingWidth`, and
+  convert extends `/Widths` over the shown code. Convert likewise adds a CID shown
+  with a wrong default width to `/W`, instead of rasterizing the page.
+- The PDF/A-2b overprint rule missed DeviceCMYK under an ICCBased DefaultCMYK
+  and overprint state inherited by a form XObject, took stroked text for filled,
+  and went on treating a colour space as ICCBased CMYK after a device colour
+  operator replaced it.
+- A form XObject or Type 3 font without resources of its own was excused from
+  the device colour rules by the page's Default colour spaces, which apply only
+  in the resources that define them. Verify now reports such a stream, and
+  convert gives the holder its own resources with the Default colour space.
+- The string length limit was not applied to hexadecimal strings, in the
+  document or in content streams. Verify now reports them and convert truncates
+  them.
+- The width and glyph coverage checks of a CIDFontType2 font read a CID as a
+  glyph index and ignored a CIDToGIDMap stream. Verify reported a correct `/W`
+  as mismatched, and convert replaced it with the widths of other glyphs. Both
+  now look the CID up through the map.
 - PDF/A-2b requires a subset font's CIDSet to list exactly the CIDs of its
   embedded program, used or not; only the used ones were checked. Convert
   removes a CIDSet that does not, as it is optional at this level.

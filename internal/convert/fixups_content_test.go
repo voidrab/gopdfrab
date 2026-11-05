@@ -7,6 +7,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // TestContentLimitsFixerClearsViolations runs contentLimitsFixer's targeted
@@ -553,4 +554,20 @@ func TestWalkContentStreamsSkipsNonStreamEntries(t *testing.T) {
 	contents := page.Entries.Get("Contents").(pdf.PDFArray)
 	assertOperatorDropped(t, "Contents[2]", contents[2].(pdf.PDFDict))
 	assertOperatorDropped(t, "glyph", charProcs.Entries.Get("g1").(pdf.PDFDict))
+}
+
+// TestFixScalarLimitsTruncatesHexString verifies that a hexadecimal string over
+// the limit is cut to the limit in bytes, and that one within it stays as it is.
+func TestFixScalarLimitsTruncatesHexString(t *testing.T) {
+	limits := pdfa.Limits{MaxStringBytes: 2}
+	got, ok := fixScalarLimitsValue(pdf.PDFHexString{Value: "AA BB CC"}, limits, false)
+	if !ok || got != (pdf.PDFHexString{Value: "AABB"}) {
+		t.Errorf("over the limit: got %v, %v; want AABB, true", got, ok)
+	}
+	if got, ok := fixScalarLimitsValue(pdf.PDFHexString{Value: "AA BB"}, limits, false); ok {
+		t.Errorf("within the limit: got %v, want no change", got)
+	}
+	if got, ok := fixScalarLimitsValue(pdf.PDFHexString{Value: "A"}, pdfa.Limits{}, true); !ok || got != (pdf.PDFHexString{Value: "A0"}) {
+		t.Errorf("odd length: got %v, %v; want A0, true", got, ok)
+	}
 }

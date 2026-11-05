@@ -1029,6 +1029,17 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, fu.partialCodes, complete
 }
 
+// VisibleFonts returns the Entries pointers of the fonts page shows with a
+// visible text rendering mode, under any encoding: a Type 0 font and its
+// descendant CIDFont both count.
+func VisibleFonts(page pdf.PDFDict, ctx *ValidationContext) map[uintptr]bool {
+	fu := newFontUsage()
+	reachable := map[uintptr]bool{}
+	collectContentUsage(ctx, page.Entries.Get("Contents"), pdf.PageResources(page), reachable, fu)
+	collectAnnotAppearanceUsage(ctx, page, reachable, fu)
+	return fu.visible
+}
+
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
 // appearance streams, so validateContentStreams scans their colour usage. It
 // reports whether every stream it visited decoded.
@@ -1113,12 +1124,14 @@ type usageText struct {
 	haveSimpleFont    bool
 	compositeFontPtr  uintptr
 	haveCompositeFont bool
+	type3Font         pdf.PDFDict
 }
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
 // scannedPatterns dedupes tiling-pattern content streams across the walk;
-// scannedForms dedupes form XObjects by the text state they are drawn in.
+// scannedForms dedupes form XObjects and Type 3 fonts by the text state they are
+// drawn in.
 type fontUsage struct {
 	visible         map[uintptr]bool
 	invisible       map[uintptr]bool
@@ -1176,6 +1189,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			st.currentFontPtrs = nil
 			st.haveSimpleFont = false
 			st.haveCompositeFont = false
+			st.type3Font = pdf.PDFDict{}
 			if len(operands) >= 2 && fonts.Entries != nil {
 				if name, ok := operands[len(operands)-2].(pdf.PDFName); ok {
 					if fd, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict); ok {
@@ -1197,6 +1211,9 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 							// Simple font: codes shown via Tj/TJ are single bytes.
 							st.simpleFontPtr = pdf.ValuePointer(fd.Entries)
 							st.haveSimpleFont = true
+							if fd.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"}) {
+								st.type3Font = fd
+							}
 						}
 					}
 				}
@@ -1233,6 +1250,9 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 						fu.partialCodes[st.compositeFontPtr] = true
 					}
 				})
+			}
+			if st.type3Font.Entries != nil && !collectType3Usage(ctx, st.type3Font, st.renderMode, resources, reachable, fu) {
+				complete = false
 			}
 		case "scn", "SCN":
 			// A tiling pattern set as fill/stroke colour runs its own content
@@ -1306,6 +1326,43 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 	if err != nil {
 		return false // reported as StreamUndecodable by scanStream
 	}
+	return complete
+}
+
+// hexStringBytes returns the number of bytes a hexadecimal string encodes,
+// counting an odd final digit as a whole byte and ignoring anything else.
+func hexStringBytes(v pdf.PDFHexString) int {
+	digits := 0
+	for i := 0; i < len(v.Value); i++ {
+		if pdf.IsHexDigit(v.Value[i]) {
+			digits++
+		}
+	}
+	return (digits + 1) / 2
+}
+
+// collectType3Usage records the fonts and XObjects the glyph procedures of a
+// shown Type 3 font use. ISO 32000-1 9.3.6 gives the text rendering mode no
+// effect on Type 3 glyphs, but veraPDF hands it to the procedures, so this does
+// too. Every procedure counts, not only those of the shown codes, also as in
+// veraPDF. It reports whether every procedure decoded.
+func collectType3Usage(ctx *ValidationContext, font pdf.PDFDict, renderMode int, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
+	key := formScan{form: pdf.ValuePointer(font.Entries), renderMode: renderMode}
+	if fu.scannedForms[key] {
+		return true
+	}
+	fu.scannedForms[key] = true
+	complete := true
+	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+		res := r.Resources
+		if res.Entries == nil {
+			res = resources
+		}
+		st := &usageState{usageText: usageText{renderMode: renderMode}}
+		if !collectUsageFromBytes(ctx, r.Stream, res, reachable, fu, st) {
+			complete = false
+		}
+	})
 	return complete
 }
 
@@ -1406,6 +1463,10 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 		}
 	case pdf.PDFString:
 		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
+		}
+	case pdf.PDFHexString:
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(hexStringBytes(v), limit) {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
 		}
 	case pdf.PDFDict:

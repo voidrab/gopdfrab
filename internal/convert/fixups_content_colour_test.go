@@ -230,8 +230,8 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Fown", owned)
 	xobjects.Entries.Set("Fborrowed", borrowed)
-	// The page already carries DefaultCMYK, so the form that borrows the page's
-	// resources needs no injection.
+	// The page already carries DefaultCMYK, which does not reach the forms it
+	// draws.
 	pageCS := pdf.NewPDFDict()
 	pageCS.Entries.Set("DefaultCMYK", iccBasedColourSpace(4, cmykICCProfile))
 	pageRes := pdf.NewPDFDict()
@@ -267,8 +267,11 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	if !verify.DefaultColorSpaceDefined("cmyk", ownRes) {
 		t.Error("DefaultCMYK not injected into the form's own resources")
 	}
-	if _, has := borrowed.Entries.Lookup("Resources"); has {
-		t.Error("a form without its own resources was given one")
+	// A form without resources of its own gets a copy of those it reads names
+	// from, so the entry applies and every name still resolves.
+	adopted, _ := borrowed.Entries.Get("Resources").(pdf.PDFDict)
+	if !verify.DefaultColorSpaceDefined("cmyk", adopted) {
+		t.Error("DefaultCMYK not injected into a form without its own resources")
 	}
 }
 
@@ -666,9 +669,95 @@ func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 	}
 }
 
-// TestDefaultCSInjectionReachesType3Glyphs verifies that a Type 3 font with
-// its own resources gets the Default colour space, and that the forms its
-// glyphs draw are followed.
+// TestAdoptionKeepsAFormsNamesPerPage verifies that a form XObject without
+// resources of its own, drawn from two pages whose resources give the same name
+// different values, reads each page's value, and that the adopted resources and
+// the form copy carry no reference of their own.
+func TestAdoptionKeepsAFormsNamesPerPage(t *testing.T) {
+	form := pdf.NewStreamDict(kv("Subtype", nm("Form")).Entries, []byte("/G gs 1 0 0 rg 0 0 1 1 re f"))
+	form.SetRef(pdf.PDFRef{ObjNum: 9})
+	gs := func(lw int) pdf.PDFDict { return kv("Type", nm("ExtGState"), "LW", pdf.PDFInteger(lw)) }
+	page := func(lw int) pdf.PDFDict {
+		res := kv("ExtGState", kv("G", gs(lw)), "XObject", kv("Fm", form))
+		res.SetRef(pdf.PDFRef{ObjNum: 20 + lw})
+		return kv("Type", nm("Page"), "Resources", res, "Contents", pdf.NewStreamDict(nil, []byte("/Fm Do")))
+	}
+	p1, p2 := page(2), page(9)
+	trailer := kv("Root", kv("Pages", kv("Kids", pdf.PDFArray{p1, p2})))
+
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want true, nil", changed, err)
+	}
+	drawn := func(p pdf.PDFDict) pdf.PDFDict {
+		return pdf.LookupResource(p.Entries.Get("Resources").(pdf.PDFDict), "XObject", "Fm").(pdf.PDFDict)
+	}
+	for _, tc := range []struct {
+		p  pdf.PDFDict
+		lw int
+	}{{p1, 2}, {p2, 9}} {
+		res := drawn(tc.p).Entries.Get("Resources").(pdf.PDFDict)
+		g, _ := pdf.LookupResource(res, "ExtGState", "G").(pdf.PDFDict)
+		if g.Entries.Get("LW") != pdf.PDFInteger(tc.lw) {
+			t.Errorf("form on the page with LW %d reads LW %v", tc.lw, g.Entries.Get("LW"))
+		}
+		if !verify.DefaultColorSpaceDefined("rgb", res) {
+			t.Errorf("form on the page with LW %d has no DefaultRGB", tc.lw)
+		}
+		if _, numbered := res.Ref(); numbered {
+			t.Errorf("the adopted resources carry a reference: %v", res)
+		}
+	}
+	if _, numbered := drawn(p2).Ref(); numbered {
+		t.Error("the form's copy still carries the original's reference")
+	}
+}
+
+// TestDefaultCSInjectionFollowVisitsAStreamOnce verifies that a second visit to a
+// stream adds nothing, for instance a page content stream listed twice.
+func TestDefaultCSInjectionFollowVisitsAStreamOnce(t *testing.T) {
+	form := pdf.NewStreamDict(kv("Subtype", nm("Form"), "Resources", kv()).Entries, []byte("1 0 0 rg"))
+	page := pdf.NewStreamDict(nil, []byte("/F Do"))
+	scope := kv("XObject", kv("F", form))
+	in := defaultCSInjection{needRGB: true, rgb: iccBasedColourSpace(3, srgbICCProfile), visited: map[uintptr]bool{}}
+	if !in.follow(page, scope) {
+		t.Error("the first visit changed nothing")
+	}
+	if in.follow(page, scope) {
+		t.Error("the second visit reported a change")
+	}
+}
+
+// TestAdoptionKeepsSharedXObjectDictionaries verifies that a holder's copy for one
+// scope does not reach a scope that shares its /XObject dictionary.
+func TestAdoptionKeepsSharedXObjectDictionaries(t *testing.T) {
+	form := pdf.NewStreamDict(kv("Subtype", nm("Form")).Entries, []byte("/G gs"))
+	shared := kv("Fm", form)
+	first := kv("XObject", shared, "ExtGState", kv("G", kv("LW", pdf.PDFInteger(2))))
+	second := kv("XObject", shared, "ExtGState", kv("G", kv("LW", pdf.PDFInteger(9))))
+	in := defaultCSInjection{adopted: map[uintptr]map[uintptr]pdf.PDFDict{}}
+
+	if got := in.holderIn(form, first, "XObject", "Fm"); got.Entries != form.Entries {
+		t.Fatal("the first scope did not keep the holder")
+	}
+	copied := in.holderIn(form, second, "XObject", "Fm")
+	if copied.Entries == form.Entries {
+		t.Fatal("the second scope did not get a copy")
+	}
+	if pdf.LookupResource(first, "XObject", "Fm").(pdf.PDFDict).Entries != form.Entries {
+		t.Error("the copy reached the first scope")
+	}
+	if pdf.LookupResource(second, "XObject", "Fm").(pdf.PDFDict).Entries != copied.Entries {
+		t.Error("the copy did not take the holder's place in the second scope")
+	}
+	if again := in.holderIn(copied, second, "XObject", "Fm"); again.Entries != copied.Entries {
+		t.Error("a further visit made another copy")
+	}
+}
+
+// TestDefaultCSInjectionReachesType3Glyphs verifies that a Type 3 font gets the
+// Default colour space, with or without resources of its own, and that the forms
+// its glyphs draw are followed.
 func TestDefaultCSInjectionReachesType3Glyphs(t *testing.T) {
 	inner := pdf.NewStreamDict(kv("Subtype", nm("Form"), "Resources", kv()).Entries, []byte("1 0 0 rg"))
 	glyph := pdf.NewStreamDict(nil, []byte("/X0 Do"))
@@ -684,7 +773,7 @@ func TestDefaultCSInjectionReachesType3Glyphs(t *testing.T) {
 	}{
 		{"Type 3 font", nm("T3"), true},
 		{"Type 3 font again", nm("T3"), false},
-		{"Type 3 font without resources", nm("T0"), false},
+		{"Type 3 font without resources", nm("T0"), true},
 		{"not a Type 3 font", nm("F1"), false},
 		{"unknown font", nm("F9"), false},
 		{"operand not a name", pdf.PDFInteger(1), false},
@@ -693,7 +782,7 @@ func TestDefaultCSInjectionReachesType3Glyphs(t *testing.T) {
 			t.Errorf("%s: runType3 = %v, want %v", tc.desc, got, tc.want)
 		}
 	}
-	for _, d := range []pdf.PDFDict{type3, inner} {
+	for _, d := range []pdf.PDFDict{type3, bare, inner} {
 		if !verify.DefaultColorSpaceDefined("rgb", resourcesOf(d, pdf.PDFDict{})) {
 			t.Errorf("%v got no DefaultRGB", d)
 		}

@@ -171,7 +171,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return fontDictFixer{} },
 		func(r *fixerRun) Fixer { return type0FontFixer{} },
 		func(r *fixerRun) Fixer { return baseFontFixer{} },
-		func(r *fixerRun) Fixer { return fontMetricFixer{} },
+		func(r *fixerRun) Fixer { return fontMetricFixer{doc: r.doc} },
 		func(r *fixerRun) Fixer {
 			return fontSubsetMetaFixer{exact: r.spec.ExactSubsetSets, dropCIDSet: r.spec.ExactSubsetSets && r.spec.SubsetSetsOptional}
 		},

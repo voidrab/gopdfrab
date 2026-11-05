@@ -531,8 +531,20 @@ func cidsToCheck(obj pdf.PDFValue, w pdf.PDFArray, ctx *ValidationContext) (cids
 	return cids, false
 }
 
-// cidDefaultWidth returns the CIDFont's DW entry, defaulting to 1000.
-func cidDefaultWidth(obj pdf.PDFValue) int {
+// ShownOutsideWidths returns, in ascending order, the codes in shown that lie
+// outside a /Widths array of n entries starting at firstChar.
+func ShownOutsideWidths(shown map[int]bool, firstChar, n int) []int {
+	var codes []int
+	for _, cc := range slices.Sorted(maps.Keys(shown)) {
+		if cc < firstChar || cc >= firstChar+n {
+			codes = append(codes, cc)
+		}
+	}
+	return codes
+}
+
+// CIDDefaultWidth returns the CIDFont's DW entry, defaulting to 1000.
+func CIDDefaultWidth(obj pdf.PDFValue) int {
 	if d, ok := obj.(pdf.PDFDict); ok {
 		switch dw := d.Entries.Get("DW").(type) {
 		case pdf.PDFInteger:
@@ -545,8 +557,9 @@ func cidDefaultWidth(obj pdf.PDFValue) int {
 }
 
 // ValidateCIDTrueTypeSubset checks that every CID referenced for rendering has
-// a glyph in the embedded TrueType program (6.3.5). CIDs that are only declared
-// (in W) but never shown are exempt when usage info is available.
+// a glyph in the embedded TrueType program (6.3.5). When usage is known, only
+// the shown CIDs are checked. Otherwise a CID that the CIDToGIDMap does not
+// cover is skipped, because W may declare it without showing it.
 func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
@@ -557,10 +570,19 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 	if !ok {
 		return
 	}
-	cids, _ := cidsToCheck(obj, w, ctx)
+	dict, _ := obj.(pdf.PDFDict)
+	gidOf, ok := CIDToGIDMapping(dict.Entries.Get("CIDToGIDMap"), ctx.decodeStreamCached)
+	if !ok {
+		return // reported as Font.CIDToGIDMapMissing, or the map does not decode
+	}
+	cids, knownUsage := cidsToCheck(obj, w, ctx)
 	glyphPresent := fontprog.TTGlyphPresent(tables)
 	for _, cid := range cids {
-		if !glyphPresent(cid) {
+		gid, mapped := gidOf(cid)
+		if !mapped && !knownUsage {
+			continue // declared in W, and nothing says it is shown
+		}
+		if !mapped || !glyphPresent(gid) {
 			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced for rendering has no glyph in embedded program", cid))
 			return
 		}
@@ -569,7 +591,9 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 
 // validateCIDTrueTypeMetrics checks that CID advance widths match the embedded
 // TrueType hmtx table (6.3.6): every W entry, plus rendered CIDs that fall back
-// to the default width DW because they are absent from W.
+// to the default width DW because they are absent from W. A CID is looked up
+// through the font's CIDToGIDMap; one the map does not cover has no glyph, which
+// the 6.3.5 coverage check handles.
 func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
@@ -580,25 +604,31 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray,
 	if !ok {
 		return
 	}
+	gidOf, ok := CIDToGIDMapping(obj.Entries.Get("CIDToGIDMap"), ctx.decodeStreamCached)
+	if !ok {
+		return // reported as Font.CIDToGIDMapMissing, or the map does not decode
+	}
 	glyphPresent := fontprog.TTGlyphPresent(tables)
-	mismatched := func(cid, pdfWidth int) bool {
-		if !glyphPresent(cid) {
+	// reportMismatch reports cid if its glyph's width differs from pdfWidth by
+	// more than the ±1 rounding tolerance.
+	reportMismatch := func(cid, pdfWidth int) bool {
+		gid, mapped := gidOf(cid)
+		if !mapped || !glyphPresent(gid) {
 			return false // absent glyph: 6.3.5 coverage handles it
 		}
-		fontWidth := fontprog.TTAdvanceWidth(tables, cid)
-		// Allow ±1 rounding tolerance.
-		return fontWidth >= 0 && math.Abs(fontWidth-float64(pdfWidth)) > 1
-	}
-	report := func(cid, pdfWidth int, fontWidth float64) {
+		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
+		if fontWidth < 0 || math.Abs(fontWidth-float64(pdfWidth)) <= 1 {
+			return false
+		}
 		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %s",
 			cid, pdfWidth, formatWidth(fontWidth)))
+		return true
 	}
 
 	widthOf := map[int]int{}
 	for _, pair := range fontprog.ParseCIDWidths(w) {
 		widthOf[pair[0]] = pair[1]
-		if mismatched(pair[0], pair[1]) {
-			report(pair[0], pair[1], fontprog.TTAdvanceWidth(tables, pair[0]))
+		if reportMismatch(pair[0], pair[1]) {
 			return
 		}
 	}
@@ -608,7 +638,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray,
 	if !known {
 		return
 	}
-	dw := cidDefaultWidth(obj)
+	dw := CIDDefaultWidth(obj)
 	cids := make([]int, 0, len(used))
 	for cid := range used {
 		if _, inW := widthOf[cid]; !inW {
@@ -617,8 +647,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray,
 	}
 	sort.Ints(cids)
 	for _, cid := range cids {
-		if mismatched(cid, dw) {
-			report(cid, dw, fontprog.TTAdvanceWidth(tables, cid))
+		if reportMismatch(cid, dw) {
 			return
 		}
 	}
@@ -742,13 +771,6 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 
 	r := fontprog.NewSimpleTrueTypeCmaps(fontEncoding(obj), tables)
 
-	codeToGID := func(cc int) (int, bool) {
-		if gid, tried, found := r.Windows(cc); tried {
-			return gid, found // a (3,1) miss: the width cannot be verified
-		}
-		return r.Fallback(cc)
-	}
-
 	// With known usage, every shown code is checked, including those with a
 	// zero width. Otherwise only codes with a nonzero width are checked, as a
 	// zero width often marks a code the font leaves unused.
@@ -756,6 +778,30 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 	knownUsage := false
 	if fontDict, ok := obj.(pdf.PDFDict); ok {
 		shown, knownUsage = ctx.usedCodesFor(fontDict)
+	}
+	// reportMismatch reports code cc if its glyph's width differs from pdfWidth.
+	reportMismatch := func(cc, pdfWidth int) bool {
+		gid, known := r.GID(cc)
+		if !known {
+			return false
+		}
+		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
+		if fontWidth < 0 || math.Abs(fontWidth-float64(pdfWidth)) <= 1 {
+			return false
+		}
+		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %s",
+			cc, pdfWidth, formatWidth(fontWidth)))
+		return true
+	}
+	// A shown code outside /Widths takes its width from /MissingWidth, which
+	// defaults to 0.
+	fontDict, _ := obj.(pdf.PDFDict)
+	desc, _ := fontDict.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+	for _, cc := range ShownOutsideWidths(shown, firstChar, len(widths)) {
+		if reportMismatch(cc, missing) {
+			return
+		}
 	}
 	for i, w := range widths {
 		var pdfWidth int
@@ -771,17 +817,7 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		if knownUsage && !shown[cc] || !knownUsage && pdfWidth == 0 {
 			continue
 		}
-		gid, known := codeToGID(cc)
-		if !known {
-			continue
-		}
-		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
-		if fontWidth < 0 {
-			continue
-		}
-		if math.Abs(fontWidth-float64(pdfWidth)) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %s",
-				cc, pdfWidth, formatWidth(fontWidth)))
+		if reportMismatch(cc, pdfWidth) {
 			return
 		}
 	}
@@ -894,23 +930,12 @@ func validateType1Metrics(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, fi
 		usedCodes, knownUsage = ctx.usedCodesFor(fontDict)
 	}
 
-	// A code outside /Widths takes its width from /MissingWidth, so a font
-	// whose FirstChar starts past a code it shows is checked there rather than
-	// not at all -- which is where the Isartor 6.3.6 case lives.
-	if knownUsage {
-		missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
-		codes := make([]int, 0, len(usedCodes))
-		for cc := range usedCodes {
-			codes = append(codes, cc)
-		}
-		sort.Ints(codes)
-		for _, cc := range codes {
-			if cc >= firstChar && cc < firstChar+len(widths) {
-				continue
-			}
-			if !reportType1WidthMismatch(obj, cc, missing, enc, glyphWidths, ctx) {
-				return
-			}
+	// A shown code outside /Widths takes its width from /MissingWidth, so such
+	// a code is checked against that width rather than skipped.
+	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+	for _, cc := range ShownOutsideWidths(usedCodes, firstChar, len(widths)) {
+		if !reportType1WidthMismatch(obj, cc, missing, enc, glyphWidths, ctx) {
+			return
 		}
 	}
 

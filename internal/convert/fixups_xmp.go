@@ -360,42 +360,23 @@ func xmlEscapeAttr(s string) string {
 }
 
 // pdfDateToXMP converts a PDF date string ("D:YYYYMMDDHHmmSSOHH'mm'", ISO
-// 32000-1 7.9.4) to an XMP/ISO-8601 date string, preserving however much
-// precision the source provides (down to just a year), defaulting an
-// unspecified timezone to UTC. ok is false if cd doesn't start with "D:" or
-// has fewer than four digits of year.
+// 32000-1 7.9.4) to a full XMP/ISO-8601 date string, using the defaults of 7.9.4
+// for the fields the source leaves out and UTC for an unspecified timezone. An
+// XMP date without a time would be read in the reader's local timezone, so its
+// equivalence with the Info date would depend on where the file is checked. ok
+// is false if cd doesn't start with "D:" or has fewer than four digits of year.
 func pdfDateToXMP(cd string) (out string, ok bool) {
 	cd = strings.TrimPrefix(cd, "D:")
 	if len(cd) < 4 || !isAllDigits(cd[:4]) {
 		return "", false
 	}
-	out, rest := cd[:4], cd[4:]
-
-	month, rest, ok := takeDigits2(rest)
-	if !ok {
-		return out, true
-	}
-	out += "-" + month
-
-	day, rest, ok := takeDigits2(rest)
-	if !ok {
-		return out, true
-	}
-	out += "-" + day
-
-	hour, rest, ok := takeDigits2(rest)
-	if !ok {
-		return out, true
-	}
-	minute, rest, ok := takeDigits2(rest)
-	if !ok {
-		minute = "00"
-	}
-	second, rest, ok := takeDigits2(rest)
-	if !ok {
-		second = "00"
-	}
-	out += "T" + hour + ":" + minute + ":" + second
+	year, rest := cd[:4], cd[4:]
+	month, rest := takeDigits2Or(rest, "01")
+	day, rest := takeDigits2Or(rest, "01")
+	hour, rest := takeDigits2Or(rest, "00")
+	minute, rest := takeDigits2Or(rest, "00")
+	second, rest := takeDigits2Or(rest, "00")
+	out = year + "-" + month + "-" + day + "T" + hour + ":" + minute + ":" + second
 
 	if len(rest) > 0 && (rest[0] == '+' || rest[0] == '-') {
 		sign := string(rest[0])
@@ -404,15 +385,19 @@ func pdfDateToXMP(cd string) (out string, ok bool) {
 			return out + "Z", true
 		}
 		rest = strings.TrimPrefix(rest, "'")
-		tzm, _, ok := takeDigits2(rest)
-		if !ok {
-			tzm = "00"
-		}
-		out += sign + tzh + ":" + tzm
-	} else {
-		out += "Z"
+		tzm, _ := takeDigits2Or(rest, "00")
+		return out + sign + tzh + ":" + tzm, true
 	}
-	return out, true
+	return out + "Z", true
+}
+
+// takeDigits2Or consumes a 2-digit prefix of s, or returns def and s unchanged
+// if s doesn't start with two digits.
+func takeDigits2Or(s, def string) (digits, rest string) {
+	if d, r, ok := takeDigits2(s); ok {
+		return d, r
+	}
+	return def, s
 }
 
 // takeDigits2 consumes a 2-digit prefix of s, reporting ok=false (and

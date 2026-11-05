@@ -1620,6 +1620,53 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	}
 }
 
+// TestComputeContentUsageFollowsType3Glyphs verifies that a font used only by
+// the glyph procedures of a shown Type 3 font counts as shown, in the rendering
+// mode the glyphs are shown in, and that a Type 3 font never shown adds nothing.
+func TestComputeContentUsageFollowsType3Glyphs(t *testing.T) {
+	inner := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Helvetica"))
+	hidden := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Times-Roman"))
+	type3 := func(fonts pdf.PDFDict, res bool) pdf.PDFDict {
+		f := kv("Type", name("Font"), "Subtype", name("Type3"),
+			"CharProcs", kv("a", streamDict("BT /In 10 Tf (x) Tj ET")))
+		if res {
+			f.Entries.Set("Resources", kv("Font", fonts))
+		}
+		return f
+	}
+	own := type3(kv("In", inner), true)
+	unshown := type3(kv("In", hidden), true)
+	borrowed := type3(pdf.PDFDict{}, false)
+	shared := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Courier"))
+	page := kv("Type", name("Page"),
+		"Resources", kv("Font", kv("T3", own, "U3", unshown, "B3", borrowed, "In", shared)),
+		"Contents", streamDict("BT /T3 10 Tf (a) Tj (a) Tj 3 Tr /B3 10 Tf (a) Tj ET"))
+
+	_, invisible, used, _, _, complete := ComputeContentUsage(page, NewContext(nil))
+	if !complete {
+		t.Error("usage incomplete")
+	}
+	if !used[pdf.ValuePointer(inner.Entries)]['x'] {
+		t.Error("a font used by a glyph procedure does not count as shown")
+	}
+	if _, ok := used[pdf.ValuePointer(hidden.Entries)]; ok {
+		t.Error("a font of a Type 3 font never shown counts as shown")
+	}
+	if !invisible[pdf.ValuePointer(shared.Entries)] {
+		t.Error("a glyph procedure of invisible text did not read the caller's resources in that mode")
+	}
+
+	// A glyph procedure that does not decode leaves the usage incomplete.
+	bad := streamDict("")
+	bad.Entries.Set("Filter", name("Unknown"))
+	broken := kv("Type", name("Font"), "Subtype", name("Type3"), "CharProcs", kv("a", bad))
+	page = kv("Type", name("Page"), "Resources", kv("Font", kv("T3", broken)),
+		"Contents", streamDict("BT /T3 10 Tf (a) Tj ET"))
+	if _, _, _, _, _, complete := ComputeContentUsage(page, NewContext(nil)); complete {
+		t.Error("usage complete despite a glyph procedure that does not decode")
+	}
+}
+
 // TestComputeContentUsageThroughInheritedResources covers the page that names
 // no /Resources of its own: /Resources is inheritable, and documents that hang
 // one shared dict on the page tree root are common. Reading only the page's own
@@ -2463,6 +2510,7 @@ func TestArchitecturalLimitsScalarsAndDicts(t *testing.T) {
 		{"real above 32767", pdf.PDFReal(32768.5), pdf.Checks.Structure.RealOutOfRange},
 		{"real below -32767", pdf.PDFReal(-40000), pdf.Checks.Structure.RealOutOfRange},
 		{"string over 65535 bytes", pdf.PDFString{Value: strings.Repeat("a", 65536)}, pdf.Checks.Structure.StringTooLong},
+		{"hex string over 65535 bytes", pdf.PDFHexString{Value: strings.Repeat("ab", 65536)}, pdf.Checks.Structure.StringTooLong},
 		{"dictionary over 4095 entries", big, pdf.Checks.Structure.DictTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

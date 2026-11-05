@@ -370,12 +370,12 @@ func TestCidsToCheckAndDefaultWidth(t *testing.T) {
 		t.Errorf("cidsToCheck with usage = %v, known=%v, want [3 7] true", cids, known)
 	}
 
-	if cidDefaultWidth(desc) != 1000 {
-		t.Error("cidDefaultWidth should default to 1000 when DW is absent")
+	if CIDDefaultWidth(desc) != 1000 {
+		t.Error("CIDDefaultWidth should default to 1000 when DW is absent")
 	}
 	desc.Entries.Set("DW", pdf.PDFInteger(2000))
-	if cidDefaultWidth(desc) != 2000 {
-		t.Error("cidDefaultWidth should reflect the DW entry")
+	if CIDDefaultWidth(desc) != 2000 {
+		t.Error("CIDDefaultWidth should reflect the DW entry")
 	}
 }
 
@@ -435,6 +435,56 @@ func TestCIDTrueTypeSubsetAndMetrics(t *testing.T) {
 	validateCIDTrueTypeMetrics(desc, ff, pdf.PDFArray{}, ctx5)
 	if !hasCheck(ctx5, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("expected AdvanceWidthMismatch via DW fallback for a rendered CID absent from W")
+	}
+}
+
+// TestCIDTrueTypeChecksReadCIDToGIDMap verifies that the width and coverage
+// checks look a CID up through a stream CIDToGIDMap rather than read it as a
+// glyph index.
+func TestCIDTrueTypeChecksReadCIDToGIDMap(t *testing.T) {
+	desc, ff, gidA, widthA := buildCIDTrueTypeFont(t)
+	// CID 1 selects glyph gidA; CID 2 selects glyph 0.
+	desc.Entries.Set("CIDToGIDMap", pdf.NewStreamDict(nil, []byte{0, 0, byte(gidA >> 8), byte(gidA), 0, 0}))
+
+	w := func(cid, width int) pdf.PDFArray {
+		return pdf.PDFArray{pdf.PDFInteger(cid), pdf.PDFArray{pdf.PDFInteger(width)}}
+	}
+	metrics := func(wa pdf.PDFArray) bool {
+		ctx := &ValidationContext{Spec: a1bSpec}
+		validateCIDTrueTypeMetrics(desc, ff, wa, ctx)
+		return hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch)
+	}
+	if metrics(w(1, widthA)) {
+		t.Error("AdvanceWidthMismatch for a width that matches the mapped glyph")
+	}
+	if !metrics(w(1, widthA+500)) {
+		t.Error("no AdvanceWidthMismatch for a width that differs from the mapped glyph")
+	}
+	if metrics(w(3, widthA+500)) {
+		t.Error("AdvanceWidthMismatch for a CID the map does not cover")
+	}
+
+	coverage := func(wa pdf.PDFArray) bool {
+		ctx := &ValidationContext{Spec: a1bSpec}
+		ValidateCIDTrueTypeSubset(desc, ff, wa, ctx)
+		return hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage)
+	}
+	if coverage(w(1, widthA)) {
+		t.Error("SubsetGlyphCoverage for a CID mapped to a glyph")
+	}
+	if coverage(w(3, widthA)) {
+		t.Error("SubsetGlyphCoverage for a CID the map does not cover that is only declared in W")
+	}
+	shown := &ValidationContext{Spec: a1bSpec, UsedCIDs: map[uintptr]map[int]bool{pdf.ValuePointer(desc.Entries): {3: true}}}
+	ValidateCIDTrueTypeSubset(desc, ff, w(1, widthA), shown)
+	if !hasCheck(shown, pdf.Checks.Font.SubsetGlyphCoverage) {
+		t.Error("no SubsetGlyphCoverage for a shown CID the map does not cover")
+	}
+
+	// A map that is no stream or does not decode leaves both checks silent.
+	desc.Entries.Set("CIDToGIDMap", pdf.PDFInteger(1))
+	if metrics(w(1, widthA+500)) || coverage(w(1, widthA)) {
+		t.Error("a check reported through an unusable CIDToGIDMap")
 	}
 }
 
@@ -1742,8 +1792,8 @@ func TestCIDSetTrueTypeGuards(t *testing.T) {
 func TestCIDDefaultWidthReal(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries.Set("DW", pdf.PDFReal(750.9))
-	if got := cidDefaultWidth(d); got != 750 {
-		t.Errorf("cidDefaultWidth = %d, want 750", got)
+	if got := CIDDefaultWidth(d); got != 750 {
+		t.Errorf("CIDDefaultWidth = %d, want 750", got)
 	}
 }
 
@@ -1807,6 +1857,46 @@ func TestSimpleTrueTypeSubsetWidthsFallback(t *testing.T) {
 	ctx = run(0, pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(500)})
 	if !strings.Contains(reportedAt(ctx), "code 2 ") {
 		t.Errorf("used code 2 not reached: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestSimpleTrueTypeMetricsCodeOutsideWidths verifies that a shown code outside
+// /Widths is compared through /MissingWidth, which defaults to 0.
+func TestSimpleTrueTypeMetricsCodeOutsideWidths(t *testing.T) {
+	ttf := loadTTF(t)
+	tables, _ := fontprog.ParseSfnt(ttf)
+	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
+	widthA := int(fontprog.TTAdvanceWidth(tables, int(cmap['A'])))
+	widthB := pdf.PDFInteger(fontprog.TTAdvanceWidth(tables, int(cmap['B'])))
+	ff := streamDict(string(ttf))
+
+	for _, tc := range []struct {
+		desc    string
+		missing int
+		shown   int
+		want    bool
+	}{
+		{"no MissingWidth", 0, 'A', true},
+		{"MissingWidth differs", widthA + 500, 'A', true},
+		{"MissingWidth matches", widthA, 'A', false},
+		{"no glyph for the code", 0, 1, false},
+		{"code inside Widths", 0, 'B', false},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			desc := kv()
+			if tc.missing != 0 {
+				desc.Entries.Set("MissingWidth", pdf.PDFInteger(tc.missing))
+			}
+			v := kv("Encoding", name("WinAnsiEncoding"), "FontDescriptor", desc)
+			ctx := &ValidationContext{Spec: a1bSpec, UsedCharCodes: map[uintptr]map[int]bool{
+				pdf.ValuePointer(v.Entries): {tc.shown: true},
+			}}
+			// /Widths holds only B, with its correct width.
+			validateSimpleTrueTypeMetrics(v, ff, 'B', pdf.PDFArray{widthB}, ctx)
+			if got := hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch); got != tc.want {
+				t.Errorf("AdvanceWidthMismatch reported = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

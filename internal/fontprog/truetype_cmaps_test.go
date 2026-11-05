@@ -150,3 +150,25 @@ func TestSimpleTrueTypeCmapsLenient(t *testing.T) {
 		}
 	}
 }
+
+// TestSimpleTrueTypeCmapsGID verifies that a (3,1) miss ends the lookup, and that
+// a code the (3,1) cmap cannot be asked about goes to Fallback.
+func TestSimpleTrueTypeCmapsGID(t *testing.T) {
+	r := SimpleTrueTypeCmaps{
+		encoded: true,
+		win:     map[uint16]uint16{'A': 7},
+		mac:     map[uint16]uint16{'B': 9},
+	}
+	r.CodeToUnicode['A'] = 'A'
+	r.CodeToUnicode['B'] = 'B'
+	if gid, found := r.GID('A'); !found || gid != 7 {
+		t.Errorf("GID('A') = %d, %v; want 7, true", gid, found)
+	}
+	if _, found := r.GID('B'); found {
+		t.Error("a (3,1) miss went on to Fallback")
+	}
+	r.win = nil
+	if gid, found := r.GID('B'); !found || gid != 9 {
+		t.Errorf("without (3,1), GID('B') = %d, %v; want 9, true", gid, found)
+	}
+}

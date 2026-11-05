@@ -2,7 +2,9 @@ package convert
 
 import (
 	"encoding/binary"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -284,16 +286,17 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 // PDF /Widths (simple TrueType, Type1, Type1C, Type3) or /W (CIDFontType2,
 // CIDFontType0) entries from the embedded font program, mirroring the
 // detection in checks_font.go/checks_font_program.go.
-type fontMetricFixer struct{}
+type fontMetricFixer struct{ doc *pdf.Reader }
 
 func (fontMetricFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.AdvanceWidthMismatch
 }
 
-func (fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
+	usage := shownUsage{doc: f.doc, trailer: trailer}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if fixFontMetricsDict(d) {
+		if usage.repair(d) {
 			changed = true
 		}
 	})
@@ -302,17 +305,67 @@ func (fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 
 // fixTargeted repairs only the font dicts the issues reference; the verifier
 // reports every mismatching font per pass, so this covers all violations.
-func (fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+func (f fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
+	usage := shownUsage{doc: f.doc, trailer: p.trailer}
 	for _, d := range targets {
-		if fixFontMetricsDict(d) {
+		if usage.repair(d) {
 			changed = true
 		}
 	}
 	return changed, true, nil
+}
+
+// shownUsage is the document's font usage, computed when first needed.
+type shownUsage struct {
+	doc        *pdf.Reader
+	trailer    *pdf.PDFDict
+	codes, cid map[uintptr]map[int]bool
+}
+
+// repair recomputes d's width metadata and adds what it shows without one.
+func (u *shownUsage) repair(d pdf.PDFDict) bool {
+	fixed := fixFontMetricsDict(d)
+	return u.growShown(d) || fixed
+}
+
+// growShown adds width entries to font d for the codes or CIDs it shows that
+// have none: a code outside the /Widths of an embedded simple TrueType font,
+// or a CID absent from the /W of an embedded CIDFontType2. Such a code or CID
+// takes its width from /MissingWidth or /DW, which can disagree with the
+// program.
+func (u *shownUsage) growShown(d pdf.PDFDict) bool {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
+		return false
+	}
+	subtype := d.Entries.Get("Subtype")
+	trueType := subtype == pdf.PDFName{Value: "TrueType"}
+	if !trueType && subtype != (pdf.PDFName{Value: "CIDFontType2"}) {
+		return false
+	}
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if _, embedded := desc.Entries.Get("FontFile2").(pdf.PDFDict); !embedded {
+		return false
+	}
+	if u.codes == nil {
+		_, _, u.codes, u.cid, _, _ = verify.ComputeContentUsage(*u.trailer, verify.NewContext(u.doc))
+	}
+	if trueType {
+		return growTrueTypeWidths(d, u.codes[pdf.ValuePointer(d.Entries)])
+	}
+	return growCIDTrueTypeWidths(d, u.cid[pdf.ValuePointer(d.Entries)])
+}
+
+// decodeSfnt decodes and parses an embedded TrueType program.
+func decodeSfnt(ff pdf.PDFDict) (map[string][]byte, bool) {
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return nil, false
+	}
+	return fontprog.ParseSfnt(data)
 }
 
 // fixFontMetricsDict recomputes d's width metadata from its embedded font
@@ -359,23 +412,12 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if !fcOK || !wOK {
 		return false
 	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	tables, ok := decodeSfnt(ff)
 	if !ok {
 		return false
 	}
 
 	r := fontprog.NewSimpleTrueTypeCmaps(v.Entries.Get("Encoding"), tables)
-
-	codeToGID := func(cc int) (int, bool) {
-		if gid, tried, found := r.Windows(cc); tried {
-			return gid, found
-		}
-		return r.Fallback(cc)
-	}
 
 	// A zero width is rewritten as well. Verify checks the width of a shown
 	// code only, and for a code that is not shown the program's width is
@@ -390,7 +432,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		if cc < 0 || cc > 255 {
 			continue
 		}
-		gid, known := codeToGID(cc)
+		gid, known := r.GID(cc)
 		if !known {
 			continue
 		}
@@ -402,6 +444,38 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		changed = true
 	}
 	return changed
+}
+
+// growTrueTypeWidths extends the /Widths of a simple TrueType font over the
+// codes in shown whose width would come from /MissingWidth, which the embedded
+// program disagrees with. A code outside /Widths that is not shown says nothing
+// about what gets rendered, so it stays out.
+func growTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
+	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
+	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
+	if !fcOK || !wOK || len(verify.ShownOutsideWidths(shown, int(firstChar), len(widths))) == 0 {
+		return false
+	}
+	desc, _ := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, _ := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	tables, ok := decodeSfnt(ff)
+	if !ok {
+		return false
+	}
+	r := fontprog.NewSimpleTrueTypeCmaps(v.Entries.Get("Encoding"), tables)
+	programWidth := func(cc int) (float64, bool) {
+		if !shown[cc] {
+			return 0, false
+		}
+		gid, found := r.GID(cc)
+		if !found {
+			return 0, false
+		}
+		w := fontprog.TTAdvanceWidth(tables, gid)
+		return w, w >= 0
+	}
+	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+	return growWidths(v, missing, programWidth, int(firstChar), widths)
 }
 
 // fixType1Widths rewrites mismatched /Widths entries to the embedded Type1
@@ -456,7 +530,7 @@ func fixType1Widths(v pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, encoding pd
 // reads as "no width declared" and never compares.
 func growType1Widths(v pdf.PDFDict, desc pdf.PDFDict, enc [256]string, glyphWidths map[string]float64, firstChar int, widths pdf.PDFArray) bool {
 	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
-	if missing == 0 || len(widths) == 0 {
+	if missing == 0 {
 		return false
 	}
 	programWidth := func(cc int) (float64, bool) {
@@ -466,7 +540,16 @@ func growType1Widths(v pdf.PDFDict, desc pdf.PDFDict, enc [256]string, glyphWidt
 		w, ok := glyphWidths[enc[cc]]
 		return w, ok
 	}
+	return growWidths(v, missing, programWidth, firstChar, widths)
+}
 
+// growWidths extends /Widths over the codes outside it whose program width
+// differs from missing, the width those codes take from /MissingWidth. A code
+// programWidth does not know keeps missing.
+func growWidths(v pdf.PDFDict, missing int, programWidth func(cc int) (float64, bool), firstChar int, widths pdf.PDFArray) bool {
+	if len(widths) == 0 || firstChar < 0 || firstChar+len(widths) > 256 {
+		return false
+	}
 	lo, hi := firstChar, firstChar+len(widths)-1
 	newLo, newHi := lo, hi
 	for cc := 0; cc < 256; cc++ {
@@ -581,19 +664,20 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	return true
 }
 
-// fixCIDTrueTypeWidths rewrites mismatched /W entries to the embedded
-// TrueType program's hmtx advance width, mirroring validateCIDTrueTypeMetrics
+// fixCIDTrueTypeWidths rewrites mismatched /W entries to the hmtx advance width
+// of the glyph the font's CIDToGIDMap selects, mirroring validateCIDTrueTypeMetrics
 // (checks_font_program.go).
 func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	w, ok := v.Entries.Get("W").(pdf.PDFArray)
 	if !ok {
 		return false
 	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
+	tables, ok := decodeSfnt(ff)
+	if !ok {
 		return false
 	}
-	tables, ok := fontprog.ParseSfnt(data)
+
+	gidOf, ok := verify.CIDToGIDMapping(v.Entries.Get("CIDToGIDMap"), pdf.DecodeStream)
 	if !ok {
 		return false
 	}
@@ -601,7 +685,11 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	pairs := fontprog.ParseCIDWidths(w)
 	changed := false
 	for i, pair := range pairs {
-		fontWidth := fontprog.TTAdvanceWidth(tables, pair[0])
+		gid, mapped := gidOf(pair[0])
+		if !mapped {
+			continue
+		}
+		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
 		if fontWidth < 0 || math.Abs(fontWidth-float64(pair[1])) <= 1 {
 			continue
 		}
@@ -611,6 +699,51 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if !changed {
 		return false
 	}
+	v.Entries.Set("W", buildCIDWidthsArray(pairs))
+	return true
+}
+
+// growCIDTrueTypeWidths adds to the /W of a CIDFontType2 each CID in shown that it
+// lacks and whose glyph's width differs from the font's default width.
+func growCIDTrueTypeWidths(v pdf.PDFDict, shown map[int]bool) bool {
+	w, _ := v.Entries.Get("W").(pdf.PDFArray)
+	pairs := fontprog.ParseCIDWidths(w)
+	missing := maps.Clone(shown)
+	for _, pair := range pairs {
+		delete(missing, pair[0])
+	}
+	if len(missing) == 0 {
+		return false
+	}
+	desc, _ := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, _ := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	tables, ok := decodeSfnt(ff)
+	if !ok {
+		return false
+	}
+	gidOf, ok := verify.CIDToGIDMapping(v.Entries.Get("CIDToGIDMap"), pdf.DecodeStream)
+	if !ok {
+		return false
+	}
+	dw := verify.CIDDefaultWidth(v)
+	glyphPresent := fontprog.TTGlyphPresent(tables)
+	grew := false
+	for cid := range missing {
+		gid, mapped := gidOf(cid)
+		if !mapped || !glyphPresent(gid) {
+			continue
+		}
+		width := fontprog.TTAdvanceWidth(tables, gid)
+		if width < 0 || math.Abs(width-float64(dw)) <= 1 {
+			continue
+		}
+		pairs = append(pairs, [2]int{cid, int(math.Round(width))})
+		grew = true
+	}
+	if !grew {
+		return false
+	}
+	slices.SortFunc(pairs, func(a, b [2]int) int { return a[0] - b[0] })
 	v.Entries.Set("W", buildCIDWidthsArray(pairs))
 	return true
 }
@@ -901,35 +1034,51 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	return true
 }
 
-// fixTrueTypeCIDSet synthesizes or completes /CIDSet from the glyphs present
-// in a CIDFontType2 program. It handles both a missing CIDSet and an existing
+// cidsWithGlyphs returns the CIDs of a CIDFontType2 that select a glyph of its
+// program. Under an Identity CIDToGIDMap they are the glyphs present. Under a
+// stream they are the CIDs from 1 up that it maps within the program, as
+// veraPDF counts them. ok is false for a program without glyphs or an unusable
+// map.
+func cidsWithGlyphs(d pdf.PDFDict, tables map[string][]byte) (cids []int, ok bool) {
+	numGlyphs := fontprog.TTNumGlyphs(tables)
+	if numGlyphs <= 0 {
+		return nil, false
+	}
+	gidOf, ok := verify.CIDToGIDMapping(d.Entries.Get("CIDToGIDMap"), pdf.DecodeStream)
+	if !ok {
+		return nil, false
+	}
+	if verify.IdentityCIDToGIDMap(d) {
+		glyphPresent := fontprog.TTGlyphPresent(tables)
+		for gid := range numGlyphs {
+			if glyphPresent(gid) {
+				cids = append(cids, gid)
+			}
+		}
+		return cids, true
+	}
+	for cid := 1; ; cid++ {
+		gid, mapped := gidOf(cid)
+		if !mapped {
+			return cids, true
+		}
+		if gid < numGlyphs {
+			cids = append(cids, cid)
+		}
+	}
+}
+
+// fixTrueTypeCIDSet synthesizes or completes /CIDSet from the CIDs a
+// CIDFontType2 has glyphs for. It handles both a missing CIDSet and an existing
 // one that omits a present glyph.
 func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
-	// Only safe when CID==GID (the spec default); a stream CIDToGIDMap means
-	// CIDs don't correspond to GIDs directly.
-	if c2g := d.Entries.Get("CIDToGIDMap"); c2g != nil && c2g != (pdf.PDFName{Value: "Identity"}) {
-		return false
-	}
-	data, err := pdf.DecodeStream(ff)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	tables, ok := decodeSfnt(ff)
 	if !ok {
 		return false
 	}
-	numGlyphs := fontprog.TTNumGlyphs(tables)
-	if numGlyphs <= 0 {
+	cids, ok := cidsWithGlyphs(d, tables)
+	if !ok {
 		return false
-	}
-	// numGlyphs > 0, so gid 0 is in range and TTGlyphPresent accepts every
-	// gid in [0, numGlyphs): cids is never empty.
-	glyphPresent := fontprog.TTGlyphPresent(tables)
-	var cids []int
-	for gid := range numGlyphs {
-		if glyphPresent(gid) {
-			cids = append(cids, gid)
-		}
 	}
 
 	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.IsStream() {

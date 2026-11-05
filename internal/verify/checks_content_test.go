@@ -194,6 +194,12 @@ func TestCheckOperandLimits(t *testing.T) {
 		t.Error("expected StringTooLong for an over-long string operand")
 	}
 
+	ctxHex := &ValidationContext{Spec: a1bSpec}
+	checkOperandLimits(pdf.PDFHexString{Value: strings.Repeat("ab", 70000)}, pdf.PDFDict{}, ctxHex)
+	if !hasCheck(ctxHex, pdf.Checks.Structure.StringTooLong) {
+		t.Error("expected StringTooLong for an over-long hex string operand")
+	}
+
 	// Recurses into arrays (e.g. TJ's positioning array).
 	ctx4 := &ValidationContext{Spec: a1bSpec}
 	checkOperandLimits(pdf.PDFArray{pdf.PDFInteger(3000000000)}, pdf.PDFDict{}, ctx4)
@@ -349,19 +355,16 @@ func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
 	}
 }
 
-// TestPageContentFormXObjectStillInheritsPageDefaultRGB confirms the existing
-// behaviour: a Form XObject invoked from page content by the Do operator is
-// excused by the page's /DefaultRGB via the ctx.resourceScope fallback.
-func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
-	// Form XObject with DeviceRGB usage, no own resources.
+// TestFormXObjectWithoutResourcesIgnoresPageDefaultRGB verifies that a form
+// XObject without resources of its own is not excused by the page's DefaultRGB,
+// which applies only in the resources that define it.
+func TestFormXObjectWithoutResourcesIgnoresPageDefaultRGB(t *testing.T) {
 	fContent, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// scanContentDict is called with the XObject's own (empty) resources and the
-	// page resources as ctx.resourceScope — reportContentColour should not fire.
 	xobj := pdf.NewPDFDict()
 	xobj.SetStream(fContent)
 
@@ -375,10 +378,8 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 
 	scanContentDict(xobj, pdf.NewPDFDict(), ctx)
 
-	for _, iss := range ctx.Issues() {
-		if iss.Check() == pdf.Checks.Colour.DeviceColourContentStream {
-			t.Errorf("page-content Form XObject should be excused by page DefaultRGB: %v", iss.Error())
-		}
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("no DeviceColourContentStream for a form that defines no DefaultRGB")
 	}
 }
 
