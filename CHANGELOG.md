@@ -28,136 +28,54 @@ Everything under `internal/` may change in any release without notice.
 
 - PDF/A-2b verification and conversion: the `A2B` level and the `PDFA2B`
   profile, also in `gopdfrab/verify`, and `--profile pdfa2b` on the CLI.
-  `Profiles` and `ProfileByName` list it as `pdfa2b`. A file converted to
-  PDF/A-2b declares PDF 1.7.
-- `PDFError.Level` returns the conformance level an issue was reported under,
-  and `PDFError.Clause` its clause and subclause under that level. An issue's
-  text and JSON, `Result.Summary`, `Result.Checks` and the CLI report number
-  each check by the clause of that level, so a PDF/A-2b issue gives its
-  ISO 19005-2 clause. `Check.DescriptionIn` describes a check's rule as a
-  given level words it.
-- Forty-five checks for rules that only PDF/A-2 sets. They have no PDF/A-1
-  clause, so `Clause()` is empty, `ClauseIn` names their PDF/A-2 clause, and no
-  PDF/A-1 profile enables them. They cover:
-  - file structure and content: `Checks.Structure.NameNotUTF8`,
-    `PermissionsKeys`, `SignatureReferenceDigest`, `PageBoundarySize`,
-    `StreamFilterNotAllowed`, `InlineImageFilterNotAllowed` and
-    `RealTooCloseToZero`;
-  - colour, output intents and halftones: `Checks.Colour.InheritedResources`,
-    `DeviceColourWithoutPDFAIntent`, `OutputIntentDestOutputProfileRef`,
-    `ICCBasedCMYKOverprint`, `DeviceNColorantsMissing`,
-    `SeparationInconsistent` and `DeviceColourBase`, and
-    `Checks.Transparency.HalftoneExtGState`, `HalftoneType`, `HalftoneName` and
-    `HalftoneTransferFunction`;
-  - JPEG 2000 and transparency: `Checks.Image.JPXColourChannels`,
-    `JPXColourSpecs`, `JPXColourMethod`, `JPXCIEJab` and `JPXBitDepth`, and
-    `Checks.Transparency.TransparencyWithoutBlendingSpace` and
-    `DeviceBlendingColourSpace`;
-  - fonts: `Checks.Font.UseCMapNotPredefined`, `NonSymbolicTrueTypeCmap` and
-    `NotdefGlyphReference`;
-  - annotations and forms: `Checks.Annotation.AnnotationFlagsMissing` and
-    `ToggleNoViewFlagSet`, and `Checks.Form.NeedsRendering`;
-  - metadata: `Checks.Metadata.ExtSchemaDefinitionInvalid` and
-    `ExtSchemaUndefinedField`;
-  - optional content: `Checks.Structure.OCConfigMissingName`,
-    `OCConfigDuplicateName`, `OCConfigOrderIncomplete` and `OCConfigAutoState`;
-  - embedded files, presentations and requirements:
-    `Checks.Structure.EmbeddedFileMissingNames`, `EmbeddedFileNotPDFA`,
-    `AlternatePresentations`, `PresentationSteps` and `CatalogRequirements`;
-  - digital signatures: `SignatureByteRange`, `SignatureCertificate` and
-    `SignatureSigners`.
-- PDF/A-2 metadata checks read the XMP as an RDF data model: every property
-  must be predefined by XMP 2005 or defined by an extension schema, and have
-  the value type its schema gives it. Under PDF/A-2 a filtered metadata stream
-  is allowed, and the document information dictionary need not match the XMP.
-- An embedded file must claim PDF/A-1b or PDF/A-2b and pass every check of the
-  level it claims; verify decodes and verifies it, four levels deep and 64 files
-  per document at most.
-- Converting to PDF/A-2b merges a CMap that an embedded CMap uses into it,
-  removes the codes that select the .notdef glyph from the text (keeping their
-  advance), gives an annotation without F the Print flag, clears ToggleNoView,
-  removes the NeedsRendering entry, names and renames optional content
-  configurations, adds the groups an Order array leaves out, and removes AS
-  entries. Each embedded file that does not comply is removed and reported in
-  `LostObjects`, unless it could not be judged within the limits; the file
-  specification of each one kept gets the F or UF string it lacks.
+  `Profiles` and `ProfileByName` list it as `pdfa2b`. A converted file
+  declares PDF 1.7.
+- `PDFError.Level` and `PDFError.Clause` give the level an issue was reported
+  under and its clause there. An issue's text and JSON, `Result.Summary`,
+  `Result.Checks` and the CLI number each check by the clause of that level.
+  `Check.DescriptionIn` words a check's rule as a given level does.
+- Forty-five checks for rules only PDF/A-2 sets, with no PDF/A-1 clause (so
+  `Clause()` is empty and `ClauseIn` names their PDF/A-2 clause). They cover
+  names, permissions, signatures and page boundaries in
+  `Checks.Structure`; device colour, output intents and halftones in
+  `Checks.Colour` and `Checks.Transparency`; JPEG 2000 in `Checks.Image`;
+  CMaps and .notdef in `Checks.Font`; annotation flags in `Checks.Annotation`;
+  NeedsRendering in `Checks.Form`; extension schemas in `Checks.Metadata`;
+  optional content configurations; and embedded files, presentations and
+  requirements. Metadata is checked on an RDF model of the XMP, and an
+  embedded file must itself conform to PDF/A-1b or PDF/A-2b.
 
 ### Changed
 
-- The renderer behind the raster fallback and the fidelity check draws blend
-  modes and ExtGState soft masks, luminosity and alpha. A page with an enormous
-  amount of such content stops applying them past a work limit and reports it
-  in `RasterDrops`.
-- Converting to PDF/A-2b converts an embedded PDF that fails the level's rule,
-  under limits of two nested levels and 256 MB of decoded input per document,
-  and reports what it lost in `LostObjects`.
-- Converting to PDF/A-2b keeps the document's XMP packet, under the level's
-  identification, when it passes the level's rules, and keeps other objects'
-  metadata that passes. A packet that does not pass is rebuilt from the Info
-  dictionary, as at PDF/A-1b. A valid output intent stays at every level, and a
-  PDF/X intent stays with the file's PDF/A intent joined over the same profile.
-- Converting a signed file removes its digital signatures at every level and
-  reports each in `LostObjects`. PDF/A-1b, legacy1b and plain PDF output used to
-  keep a signature that the rewrite had invalidated, without a report. At
-  PDF/A-2b a signature check reads the byte range and the PKCS#7 certificate.
+- The raster fallback and fidelity renderer draw blend modes and ExtGState soft
+  masks; past a work limit they stop and report it in `RasterDrops`.
+- Converting to PDF/A-2b converts embedded PDFs (two levels deep), removes
+  non-conforming embedded files and reports them in `LostObjects`, and keeps an
+  XMP packet that already passes. A valid output intent stays at every level.
+- Converting a signed file removes its signatures at every level and reports
+  each in `LostObjects`; the rewrite used to invalidate them silently.
 
 ### Fixed
 
-- Convert rasterized every page of a document when a font no fixer could embed
-  was shown on several pages. It now rasterizes the pages that show the font,
-  and a finding only the writer can repair no longer flattens the page it names.
-- Fonts: convert could not write the CIDSet of a CIDFontType2 font with a
-  CIDToGIDMap stream, so its pages were rasterized. The width and glyph
-  coverage checks of such a font read a CID as a glyph index and ignored the
-  map; they now look the CID up through it. A font used only by the glyph
-  procedures of a shown Type 3 font did not count as used. A code a simple
-  TrueType font shows outside `/Widths`, or with a Widths entry of 0, was not
-  compared with the program. Verify checks every CID a subset CIDFontType0 font
-  shows, checks a CIDFontType2 font with no W array, reports a string ending
-  inside a two-byte code and a CIDToGIDMap that is neither stream nor Identity,
-  and convert repairs each. A CMap range is checked over every CID it maps.
-  Convert repairs a font descriptor's Style dictionary whose Panose is not 12
-  bytes.
-- Colour and overprint: the PDF/A-2b overprint rule missed DeviceCMYK under an
-  ICCBased DefaultCMYK and state inherited by a form XObject, took stroked text
-  for filled, and kept an ICCBased CMYK space after a device colour operator
-  replaced it. A form XObject or Type 3 font without resources of its own was
-  excused by the page's Default colour spaces; verify now reports it and convert
-  gives the holder its own. Convert covers device colour that a Type 3 glyph
-  procedure sets when the font has resources of its own, and removes an
-  uncovered colour from an annotation without `/Type`.
-- A partial Info date, such as `D:20150310`, became an XMP date without a time,
-  so conformance depended on the checker's timezone. XMP dates now carry a time
-  and a timezone.
-- The string length limit was not applied to hexadecimal strings. Verify reports
-  them and convert truncates them. Conversion to PDF/A-2b flattens only
-  DeviceN spaces over 32 colorants, and a CMap range cut short at the limit
-  can no longer exceed it.
-- Convert replaces a trailer ID that holds no identifier bytes, such as
-  `[<> <>]`, with a synthesized one.
-- Annotations and actions: convert removes a disallowed annotation from its
-  page's `/Annots` instead of leaving an empty dictionary, and removes a
-  forbidden or disallowed action from an outline item, from another action's
-  `/Next` and from additional-actions triggers, keeping the permitted actions
-  chained after it, instead of leaving an emptied one linked. Verify reports
-  both, checks an action on a widget without `/Type`, requires a button
-  widget's normal appearance to name an appearance stream, and reads a
-  real-valued annotation F as its integer. Convert gives a trap network
-  annotation the flags, appearance state and process colour model it requires.
-  A structure element typed `/Sound` is no longer read as a forbidden action.
-- Syntax: verify reports a `stream` keyword followed by a lone carriage return
-  and an object whose number does not start a line, but no longer reports white
-  space between a cross-reference offset and the object header. An inline
-  image's dictionary and string parameters, such as CCITT `/DP`, are read as
-  values; they used to be spilled into the parameter list and lost by repairs.
-- Verify reads the newest revision of an incrementally updated file throughout;
-  the cross-reference check used to replace the reader's entries with those of
-  earlier sections. It no longer checks a name tree node, such as EmbeddedFiles,
-  against the type of the tree's leaves.
-- Convert corrects the JP2 header of JPEG 2000 data whose component count or
-  bit depth disagrees with its codestream, without changing the image data.
-- `Result.Summary` leaves out the subclause of a check that has none, rather
-  than printing `/0`.
+- Convert rasterized every page when a font no fixer could embed was shown on
+  several pages; it now rasterizes only the pages that show it.
+- Fonts: CIDSet and width checks now follow a CIDToGIDMap stream, fonts used
+  only by Type 3 glyph procedures count as used, TrueType codes outside
+  `/Widths` and subset CIDFontType0 CIDs are compared with the program, and
+  convert repairs the findings instead of rasterizing.
+- Colour: the overprint rule missed DeviceCMYK under a DefaultCMYK and state
+  inherited by forms, and forms or Type 3 fonts without own resources were
+  wrongly excused by the page's Default colour spaces.
+- Annotations and actions: convert left emptied dictionaries in `/Annots` and
+  in action chains, which veraPDF reads as typeless objects; it now removes
+  them and keeps the permitted actions chained.
+- Verify reads the newest revision of an incrementally updated file
+  throughout, and reports a lone CR after `stream`.
+- Smaller fixes: XMP dates always carry a time and timezone, hexadecimal
+  strings obey the length limit, inline-image `/DP` parameters are no longer
+  lost, a trailer ID without identifier bytes is replaced, JP2 headers that
+  disagree with their codestream are corrected, and `Result.Summary` no longer
+  prints `/0`.
 
 ## [1.3.0] - 2026-10-31
 
