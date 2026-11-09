@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -272,7 +273,7 @@ func BenchmarkConvertMemory(b *testing.B) {
 // verdict as converting with the default budget. This is the correctness gate
 // for the budget being a speed dial rather than a behaviour switch.
 func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
-	fixtures := sampleFixturePaths(failFixturesByExpectedClause(t), 20)
+	fixtures := sampleFixturePaths(failFixtures(t), 20)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
@@ -316,13 +317,12 @@ func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
 }
 
 // sampleFixturePaths picks n fixtures spread evenly across the sorted corpus.
-// Ranging over the map instead would sample differently on every run, so a
-// fixture that breaks the property under test could pass most runs and fail
-// the rest.
-func sampleFixturePaths(fixtures map[string]string, n int) []string {
+// Sorting keeps the sample the same on every run, so a fixture that breaks the
+// property under test cannot pass some runs and fail others.
+func sampleFixturePaths(fixtures []corpustest.Fixture, n int) []string {
 	paths := make([]string, 0, len(fixtures))
-	for path := range fixtures {
-		paths = append(paths, path)
+	for _, f := range fixtures {
+		paths = append(paths, f.Path)
 	}
 	sort.Strings(paths)
 	if len(paths) <= n {

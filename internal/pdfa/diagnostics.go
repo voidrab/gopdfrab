@@ -7,7 +7,8 @@ import "github.com/voidrab/gopdfrab/internal/pdf"
 // the file rather than an object is reported on page 1.
 func (s Spec) Issue(dg pdf.Diagnostic) (e pdf.PDFError, ok bool) {
 	c, ok := diagnosticCheck(dg.Kind)
-	if !ok || !c.AppliesTo(s.Level) || dg.Kind == pdf.DiagUsedXRefStream && s.XRefStreams {
+	if !ok || !c.AppliesTo(s.Level) || dg.Kind == pdf.DiagUsedXRefStream && s.XRefStreams ||
+		dg.Kind == pdf.DiagXRefRebuilt && !s.ExactXRefOffsets {
 		return pdf.PDFError{}, false
 	}
 	if dg.Ref == nil {

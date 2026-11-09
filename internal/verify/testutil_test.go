@@ -3,8 +3,8 @@ package verify
 import (
 	"fmt"
 	"os"
-	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
@@ -81,15 +81,15 @@ const (
 	veraPDFDir = "../../tests/veraPDF/PDF_A-1b"
 )
 
-// clauseMatches reports whether a reported clause satisfies the expected clause.
-// A match holds when the two are equal or one is a dot-boundary prefix of the
-// other (so "6.2.3" satisfies an expected "6.2.3.3", and vice versa).
-func clauseMatches(got, expected string) bool {
-	if got == expected {
-		return true
+// a1bCorpusFiles returns every file of the committed PDF/A-1b corpora.
+func a1bCorpusFiles() []string {
+	var files []string
+	for _, c := range corpustest.All {
+		if c.Level() == pdf.A1B {
+			files = append(files, c.Files()...)
+		}
 	}
-	return strings.HasPrefix(got+".", expected+".") ||
-		strings.HasPrefix(expected+".", got+".")
+	return files
 }
 
 // streamDict returns a stream dictionary whose (unfiltered) data is raw.

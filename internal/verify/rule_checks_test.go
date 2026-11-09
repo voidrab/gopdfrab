@@ -194,7 +194,8 @@ func TestDocRulesDeclareTheirChecks(t *testing.T) {
 // enabled check, and returns the table itself when every rule is enabled.
 func TestEnabledRules(t *testing.T) {
 	checks := func(r dictRule) []pdf.Check { return r.checks }
-	if got := enabledRules(dictRules, pdf.PDFA1B, checks); &got[0] != &dictRules[0] || len(got) != len(dictRules) {
+	every := pdf.PDFA1B.AddCheck(pdf.AllChecks()...)
+	if got := enabledRules(dictRules, every, checks); &got[0] != &dictRules[0] || len(got) != len(dictRules) {
 		t.Error("with every rule enabled, enabledRules did not return the table itself")
 	}
 
@@ -232,15 +233,7 @@ func TestNarrowProfileReportsWhatTheFullOneDoes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("verifies every corpus file several times")
 	}
-	var paths []string
-	for _, dir := range []string{isartorDir, veraPDFDir} {
-		filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".pdf") {
-				paths = append(paths, path)
-			}
-			return nil
-		})
-	}
+	paths := a1bCorpusFiles()
 	if len(paths) == 0 {
 		t.Skip("no corpora present")
 	}

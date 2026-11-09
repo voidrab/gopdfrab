@@ -2,9 +2,6 @@ package verify
 
 import (
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -283,18 +280,9 @@ var widthSkipBudget = map[string]int{
 func TestWidthSkipCorpusBudget(t *testing.T) {
 	got := map[string]int{}
 	files := 0
-	for _, dir := range []string{isartorDir, veraPDFDir} {
-		err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.EqualFold(filepath.Ext(p), ".pdf") {
-				return nil
-			}
-			files++
-			tallyWidthSkips(p, got)
-			return nil
-		})
-		if err != nil && !os.IsNotExist(err) {
-			t.Fatalf("walk %s: %v", dir, err)
-		}
+	for _, p := range a1bCorpusFiles() {
+		files++
+		tallyWidthSkips(p, got)
 	}
 	if files == 0 {
 		t.Skip("conformance corpora not present")

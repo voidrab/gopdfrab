@@ -110,3 +110,25 @@ func TestDictStream(t *testing.T) {
 	}()
 	PDFDict{}.SetStream(nil)
 }
+
+// TestDictCloneAsNew verifies that the copy keeps the entries and the stream but
+// not the reference, and that its edits stay out of the original.
+func TestDictCloneAsNew(t *testing.T) {
+	d := NewStreamDict(NewDict(), []byte("data"))
+	d.Entries.Set("A", PDFInteger(1))
+	d.SetRef(PDFRef{ObjNum: 3})
+	c := PDFDict{Entries: d.Entries.CloneAsNew()}
+	if _, numbered := c.Ref(); numbered {
+		t.Error("the copy carries a reference")
+	}
+	if !c.IsStream() {
+		t.Error("the copy lost the stream")
+	}
+	c.Entries.Set("A", PDFInteger(2))
+	if d.Entries.Get("A") != PDFInteger(1) {
+		t.Error("an edit of the copy reached the original")
+	}
+	if _, numbered := d.Ref(); !numbered {
+		t.Error("the original lost its reference")
+	}
+}

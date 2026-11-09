@@ -1,10 +1,11 @@
-// Package gopdfrab verifies and converts PDF files for PDF/A-1b conformance.
+// Package gopdfrab verifies and converts PDF files for PDF/A-1b and PDF/A-2b
+// conformance.
 //
-// PDF/A-1b (ISO 19005-1 Level B) is the archival PDF profile that keeps a
-// document reproducible over time: fonts are embedded, colour is unambiguous,
-// encryption and external dependencies are forbidden, and XMP metadata describes
-// the file. gopdfrab both checks a file against that standard and rewrites a
-// non-conformant file to meet it.
+// PDF/A-1b (ISO 19005-1 Level B) and PDF/A-2b (ISO 19005-2 Level B) are the
+// archival PDF profiles that keep a document reproducible over time: fonts
+// are embedded, colour is unambiguous, encryption and external dependencies
+// are forbidden, and XMP metadata describes the file. gopdfrab both checks a
+// file against either standard and rewrites a non-conformant file to meet it.
 //
 // # Verifying
 //
@@ -27,7 +28,7 @@
 //
 // # Converting
 //
-// Convert produces a best-effort PDF/A-1b rewrite: it applies pre-emptive
+// Convert produces a best-effort PDF/A rewrite: it applies pre-emptive
 // fixups, then loops verify-and-fix, and rasterizes a page only as a last
 // resort. It always returns its best attempt, even if some violations remain, as
 // a [ConvertResult] carrying the output, the final verify [Result], and any
@@ -44,7 +45,8 @@
 //
 // A [Profile] is the set of checks a Verify or Convert applies. [PDFA1B] is the
 // full PDF/A-1b profile, [Legacy1B] the stricter one matching the original
-// Isartor suite, and [PDF] runs only the generic ISO 32000 object-model checks.
+// Isartor suite, [PDFA2B] the full PDF/A-2b profile, and [PDF] runs only the
+// generic ISO 32000 object-model checks.
 // Profiles are immutable — AddCheck, RemoveCheck and Clear each return a clone
 // — so a caller can narrow the rule set without disturbing the shared defaults.
 // [NewProfile] starts from an empty one. The [Checks] registry names every

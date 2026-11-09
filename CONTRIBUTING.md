@@ -81,8 +81,11 @@ PDFs are excluded from the published module zip.
 | Directory | Size | What it is |
 |---|---|---|
 | `tests/Isartor` | 8 MB, 205 files | The Isartor test suite. Committed. |
-| `tests/veraPDF` | 9 MB, 569 files | The veraPDF conformance corpus. Committed. |
+| `tests/veraPDF` | 34 MB, 1589 files | The veraPDF conformance corpus for PDF/A-1b, 2b, 2u and 3b. Committed. |
 | `tests/realworld` | 3.9 GB, 1585 files | Documents from real producers. **Not committed.** |
+
+Only the PDF/A-1b trees run in the tests so far. The 2b, 2u and 3b trees join
+`corpustest.All` (`internal/corpustest`) once the library has a level for them.
 
 `tests/rules.md` is the PDF/A-1 rule text, clause by clause, taken from the
 veraPDF validation profiles. It is the quickest way to find out what a clause

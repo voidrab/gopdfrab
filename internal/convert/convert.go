@@ -145,11 +145,14 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	}
 
 	r := &run{ctx: ctx, doc: doc, p: p, o: o, spec: spec, trailer: trailer, objHint: doc.Footprint().Objects}
+	dropSignatures(r.trailer, &r.lost)
 	r.fixers = rs.fixersFor(&fixerRun{
 		ctx:       ctx,
 		doc:       doc,
+		profile:   p,
 		spec:      &r.spec,
 		dpi:       o.dpi(),
+		embedded:  Options{MaxIterations: o.MaxIterations, RasterDPI: o.RasterDPI},
 		decode:    decoderFor(doc),
 		fontSrc:   &appearanceFontSource{},
 		formDrops: &r.formDrops,
@@ -181,7 +184,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	// Objects the reader degraded to null were serialized as null: their
 	// content is lost. The final verify ran on the output bytes, where the
 	// loss is invisible, so it is recorded here instead -- as loss, not as
-	// non-conformance. The file that was written really does meet PDF/A-1b;
+	// non-conformance. The file that was written really does meet its level;
 	// what it no longer holds is a separate fact, and one a caller wants
 	// separately. (Recovered objects are not carried: the rewrite emits a
 	// correct xref, genuinely fixing them.)
@@ -190,6 +193,7 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 			cr.LostObjects = append(cr.LostObjects, e)
 		}
 	}
+	pdf.StampLevel(cr.LostObjects, p.Level)
 
 	// The run is over, so the input's decoded and tokenized streams are dead
 	// weight. They matter for a caller who keeps the Document open past
@@ -331,7 +335,7 @@ func (r *run) serializeAndVerify() (err error) {
 	if loopDoc != nil {
 		sw.grow(int(loopDoc.Size()))
 	}
-	order, err := writer.WriteDocumentIndexed(&sw, trailer, r.objHint)
+	order, err := writer.WriteDocumentIndexed(&sw, trailer, r.objHint, r.spec.ModelVersion)
 	if err != nil {
 		sw.abort()
 		return err
@@ -460,20 +464,24 @@ func dispatchFixers(pass *fixPass, result pdf.Result, localFixers map[pdf.Check]
 	return changed, nil
 }
 
-// sortedChecks returns counts' keys ordered by clause, then subclause, giving
-// the fixer loop a stable application order. A (clause, subclause) pair
-// identifies one check -- pdf's newCheck panics on a duplicate -- so that
-// ordering is total and needs no name tie-break.
+// sortedChecks returns counts' keys ordered by Part 1 clause, then
+// subclause, then ID, giving the fixer loop a stable application order. A
+// Part 1 (clause, subclause) pair identifies one check, so the ID decides only
+// among the rules of Part 2 alone, which have no Part 1 clause.
 func sortedChecks(counts map[pdf.Check]int) []pdf.Check {
 	checks := make([]pdf.Check, 0, len(counts))
 	for c := range counts {
 		checks = append(checks, c)
 	}
 	sort.Slice(checks, func(i, j int) bool {
-		if checks[i].Clause() != checks[j].Clause() {
-			return checks[i].Clause() < checks[j].Clause()
+		a, b := checks[i], checks[j]
+		if a.Clause() != b.Clause() {
+			return a.Clause() < b.Clause()
 		}
-		return checks[i].Subclause() < checks[j].Subclause()
+		if a.Subclause() != b.Subclause() {
+			return a.Subclause() < b.Subclause()
+		}
+		return a.ID() < b.ID()
 	})
 	return checks
 }

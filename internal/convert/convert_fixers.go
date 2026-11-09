@@ -72,10 +72,13 @@ type leadsItsClause interface {
 // fixerRun is what one conversion run lends its fixers: the level's rules
 // and the run-scoped state that a fixer reads or reports into.
 type fixerRun struct {
-	ctx  context.Context
-	doc  *pdf.Reader
-	spec *pdfa.Spec
-	dpi  int
+	ctx     context.Context
+	doc     *pdf.Reader
+	profile *pdf.Profile
+	spec    *pdfa.Spec
+	dpi     int
+	// embedded are the options an embedded file's conversion runs under.
+	embedded Options
 	// decode is the Reader's concurrent decode cache, shared with the
 	// pre-loop colour usage scan.
 	decode decodeFunc
@@ -138,38 +141,59 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return separationAlternateFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return contentLimitsFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return deviceColourFixer{decode: r.decode, spec: r.spec} },
-		func(r *fixerRun) Fixer { return deviceNColorantsFixer{} },
+		func(r *fixerRun) Fixer { return deviceNColorantsFixer{limit: r.spec.Limits.MaxDeviceNColorants} },
+		func(r *fixerRun) Fixer { return deviceNColorantEntriesFixer{} },
+		func(r *fixerRun) Fixer { return separationConsistencyFixer{} },
+		func(r *fixerRun) Fixer { return overprintModeFixer{} },
+		func(r *fixerRun) Fixer { return inheritedResourcesFixer{decode: r.decode} },
 		func(r *fixerRun) Fixer { return actionFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return extGStateFixer{spec: r.spec} },
+		func(r *fixerRun) Fixer { return halftoneFixer{} },
 		func(r *fixerRun) Fixer { return annotationFlagsFixer{} },
 		func(r *fixerRun) Fixer { return formFixer{} },
 		func(r *fixerRun) Fixer { return imageMetadataFixer{spec: r.spec} },
-		func(r *fixerRun) Fixer { return imageSampleDepthFixer{} },
+		func(r *fixerRun) Fixer { return imageSampleDepthFixer{spec: r.spec} },
+		func(r *fixerRun) Fixer { return jpxColourSpaceFixer{} },
+		func(r *fixerRun) Fixer { return jpxHeaderFixer{} },
+		func(r *fixerRun) Fixer { return blendingSpaceFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return postScriptXObjectFixer{} },
 		func(r *fixerRun) Fixer { return optionalContentFixer{lost: r.lost} },
+		func(r *fixerRun) Fixer { return ocConfigFixer{} },
 		func(r *fixerRun) Fixer { return viewerPrefFixer{spec: r.spec} },
+		func(r *fixerRun) Fixer { return unicodeNameFixer{} },
+		func(r *fixerRun) Fixer { return permissionsFixer{} },
+		func(r *fixerRun) Fixer { return pageBoundaryFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return fileSpecFixer{lost: r.lost} },
+		func(r *fixerRun) Fixer {
+			return embeddedFileFixer{ctx: r.ctx, profile: r.profile, options: r.embedded, lost: r.lost}
+		},
+		func(r *fixerRun) Fixer { return presentationFixer{} },
 		func(r *fixerRun) Fixer { return fontDictFixer{} },
 		func(r *fixerRun) Fixer { return type0FontFixer{} },
 		func(r *fixerRun) Fixer { return baseFontFixer{} },
-		func(r *fixerRun) Fixer { return fontMetricFixer{} },
-		func(r *fixerRun) Fixer { return fontSubsetMetaFixer{} },
+		func(r *fixerRun) Fixer { return fontMetricFixer{doc: r.doc} },
+		func(r *fixerRun) Fixer {
+			return fontSubsetMetaFixer{exact: r.spec.ExactSubsetSets, dropCIDSet: r.spec.ExactSubsetSets && r.spec.SubsetSetsOptional}
+		},
 		func(r *fixerRun) Fixer { return fontFileSubtypeFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return fontSubstitutionFixer{doc: r.doc, spec: r.spec} },
-		func(r *fixerRun) Fixer { return trueTypeEncodingFixer{doc: r.doc} },
+		func(r *fixerRun) Fixer { return trueTypeEncodingFixer{doc: r.doc, spec: r.spec} },
+		func(r *fixerRun) Fixer { return useCMapFixer{spec: r.spec} },
+		func(r *fixerRun) Fixer { return notdefFixer{} },
 		func(r *fixerRun) Fixer { return inlineImageLZWFixer{} },
+		func(r *fixerRun) Fixer { return inlineImageFilterFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return pagesTreeArrayFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return resourceDictPruneFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return nameTooLongFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return cmapCIDClampFixer{spec: r.spec} },
-		func(r *fixerRun) Fixer { return indirectRequiredFixer{} },
-		func(r *fixerRun) Fixer { return disallowedValueFixer{} },
-		func(r *fixerRun) Fixer { return constraintFixer{} },
-		func(r *fixerRun) Fixer { return missingRequiredKeyFixer{} },
-		func(r *fixerRun) Fixer { return wrongValueTypeFixer{} },
+		func(r *fixerRun) Fixer { return indirectRequiredFixer{m: objModelFor(r.spec)} },
+		func(r *fixerRun) Fixer { return disallowedValueFixer{m: objModelFor(r.spec)} },
+		func(r *fixerRun) Fixer { return constraintFixer{m: objModelFor(r.spec)} },
+		func(r *fixerRun) Fixer { return missingRequiredKeyFixer{m: objModelFor(r.spec)} },
+		func(r *fixerRun) Fixer { return wrongValueTypeFixer{m: objModelFor(r.spec)} },
 		func(r *fixerRun) Fixer { return post14KeyFixer{} },
 		func(r *fixerRun) Fixer { return qNestingFixer{spec: r.spec} },
-		func(r *fixerRun) Fixer { return lzwStreamFixer{} },
+		func(r *fixerRun) Fixer { return streamFilterFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return undecodableStreamFixer{lost: r.lost} },
 		func(r *fixerRun) Fixer {
 			return transparencyFlattener{dpi: r.dpi, drops: r.formDrops, ctx: r.ctx}

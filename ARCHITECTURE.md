@@ -22,13 +22,14 @@ The entire project is a single Go module with no dependencies other than `klausp
 | `internal/fontedit`  | Rewrites font programs for the converter: subsets, cmaps, width repairs.         |
 | `internal/fontsubst` | Bundles the Liberation and Noto fonts substituted for missing ones.              |
 | `internal/pdfa`      | Holds each conformance level's rules: limits, allowed sets, switches, identity.  |
-| `internal/verify`    | Contains the PDF/A-1b checks.                                                    |
+| `internal/verify`    | Contains the PDF/A checks.                                                       |
 | `internal/raster`    | Renders page content to images, for the raster fallback and the fidelity gate.   |
 | `internal/convert`   | Contains the fixers and the fix loop.                                            |
 | `internal/fidelity`  | Compares input and output renders page by page, for the fidelity gate.           |
 | `internal/writer`    | Serializes the object graph back into PDF bytes.                                 |
 | `internal/arlington` | Contains the Arlington PDF Model tables used by the object-model checks.         |
 | `internal/pdfgen`    | Generates PDFs for tests and fuzzing.                                            |
+| `internal/corpustest`| Lists the conformance corpora for tests: directory, level, profile, flavour.     |
 
 The packages form layers, and imports only point downwards:
 
@@ -39,6 +40,7 @@ fidelity                                   → raster, content, pdf
 raster                                     → content, fontprog, fontsubst, pdf
 fontedit                                   → fontprog
 content, fontprog, fontsubst, writer, pdfa → pdf
+corpustest                                 → pdf
 ```
 
 `verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. Rewriting them is the converter's business alone, so that half sits in `fontedit`, which only `convert` imports. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
@@ -139,6 +141,8 @@ The fixers themselves are defined in `fixups_*.go` files, named according to wha
 
 When content cannot be made conformant by any other means, the converter renders it with `internal/raster` and embeds the resulting image in its place (`raster_fallback.go`). Rasterization is lossy, so a conversion reports how much of the output was produced that way.
 
+A conversion changes only what its level's `Spec` makes it change, because fixers respond to the checks that level reports. Under PDF/A-2 this keeps transparency, optional content and valid existing metadata. An existing XMP packet is patched to the level's identification and kept if it passes (`fixups_xmp_keep.go`), and an embedded PDF that fails is converted in turn, under limits on nesting and decoded size, rather than removed (`convertEmbedded`).
+
 `internal/fidelity` guards against the opposite failure mode: producing a perfectly conformant but blank page. It renders both the input and output and compares them to ensure that the conversion has not lost the page's visual content.
 
 `convert.go` holds the entry points and the `run` struct that carries one conversion through the loop, the raster backstop and the final serialize-and-verify. `result.go` holds `ConvertResult` and its output methods, and `batch.go` the batch engine behind `ConvertAll` and `ConvertEach`.
@@ -149,6 +153,8 @@ When content cannot be made conformant by any other means, the converter renders
 
 The rasterizer is the converter's last resort and the fidelity gate's eyes. It is a full renderer because it must reproduce the visual appearance of the original page. `raster.go` runs the content-stream operator loop and graphics state; `path.go` fills and strokes; `image.go` and `inline.go` decode and composite images; `shading.go`, `shading_mesh.go`, and `pattern.go` paint shadings and shading patterns; `glyph.go` turns TrueType, CFF, and Type 1 outlines into paths; `type3.go` runs Type 3 glyph procedures; and `geom.go` holds the `Matrix` and `Point` types.
 
+`effects.go` applies blend modes and ExtGState soft masks by painting each operation onto a layer and compositing the layer, with a per-render budget on the pixels this may cost.
+
 What it cannot draw it does not guess at. Every render returns a list of the operators and resources it dropped, so the converter can report the loss.
 
 ## internal/writer
@@ -157,10 +163,10 @@ What it cannot draw it does not guess at. Every render returns a list of the ope
 
 ## internal/arlington
 
-`model.bin` contains the generated Arlington PDF Model. For every object type defined by ISO 32000, it specifies which keys are required, which types those keys may contain, and the PDF version in which they were introduced.
+`model-1.4.bin` and `model-1.7.bin` contain the generated Arlington PDF Model, one per PDF version. For every object type that version of ISO 32000 defines, a model specifies which keys are required, which types those keys may contain, and which keys later versions added. `ModelFor` selects a model by version; a level's spec names the version its checks use (`pdfa.Spec.ModelVersion`, 1.4 for PDF/A-1b).
 
-This model drives the `ObjectModel` check group, which asks whether the document is structurally valid PDF at all. `gen.go` builds it from the vendored TSVs and writes it with `EncodeModel` (`model.go`); `go generate ./internal/arlington/...` regenerates it, and `TestGeneratorIdempotent` fails when the checked-in file is stale. The package embeds the file and decodes it on the first lookup (`Types`, `Type`, `SelfIdentified`). It used to be a Go map literal, which compiled into a single initialisation function of about 680 KB that every binary carried and ran at startup; as data it is 17.5 KB.
+This model drives the `ObjectModel` check group, which asks whether the document is structurally valid PDF at all. `gen.go -version <v>` builds a model from the vendored TSVs under `testdata/tsv/<v>` and writes it with `EncodeModel` (`model.go`); `go generate ./internal/arlington/...` regenerates both, and `TestGeneratorIdempotent` fails when a checked-in file is stale. The package embeds the files and decodes each on its first lookup (`Model.Types`, `Model.Type`, `Model.SelfIdentified`; the package-level functions of the same names read the 1.4 model). It used to be a Go map literal, which compiled into a single initialisation function of about 680 KB that every binary carried and ran at startup; as data the 1.4 model is 17.5 KB and the 1.7 model 34 KB.
 
 ## Tests
 
-Tests are located alongside the code. There are three corpora under `tests/`, ranging from the Isartor and veraPDF suites to a collection of 1,585 real-world documents. [CONTRIBUTING.md](CONTRIBUTING.md) describes these corpora and explains how to work with them.
+Tests are located alongside the code. There are three corpora under `tests/`, ranging from the Isartor and veraPDF suites to a collection of 1,585 real-world documents. [CONTRIBUTING.md](CONTRIBUTING.md) describes these corpora and explains how to work with them. Every test that walks the conformance corpora reads them from `corpustest.All`, one row per corpus with the level, profiles and veraPDF flavour it is checked against.

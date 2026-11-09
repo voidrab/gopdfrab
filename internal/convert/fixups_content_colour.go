@@ -54,6 +54,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			}
 			if name, ok := operands[len(operands)-1].(pdf.PDFName); ok {
 				emit(namedOrAbbrevColourModel(name.Value, resources), resources)
+				emit(patternBaseModel(name, resources), resources)
 			}
 		case "INLINEIMAGE":
 			for i := 0; i+1 < len(operands); i += 2 {
@@ -92,16 +93,32 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.IsStream() {
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
+		case "Tf":
+			// A Type 3 font's glyph procedures are scanned with the font's
+			// own Resources when it has them, and otherwise with the
+			// resources the text is shown in.
+			if len(operands) == 0 {
+				return
+			}
+			font, ok := namedType3Font(operands[0], resources)
+			if !ok || !claim(pdf.ValuePointer(font.Entries)) {
+				return
+			}
+			pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+				scanContentColour(r.Stream, resourcesOf(font, resources), claim, decode, emit)
+			})
 		}
 	})
 }
 
-// deviceColourFixer remediates DeviceColourContentStream (content-stream
-// operators/inline images) and DeviceColourSpaceUsage (Image/Shading
-// /ColorSpace entries), mirroring reportContentColour/checkDeviceColour in
-// checks_content.go/checks_colour.go -- both consult a page's /Resources
-// (directly, or via ctx.pageResources as a fallback for nested Form
-// XObjects/patterns), so injecting the missing Default* there clears both.
+// deviceColourFixer remediates DeviceColourContentStream (device colour in
+// content stream operators and inline images), DeviceColourSpaceUsage (device
+// colour spaces of Image and Shading dictionaries) and DeviceColourBase (the
+// base space of an Indexed or uncoloured Pattern space). It mirrors
+// reportContentColour and checkDeviceColour in the verify package, which both
+// consult the page's Resources (or the page resources, for nested Form XObjects
+// and patterns), so injecting the missing Default colour space entries there
+// clears both.
 // deviceColourFixer holds the run's decode function (the Reader's concurrent
 // cache) so repeated content scans across fixer iterations hit warm bytes.
 type deviceColourFixer struct {
@@ -111,7 +128,8 @@ type deviceColourFixer struct {
 
 func (deviceColourFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.DeviceColourSpaceUsage:
+	case pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.DeviceColourSpaceUsage,
+		pdf.Checks.Colour.DeviceColourBase:
 		return true
 	}
 	return false
@@ -124,6 +142,7 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 	// Built lazily and reused across every page that needs it, so the
 	// writer emits one shared ICC stream object rather than one per page.
 	var sharedRGB, sharedCMYK pdf.PDFArray
+	adopted := map[uintptr]map[uintptr]pdf.PDFDict{}
 
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Page"}) {
@@ -173,10 +192,10 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 			in := defaultCSInjection{
 				needRGB: nestedRGB, needCMYK: nestedCMYK,
 				rgb: sharedRGB, cmyk: sharedCMYK,
-				decode: f.decode, visited: map[uintptr]bool{},
+				decode: f.decode, visited: map[uintptr]bool{}, adopted: adopted,
 			}
 			forEachContentStream(d, func(cs pdf.PDFDict) {
-				if in.run(cs, resources) {
+				if in.follow(cs, resources) {
 					changed = true
 				}
 			})
@@ -210,9 +229,6 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 		needRGB: needRGB, needCMYK: needCMYK,
 		rgb: sharedRGB, cmyk: sharedCMYK,
 		decode: decode, visited: map[uintptr]bool{},
-		// An appearance stream stands on its own resources, so it can
-		// be given a resource dict it did not have.
-		create: true,
 	}
 	changed := false
 	switch v := n.(type) {
@@ -256,19 +272,73 @@ type defaultCSInjection struct {
 	rgb, cmyk         pdf.PDFArray
 	decode            decodeFunc
 	visited           map[uintptr]bool
-	// create allows a stream that has no /Resources of its own to be given
-	// one. A form XObject inside a page must not be: it reads the page's
-	// resources for every name it uses, so handing it a resource dict holding
-	// nothing but a colour space would cut it off from all of them. Its
-	// content is read in the page's scope anyway, which is where the page-level
-	// injection put the same entry.
-	create bool
+	// adopted holds, per holder that had no /Resources, the copy of it that
+	// serves each scope it is drawn in. It is shared across a document's pages;
+	// nil leaves holders as they are found.
+	adopted map[uintptr]map[uintptr]pdf.PDFDict
 }
 
-// run injects into stream's own resources and follows every form XObject it
-// draws, resolving names in scope -- the stream's own /Resources when it has
-// them, the enclosing dict's otherwise.
+// run injects into the resources of stream, a form XObject or tiling pattern,
+// and follows what it draws. scope holds the names the stream reads: its own
+// /Resources when it has them, the enclosing dict's otherwise.
 func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
+	if in.visited[pdf.ValuePointer(stream.Entries)] {
+		return false
+	}
+	changed := in.inject(stream, scope)
+	return in.follow(stream, scope) || changed
+}
+
+// holderIn returns the dictionary to edit for holder when it is drawn in scope
+// under category and name. A holder without /Resources reads its names from
+// where it is drawn, so it cannot stay tied to the first scope that draws it:
+// each further scope gets a copy that takes the holder's place there.
+func (in defaultCSInjection) holderIn(holder, scope pdf.PDFDict, category, name string) pdf.PDFDict {
+	if in.adopted == nil {
+		return holder
+	}
+	ptr, scopePtr := pdf.ValuePointer(holder.Entries), pdf.ValuePointer(scope.Entries)
+	copies, adopted := in.adopted[ptr]
+	if !adopted {
+		if _, own := holder.Entries.Get("Resources").(pdf.PDFDict); !own {
+			in.adopted[ptr] = map[uintptr]pdf.PDFDict{scopePtr: holder}
+		}
+		return holder
+	}
+	held, ok := copies[scopePtr]
+	if !ok {
+		held = pdf.PDFDict{Entries: holder.Entries.CloneAsNew()}
+		held.Entries.Del("Resources")
+		copies[scopePtr] = held
+		in.adopted[pdf.ValuePointer(held.Entries)] = copies
+	}
+	if held.Entries != holder.Entries {
+		// The category dictionary can be shared with a scope that keeps the
+		// holder, so this scope gets its own.
+		named, _ := scope.Entries.Get(category).(pdf.PDFDict)
+		named = pdf.PDFDict{Entries: named.Entries.CloneAsNew()}
+		named.Entries.Set(name, held)
+		scope.Entries.Set(category, named)
+	}
+	return held
+}
+
+// inject adds the Default colour spaces to holder's own resources. A holder
+// without /Resources first gets the names it reads from scope, since a Default
+// colour space applies only in a holder's own resources and a dictionary holding
+// nothing else would cut it off from every name it uses.
+func (in defaultCSInjection) inject(holder, scope pdf.PDFDict) bool {
+	changed := false
+	if _, own := holder.Entries.Get("Resources").(pdf.PDFDict); !own {
+		changed = inheritedResourcesFixer{decode: in.decode}.adopt(holder, scope, map[uintptr]bool{})
+	}
+	return injectDefaultCS(holder, in.needRGB, in.needCMYK, in.rgb, in.cmyk) || changed
+}
+
+// follow injects into every form XObject and tiling pattern that stream draws
+// and every Type 3 font it selects. It does not inject into stream itself,
+// because a page's content and a glyph procedure read their holder's resources.
+func (in defaultCSInjection) follow(stream, scope pdf.PDFDict) bool {
 	ptr := pdf.ValuePointer(stream.Entries)
 	if in.visited[ptr] {
 		return false
@@ -276,17 +346,13 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 	in.visited[ptr] = true
 
 	changed := false
-	if _, own := stream.Entries.Get("Resources").(pdf.PDFDict); own || in.create {
-		changed = injectDefaultCS(stream, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
-	}
-
 	decode := in.decode
 	if decode == nil {
 		decode = pdf.DecodeStream
 	}
 	data, err := decode(stream)
 	if err != nil {
-		return changed
+		return false
 	}
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
 		// The same streams scanContentColour descends into: form
@@ -298,6 +364,11 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 			category = "XObject"
 		case "scn", "SCN":
 			category = "Pattern"
+		case "Tf":
+			if len(operands) > 0 && in.runType3(operands[0], scope) {
+				changed = true
+			}
+			return
 		default:
 			return
 		}
@@ -310,12 +381,46 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 		}
 		named, _ := scope.Entries.Get(category).(pdf.PDFDict)
 		if sub, ok := named.Entries.Get(name.Value).(pdf.PDFDict); ok && sub.IsStream() {
+			sub = in.holderIn(sub, scope, category, name.Value)
 			if in.run(sub, resourcesOf(sub, scope)) {
 				changed = true
 			}
 		}
 	})
 	return changed
+}
+
+// runType3 injects Default colour spaces into the resources of the Type 3 font
+// that a Tf operand names and follows the form XObjects its glyph procedures
+// draw. The glyph procedures are checked against the font's resources, which
+// the page's Default colour spaces do not reach.
+func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) bool {
+	font, ok := namedType3Font(operand, scope)
+	if !ok {
+		return false
+	}
+	name, _ := operand.(pdf.PDFName)
+	font = in.holderIn(font, scope, "Font", name.Value)
+	ptr := pdf.ValuePointer(font.Entries)
+	if in.visited[ptr] {
+		return false
+	}
+	in.visited[ptr] = true
+	changed := in.inject(font, scope)
+	res, _ := font.Entries.Get("Resources").(pdf.PDFDict)
+	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+		if in.follow(r.Stream, res) {
+			changed = true
+		}
+	})
+	return changed
+}
+
+// namedType3Font returns the Type 3 font a Tf operand names in resources.
+func namedType3Font(operand pdf.PDFValue, resources pdf.PDFDict) (pdf.PDFDict, bool) {
+	name, _ := operand.(pdf.PDFName)
+	font, ok := pdf.LookupResource(resources, "Font", name.Value).(pdf.PDFDict)
+	return font, ok && font.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"})
 }
 
 // injectDefaultCS injects missing Default* colour-space entries into the
@@ -464,6 +569,16 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 			scanContentColour(sd, apRes, claim, decode, emit)
 		}
 	}
+}
+
+// patternBaseModel returns the device colour model of the base space of the
+// uncoloured Pattern colour space a cs or CS operand names, or "".
+func patternBaseModel(name pdf.PDFName, resources pdf.PDFDict) string {
+	cs, _ := pdf.LookupNamedColorSpace(name.Value, resources)
+	if arr, ok := cs.(pdf.PDFArray); !ok || len(arr) == 0 || arr[0] != (pdf.PDFName{Value: "Pattern"}) {
+		return ""
+	}
+	return verify.BaseColourModel(cs)
 }
 
 // namedOrAbbrevColourModel resolves a cs/CS or inline-image /CS operand name

@@ -24,12 +24,15 @@ const (
 	partA1A parts = 1 << iota // PDF/A-1a, which no profile verifies
 	partA1B
 	partObjectModel
+	partA2B
 
 	// partsA1 is every Part 1 level: a Level B rule binds Level A too.
 	partsA1 = partA1A | partA1B
+	// partsA2 is every level that numbers its clauses as ISO 19005-2 does.
+	partsA2 = partA2B
 	// partsAll is every level, for the object-model checks: a file of any
 	// level must first be valid PDF.
-	partsAll = partsA1 | partObjectModel
+	partsAll = partsA1 | partsA2 | partObjectModel
 )
 
 // partOf returns the part a level stands for, or 0 for a level with none.
@@ -37,17 +40,60 @@ func partOf(level LevelType) parts {
 	switch level {
 	case A1B:
 		return partA1B
+	case A2B:
+		return partA2B
 	case ObjectModel:
 		return partObjectModel
 	}
 	return 0
 }
 
+// levelOf returns the level a part stands for, the inverse of partOf, or
+// Undefined for none.
+func levelOf(p parts) LevelType {
+	switch p {
+	case partA1B:
+		return A1B
+	case partA2B:
+		return A2B
+	case partObjectModel:
+		return ObjectModel
+	}
+	return Undefined
+}
+
+// familyOf returns the set of levels in the ISO 19005 part that level belongs
+// to. The Part 1 family includes PDF/A-1a, so a Part 1 profile also enables
+// the Level A requirements.
+func familyOf(level LevelType) parts {
+	switch p := partOf(level); {
+	case p&partsA1 != 0:
+		return partsA1
+	case p&partsA2 != 0:
+		return partsA2
+	default:
+		return p
+	}
+}
+
 // Name returns the CamelCase identifier of this check (e.g. "ImageWithSoftMask").
 func (c Check) Name() string { return c.name }
 
-// Description returns a human-readable summary of what this check enforces.
+// Description returns a human-readable summary of what this check enforces
+// under PDF/A-1.
 func (c Check) Description() string { return c.description }
+
+// DescriptionIn returns a summary of what c enforces under the given level.
+// It returns the Part 1 description unless the level is a Part 2 level that
+// words the rule differently.
+func (c Check) DescriptionIn(level LevelType) string {
+	if partOf(level)&partsA2 != 0 {
+		if d := part2Clauses[c.name].description; d != "" {
+			return d
+		}
+	}
+	return c.description
+}
 
 // Clause returns the PDF/A-1 specification clause number (e.g. "6.1.2").
 func (c Check) Clause() string { return c.clause }
@@ -71,7 +117,31 @@ func (c Check) ClauseIn(level LevelType) (clause string, subclause int, ok bool)
 	if !c.AppliesTo(level) {
 		return "", 0, false
 	}
+	if partOf(level)&partsA2 != 0 {
+		if ref, ok := part2Clauses[c.name]; ok {
+			return ref.clause, ref.subclause, true
+		}
+	}
 	return c.clause, c.subclause, true
+}
+
+// numberIn returns the clause and subclause that number c in a report under
+// the given level: ClauseIn's, or the Part 1 ones when c is no rule of that
+// level, as for a level-less PDFError.
+func (c Check) numberIn(level LevelType) (clause string, subclause int) {
+	if clause, subclause, ok := c.ClauseIn(level); ok {
+		return clause, subclause
+	}
+	return c.clause, c.subclause
+}
+
+// formatClause renders a clause and subclause as "clause/subclause", or the
+// clause alone when the subclause is 0.
+func formatClause(clause string, subclause int) string {
+	if subclause > 0 {
+		return clause + "/" + strconv.Itoa(subclause)
+	}
+	return clause
 }
 
 // --- Check group types --------------------------------------------------
@@ -131,6 +201,29 @@ type structureChecks struct {
 	OptionalContent Check
 	// 6.1.2 File header — post-1.4 ViewerPreferences keys
 	PostPDF14ViewerPref Check
+	// Rules of ISO 19005-2 only: 6.1.8 Name objects, 6.1.12 Permissions and
+	// 6.1.13 Implementation limits.
+	NameNotUTF8              Check
+	PermissionsKeys          Check
+	SignatureReferenceDigest Check
+	PageBoundarySize         Check
+	// 6.1.7.2 Filters, 6.1.10 Inline image dictionaries and 6.1.13 again.
+	StreamFilterNotAllowed      Check
+	InlineImageFilterNotAllowed Check
+	RealTooCloseToZero          Check
+	// 6.9 Optional content, a clause of PDF/A-2 alone: the configuration
+	// dictionaries of the catalog's OCProperties.
+	OCConfigMissingName     Check
+	OCConfigDuplicateName   Check
+	OCConfigOrderIncomplete Check
+	OCConfigAutoState       Check
+	// 6.8 Embedded files, 6.10 Alternate presentations and transitions and
+	// 6.11 Document requirements, clauses of PDF/A-2 alone.
+	EmbeddedFileMissingNames Check
+	EmbeddedFileNotPDFA      Check
+	AlternatePresentations   Check
+	PresentationSteps        Check
+	CatalogRequirements      Check
 }
 
 type colourChecks struct {
@@ -158,6 +251,15 @@ type colourChecks struct {
 	RenderingIntent Check
 	// 6.2.10 PDF operators
 	UndefinedOperator Check
+	// Rules of ISO 19005-2 only: 6.2.2 Content streams, 6.2.3 Output intent
+	// and 6.2.4 Colour spaces.
+	InheritedResources               Check
+	DeviceColourWithoutPDFAIntent    Check
+	OutputIntentDestOutputProfileRef Check
+	ICCBasedCMYKOverprint            Check
+	DeviceNColorantsMissing          Check
+	SeparationInconsistent           Check
+	DeviceColourBase                 Check
 }
 
 type imageChecks struct {
@@ -177,6 +279,12 @@ type imageChecks struct {
 	// 6.2.7 PostScript XObjects
 	FormPostScript    Check
 	PostScriptXObject Check
+	// Rules of ISO 19005-2 only: 6.2.8.3 JPEG2000.
+	JPXColourChannels Check
+	JPXColourSpecs    Check
+	JPXColourMethod   Check
+	JPXCIEJab         Check
+	JPXBitDepth       Check
 }
 
 type transparencyChecks struct {
@@ -191,6 +299,14 @@ type transparencyChecks struct {
 	NonStrokingAlpha  Check
 	TransparencyGroup Check
 	ImageWithSoftMask Check
+	// Rules of ISO 19005-2 only: 6.2.5 Extended graphics state.
+	HalftoneExtGState        Check
+	HalftoneType             Check
+	HalftoneName             Check
+	HalftoneTransferFunction Check
+	// Rules of ISO 19005-2 only: 6.2.10 Transparency.
+	TransparencyWithoutBlendingSpace Check
+	DeviceBlendingColourSpace        Check
 }
 
 type fontChecks struct {
@@ -225,6 +341,11 @@ type fontChecks struct {
 	TrueTypeEncoding         Check
 	SymbolicTrueTypeEncoding Check
 	SymbolicTrueTypeCmap     Check
+	// PDF/A-2 rules: the CMaps a CMap uses, non-symbolic TrueType cmap tables,
+	// and the .notdef glyph.
+	UseCMapNotPredefined    Check
+	NonSymbolicTrueTypeCmap Check
+	NotdefGlyphReference    Check
 }
 
 type annotationChecks struct {
@@ -241,6 +362,10 @@ type annotationChecks struct {
 	AppearanceExtraEntries Check
 	AppearanceNNotStream   Check
 	ColourWithoutIntent    Check
+	// Checked under PDF/A-2 only (ISO 19005-2 6.3.2): the F key itself and the
+	// ToggleNoView flag.
+	AnnotationFlagsMissing Check
+	ToggleNoViewFlagSet    Check
 }
 
 type actionChecks struct {
@@ -274,6 +399,10 @@ type metadataChecks struct {
 	ExtFieldInvalid            Check
 	ExtPropertyUndocumented    Check
 	ExtPropertyUndefinedType   Check
+	// ExtSchemaDefinitionInvalid and ExtSchemaUndefinedField are rules of
+	// ISO 19005-2 only, which checks each object of an extension schema.
+	ExtSchemaDefinitionInvalid Check
+	ExtSchemaUndefinedField    Check
 	// 6.7.9 XMP well-formedness
 	XMPStreamUnreadable    Check
 	XMPNotWellFormed       Check
@@ -305,6 +434,14 @@ type formChecks struct {
 	FieldAction             Check
 	FieldAdditionalActions  Check
 	WidgetMissingAppearance Check
+	// NeedsRendering is the catalog's NeedsRendering entry. Only PDF/A-2
+	// checks it.
+	NeedsRendering Check
+	// SignatureByteRange, SignatureCertificate and SignatureSigners check the
+	// digital signatures of signature fields (PDF/A-2 6.4.3).
+	SignatureByteRange   Check
+	SignatureCertificate Check
+	SignatureSigners     Check
 }
 
 // ObjectModelClause is the synthetic clause the generic object-model checks
@@ -376,7 +513,10 @@ func ChecksForClause(clause string) []Check {
 }
 
 // CheckByClauseIn looks up the check that enforces (clause, subclause) under
-// the given conformance level. ok is false if no check of that level does.
+// the given conformance level. Under a Part 2 level several checks may enforce
+// one rule together; CheckByClauseIn returns the first of them in catalogue
+// order, and ChecksForClauseIn returns them all. ok is false if no check of
+// that level enforces the rule.
 func CheckByClauseIn(level LevelType, clause string, subclause int) (c Check, ok bool) {
 	for _, c := range allChecksCatalog {
 		if cl, sub, ok := c.ClauseIn(level); ok && cl == clause && sub == subclause {
@@ -399,13 +539,26 @@ func ChecksForClauseIn(level LevelType, clause string) []Check {
 }
 
 // newCheck registers a check under its stable id. A PDF/A clause makes it a
-// Part 1 rule, the object-model clause a rule of every level.
+// Part 1 rule, and a rule of the Part 2 levels too when part2Clauses numbers
+// it; the object-model clause makes it a rule of every level.
 func newCheck(id int, name, description, clause string, subclause int) Check {
 	p := partsA1
+	if _, ok := part2Clauses[name]; ok {
+		p |= partsA2
+	}
 	if clause == ObjectModelClause {
 		p = partsAll
 	}
 	return register(Check{id: id, name: name, description: description, clause: clause, subclause: subclause, parts: p})
+}
+
+// newPart2Check registers a check that is a rule of ISO 19005-2 only. It has
+// no Part 1 clause; part2Clauses numbers it.
+func newPart2Check(id int, name, description string) Check {
+	if _, ok := part2Clauses[name]; !ok {
+		panic(fmt.Sprintf("checks_catalog: Part 2 check %s has no Part 2 clause", name))
+	}
+	return register(Check{id: id, name: name, description: description, parts: partsA2})
 }
 
 // newLevelACheck registers a PDF/A-1a requirement, which binds no level a
@@ -416,13 +569,15 @@ func newLevelACheck(id int, name, description, clause string, subclause int) Che
 
 func register(c Check) Check {
 	key := c.clause + "/" + strconv.Itoa(c.subclause)
-	if _, exists := catalogByPair[key]; exists {
+	if _, exists := catalogByPair[key]; exists && c.clause != "" {
 		panic(fmt.Sprintf("checks_catalog: duplicate registration for %s", key))
 	}
 	if dup, exists := catalogByID[c.id]; exists {
 		panic(fmt.Sprintf("checks_catalog: %s reuses the ID %d of %s", c.name, c.id, dup.name))
 	}
-	catalogByPair[key] = c
+	if c.clause != "" {
+		catalogByPair[key] = c
+	}
 	catalogByID[c.id] = c
 	allChecksCatalog = append(allChecksCatalog, c)
 	return c
@@ -602,6 +757,54 @@ func init() {
 				"PostPDF14ViewerPref",
 				"ViewerPreferences must not contain keys introduced after PDF 1.4 (e.g. PrintScaling, PickTrayByPDFSize)",
 				"6.1.2", 5),
+			NameNotUTF8: newPart2Check(160,
+				"NameNotUTF8",
+				"Font names, Separation and DeviceN colorant names and structure type names must be valid UTF-8"),
+			PermissionsKeys: newPart2Check(161,
+				"PermissionsKeys",
+				"A permissions dictionary must contain no keys other than UR3 and DocMDP"),
+			SignatureReferenceDigest: newPart2Check(162,
+				"SignatureReferenceDigest",
+				"With DocMDP permissions, signature references must not contain DigestLocation, DigestMethod or DigestValue"),
+			PageBoundarySize: newPart2Check(163,
+				"PageBoundarySize",
+				"Each page boundary must be at least 3 and at most 14,400 units in either direction"),
+			StreamFilterNotAllowed: newPart2Check(164,
+				"StreamFilterNotAllowed",
+				"Streams must use only the standard filters other than LZWDecode, and the Crypt filter only as Identity"),
+			InlineImageFilterNotAllowed: newPart2Check(165,
+				"InlineImageFilterNotAllowed",
+				"Inline images must use only the standard filters other than LZW, JBIG2Decode, JPXDecode and Crypt"),
+			RealTooCloseToZero: newPart2Check(166,
+				"RealTooCloseToZero",
+				"Nonzero real values must have an absolute value of at least 1.175 x 10^-38"),
+			OCConfigMissingName: newPart2Check(193,
+				"OCConfigMissingName",
+				"Each optional content configuration dictionary must have a non-empty Name string"),
+			OCConfigDuplicateName: newPart2Check(194,
+				"OCConfigDuplicateName",
+				"The Name of each optional content configuration dictionary must be unique"),
+			OCConfigOrderIncomplete: newPart2Check(195,
+				"OCConfigOrderIncomplete",
+				"An optional content configuration dictionary's Order array must list every optional content group"),
+			OCConfigAutoState: newPart2Check(196,
+				"OCConfigAutoState",
+				"Optional content configuration dictionaries must not contain an AS entry"),
+			EmbeddedFileMissingNames: newPart2Check(197,
+				"EmbeddedFileMissingNames",
+				"The file specification dictionary of an embedded file must contain F and UF strings"),
+			EmbeddedFileNotPDFA: newPart2Check(198,
+				"EmbeddedFileNotPDFA",
+				"Each embedded file must comply with PDF/A-1b or PDF/A-2b"),
+			AlternatePresentations: newPart2Check(199,
+				"AlternatePresentations",
+				"The name dictionary must not contain an AlternatePresentations entry"),
+			PresentationSteps: newPart2Check(200,
+				"PresentationSteps",
+				"Page dictionaries must not contain a PresSteps entry"),
+			CatalogRequirements: newPart2Check(201,
+				"CatalogRequirements",
+				"The document catalog must not contain a Requirements entry"),
 		},
 
 		Colour: colourChecks{
@@ -677,6 +880,27 @@ func init() {
 				"UndefinedOperator",
 				"Content streams must not use operators not defined in the PDF Reference",
 				"6.2.10", 1),
+			InheritedResources: newPart2Check(167,
+				"InheritedResources",
+				"A content stream must find the resources it names in its own Resources dictionary, not inherit them"),
+			DeviceColourWithoutPDFAIntent: newPart2Check(168,
+				"DeviceColourWithoutPDFAIntent",
+				"A file that uses device colour spaces must have a PDF/A output intent; output intents of other kinds do not cover them"),
+			OutputIntentDestOutputProfileRef: newPart2Check(169,
+				"OutputIntentDestOutputProfileRef",
+				"A PDF/X output intent must not contain a DestOutputProfileRef entry"),
+			ICCBasedCMYKOverprint: newPart2Check(170,
+				"ICCBasedCMYKOverprint",
+				"Overprint mode must not be 1 when an ICCBased CMYK colour space is used with overprinting on"),
+			DeviceNColorantsMissing: newPart2Check(171,
+				"DeviceNColorantsMissing",
+				"Each spot colour of a DeviceN colour space must have an entry in its Colorants dictionary"),
+			SeparationInconsistent: newPart2Check(172,
+				"SeparationInconsistent",
+				"Separation colour spaces with the same colorant name must have the same alternate space and tint transform"),
+			DeviceColourBase: newPart2Check(173,
+				"DeviceColourBase",
+				"The base space of an Indexed or Pattern colour space must not be an uncovered device colour space"),
 		},
 
 		Image: imageChecks{
@@ -728,6 +952,21 @@ func init() {
 				"PostScriptXObject",
 				"PostScript XObjects (/Subtype /PS) are not permitted in PDF/A-1",
 				"6.2.7", 2),
+			JPXColourChannels: newPart2Check(180,
+				"JPXColourChannels",
+				"JPEG 2000 image data must have 1, 3 or 4 colour channels"),
+			JPXColourSpecs: newPart2Check(181,
+				"JPXColourSpecs",
+				"JPEG 2000 image data without a ColorSpace entry must have one colour specification, or exactly one with APPROX 1"),
+			JPXColourMethod: newPart2Check(182,
+				"JPXColourMethod",
+				"The colour specification method of JPEG 2000 image data without a ColorSpace entry must be 1, 2 or 3"),
+			JPXCIEJab: newPart2Check(183,
+				"JPXCIEJab",
+				"JPEG 2000 image data without a ColorSpace entry must not use the enumerated colour space CIEJab"),
+			JPXBitDepth: newPart2Check(184,
+				"JPXBitDepth",
+				"JPEG 2000 image data must have one bit depth, from 1 to 38, for all its colour channels"),
 		},
 
 		Transparency: transparencyChecks{
@@ -767,6 +1006,24 @@ func init() {
 				"ImageWithSoftMask",
 				"Image XObjects must not contain a soft mask (SMask) other than /None",
 				"6.4", 6),
+			HalftoneExtGState: newPart2Check(174,
+				"HalftoneExtGState",
+				"ExtGState dictionaries must not contain an HTP entry"),
+			HalftoneType: newPart2Check(175,
+				"HalftoneType",
+				"A halftone's HalftoneType must be 1 or 5"),
+			HalftoneName: newPart2Check(176,
+				"HalftoneName",
+				"Halftones must not contain a HalftoneName entry"),
+			HalftoneTransferFunction: newPart2Check(177,
+				"HalftoneTransferFunction",
+				"A halftone must have a TransferFunction only for a non-primary colorant, as ISO 32000-1 requires"),
+			TransparencyWithoutBlendingSpace: newPart2Check(178,
+				"TransparencyWithoutBlendingSpace",
+				"A page that contains transparency must have a Group with a CS entry when the file has no PDF/A output intent"),
+			DeviceBlendingColourSpace: newPart2Check(179,
+				"DeviceBlendingColourSpace",
+				"A transparency group's blending colour space must not be an uncovered device colour space"),
 		},
 
 		Font: fontChecks{
@@ -854,6 +1111,15 @@ func init() {
 				"SymbolicTrueTypeCmap",
 				"Symbolic TrueType fonts must have exactly one cmap subtable",
 				"6.3.7", 3),
+			UseCMapNotPredefined: newPart2Check(185,
+				"UseCMapNotPredefined",
+				"A CMap may only use (UseCMap) one of the CMaps ISO 32000-1 Table 118 lists"),
+			NonSymbolicTrueTypeCmap: newPart2Check(186,
+				"NonSymbolicTrueTypeCmap",
+				"The embedded program of a non-symbolic TrueType font must have a cmap subtable other than the Microsoft Symbol (3,0) one"),
+			NotdefGlyphReference: newPart2Check(187,
+				"NotdefGlyphReference",
+				"Text showing operators must not reference the .notdef glyph"),
 			ToUnicodeMissing: newLevelACheck(103,
 				"ToUnicodeMissing",
 				"Fonts must include a ToUnicode CMap unless they use a predefined encoding or character collection (Level A)",
@@ -928,6 +1194,12 @@ func init() {
 				"ColourWithoutIntent",
 				"Annotation colour arrays must only use device colour models covered by an OutputIntent",
 				"6.5.3", 10),
+			AnnotationFlagsMissing: newPart2Check(188,
+				"AnnotationFlagsMissing",
+				"Annotations other than Popup ones must contain an F key"),
+			ToggleNoViewFlagSet: newPart2Check(189,
+				"ToggleNoViewFlagSet",
+				"Annotations must not have the ToggleNoView flag set"),
 		},
 
 		Action: actionChecks{
@@ -1018,6 +1290,12 @@ func init() {
 				"ExtPropertyUndefinedType",
 				"Extension schema properties must reference only built-in or explicitly defined value types",
 				"6.7.8", 10),
+			ExtSchemaDefinitionInvalid: newPart2Check(191,
+				"ExtSchemaDefinitionInvalid",
+				"An extension schema must give its schema, namespaceURI and prefix as pdfaSchema Text fields, and its property and valueType as pdfaSchema Seq fields"),
+			ExtSchemaUndefinedField: newPart2Check(192,
+				"ExtSchemaUndefinedField",
+				"An extension schema, property, value type or field may only contain the fields its PDF/A value type defines"),
 			XMPStreamUnreadable: newCheck(141,
 				"XMPStreamUnreadable",
 				"The XMP metadata stream must be readable",
@@ -1073,6 +1351,18 @@ func init() {
 				"WidgetMissingAppearance",
 				"Form field widget annotations (with FT) must have an appearance dictionary (AP)",
 				"6.9", 5),
+			NeedsRendering: newPart2Check(190,
+				"NeedsRendering",
+				"The document catalog's NeedsRendering entry, when present, must be false"),
+			SignatureByteRange: newPart2Check(202,
+				"SignatureByteRange",
+				"A signature's ByteRange must cover the whole of its revision except the signature value"),
+			SignatureCertificate: newPart2Check(203,
+				"SignatureCertificate",
+				"A signature's PKCS#7 object must include the signer's X.509 certificate"),
+			SignatureSigners: newPart2Check(204,
+				"SignatureSigners",
+				"A signature's PKCS#7 object must have exactly one signer"),
 		},
 
 		ObjectModel: objectModelChecks{

@@ -75,7 +75,7 @@ func TestWriteDocumentIndexedWriteFailures(t *testing.T) {
 	// straddles the buffer size at every stage.
 	const bufSize = 64 << 10
 	for pad := bufSize - 600; pad <= bufSize+100; pad++ {
-		_, err := WriteDocumentIndexed(failingWriter{}, build(pad), 0)
+		_, err := WriteDocumentIndexed(failingWriter{}, build(pad), 0, "1.4")
 		if !errors.Is(err, errBoom) {
 			t.Fatalf("pad %d: error = %v, want errBoom", pad, err)
 		}
@@ -90,7 +90,7 @@ func TestWriteDocumentIndexedFlushError(t *testing.T) {
 			"Type": pdf.PDFName{Value: "Catalog"},
 		})}, pdf.PDFRef{ObjNum: 1}),
 	})}
-	if _, err := WriteDocumentIndexed(failingWriter{}, trailer, 0); !errors.Is(err, errBoom) {
+	if _, err := WriteDocumentIndexed(failingWriter{}, trailer, 0, "1.4"); !errors.Is(err, errBoom) {
 		t.Fatalf("error = %v, want errBoom", err)
 	}
 }
@@ -106,7 +106,7 @@ func TestDiscoverSharedArrayVisitedOnce(t *testing.T) {
 	})}, pdf.PDFRef{ObjNum: 1})
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog})}
 
-	order, err := WriteDocumentIndexed(io.Discard, trailer, 0)
+	order, err := WriteDocumentIndexed(io.Discard, trailer, 0, "1.4")
 	if err != nil {
 		t.Fatalf("WriteDocumentIndexed: %v", err)
 	}

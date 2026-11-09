@@ -2,11 +2,13 @@ package convert
 
 import (
 	"bytes"
+	"context"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // issuesOf is one issue under each of checks, the shape a verify that
@@ -167,8 +169,9 @@ func TestContentLimitsFixerRepairsOnlyReportedChecks(t *testing.T) {
 	}
 }
 
-// pairFixer covers two checks and records every call, the shape of a fixer
-// like extGStateFixer that one registration hands several checks.
+// pairFixer covers two checks and records every call. It stands in for a
+// fixer such as extGStateFixer, which one registration covers with several
+// checks.
 type pairFixer struct {
 	a, b  pdf.Check
 	calls *[][]pdf.PDFError
@@ -259,4 +262,209 @@ func TestDispatchFlattensBeforeTheOpacityRepair(t *testing.T) {
 	if g := int(samples[1]); g < 120 || g > 130 {
 		t.Errorf("flattened pixel = %v, want G about 125 (two fills at 0.3 built up)", samples[:3])
 	}
+}
+
+// TestAnnotationFlagsFixerRepairsOnlyReportedChecks verifies that an
+// annotation breaking all five flag and opacity rules has only the reported
+// rule repaired.
+func TestAnnotationFlagsFixerRepairsOnlyReportedChecks(t *testing.T) {
+	an := pdf.Checks.Annotation
+	const bad = verify.AnnotFlagHidden | verify.AnnotFlagInvisible | verify.AnnotFlagNoView
+	for _, tc := range []struct {
+		check pdf.Check
+		flags int
+		ca    pdf.PDFValue
+	}{
+		{an.PrintFlagNotSet, bad | verify.AnnotFlagPrint, pdf.PDFReal(0.5)},
+		{an.HiddenFlagSet, bad &^ verify.AnnotFlagHidden, pdf.PDFReal(0.5)},
+		{an.InvisibleFlagSet, bad &^ verify.AnnotFlagInvisible, pdf.PDFReal(0.5)},
+		{an.NoViewFlagSet, bad &^ verify.AnnotFlagNoView, pdf.PDFReal(0.5)},
+		{an.OpacityNotOne, bad, pdf.PDFReal(1)},
+	} {
+		t.Run(tc.check.Name(), func(t *testing.T) {
+			annot := specDict("Type", specName("Annot"), "F", pdf.PDFInteger(bad), "CA", pdf.PDFReal(0.5))
+			trailer := trailerWith("Annot0", annot)
+
+			changed, err := annotationFlagsFixer{}.Fix(&trailer, issuesOf(tc.check))
+			if err != nil || !changed {
+				t.Fatalf("Fix = %v, %v; want changed", changed, err)
+			}
+			if got := annot.Entries.Get("F"); got != pdf.PDFInteger(tc.flags) {
+				t.Errorf("/F = %v, want %d", got, tc.flags)
+			}
+			if got := annot.Entries.Get("CA"); got != tc.ca {
+				t.Errorf("/CA = %v, want %v", got, tc.ca)
+			}
+		})
+	}
+}
+
+// repairProbe is one repair of a fixer, as checked by
+// assertRepairsOnlyReported. check is the rule that reports it, and repaired
+// reports whether the repair was made.
+type repairProbe struct {
+	check    pdf.Check
+	what     string
+	repaired func() bool
+}
+
+// assertRepairsOnlyReported runs Fix once for each distinct check among the
+// probes. Each run uses a fresh fixture that breaks every rule and reports only
+// that check, and verifies that exactly the probes of that check were
+// repaired.
+func assertRepairsOnlyReported(t *testing.T, fixture func() (pdf.PDFDict, graphFixer, []repairProbe)) {
+	t.Helper()
+	_, _, probes := fixture()
+	seen := map[pdf.Check]bool{}
+	for _, p := range probes {
+		if seen[p.check] {
+			continue
+		}
+		seen[p.check] = true
+		t.Run(p.check.Name(), func(t *testing.T) {
+			trailer, f, probes := fixture()
+			changed, err := f.Fix(&trailer, issuesOf(p.check))
+			if err != nil || !changed {
+				t.Fatalf("Fix = %v, %v; want changed", changed, err)
+			}
+			for _, q := range probes {
+				if got, want := q.repaired(), q.check == p.check; got != want {
+					t.Errorf("%s repaired = %v, want %v with only %s reported", q.what, got, want, p.check.Name())
+				}
+			}
+		})
+	}
+}
+
+// TestActionFixerRepairsOnlyReportedChecks verifies that the forbidden action,
+// named action and additional-actions repairs each run only when their own
+// check was reported.
+func TestActionFixerRepairsOnlyReportedChecks(t *testing.T) {
+	ac := pdf.Checks.Action
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		launch := specDict("S", specName("Launch"))
+		named := specDict("S", specName("Named"), "N", specName("Quit"))
+		link := specDict("Type", specName("Annot"), "Subtype", specName("Link"), "A", named)
+		trailer := trailerWith("OpenAction", launch)
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("AA", specDict("WC", specDict("S", specName("GoTo"))))
+		root.Entries.Set("Names", specDict("JavaScript",
+			specDict("Names", pdf.PDFArray{pdf.PDFString{Value: "a"}, specDict("S", specName("JavaScript"))})))
+		root.Entries.Set("Link", link)
+		names := root.Entries.Get("Names").(pdf.PDFDict)
+		return trailer, actionFixer{spec: a1bSpec}, []repairProbe{
+			{ac.ForbiddenActionType, "/OpenAction", func() bool { return root.Entries.Get("OpenAction") == nil }},
+			{ac.ForbiddenActionType, "JavaScript name tree", func() bool { return names.Entries.Get("JavaScript") == nil }},
+			{ac.DisallowedNamedAction, "named action", func() bool { return link.Entries.Get("A") == nil }},
+			{ac.AdditionalActions, "/AA", func() bool { return root.Entries.Get("AA") == nil }},
+		}
+	})
+}
+
+// TestFormFixerRepairsOnlyReportedChecks verifies that each AcroForm and form
+// field repair runs only when its own check was reported.
+func TestFormFixerRepairsOnlyReportedChecks(t *testing.T) {
+	fm := pdf.Checks.Form
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		form := specDict("NeedAppearances", pdf.PDFBoolean(true), "XFA", pdf.PDFArray{})
+		field := specDict("FT", specName("Tx"), "A", specDict("S", specName("GoTo")),
+			"AA", specDict("K", specDict("S", specName("GoTo"))))
+		// A widget's Type entry is optional.
+		widget := specDict("Subtype", specName("Widget"), "Rect", pdf.PDFArray{},
+			"A", specDict("S", specName("GoTo")))
+		trailer := trailerWith("AcroForm", form)
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("NeedsRendering", pdf.PDFBoolean(true))
+		form.Entries.Set("Fields", pdf.PDFArray{field, widget})
+		return trailer, formFixer{}, []repairProbe{
+			{fm.NeedsRendering, "/NeedsRendering", func() bool { return root.Entries.Get("NeedsRendering") == nil }},
+			{fm.NeedAppearances, "/NeedAppearances", func() bool { return form.Entries.Get("NeedAppearances") == pdf.PDFBoolean(false) }},
+			{fm.XFA, "/XFA", func() bool { return form.Entries.Get("XFA") == nil }},
+			{fm.FieldAction, "field /A", func() bool { return field.Entries.Get("A") == nil }},
+			{fm.FieldAction, "widget /A", func() bool { return widget.Entries.Get("A") == nil }},
+			{fm.FieldAdditionalActions, "field /AA", func() bool { return field.Entries.Get("AA") == nil }},
+		}
+	})
+}
+
+// TestFileSpecFixerRepairsOnlyReportedChecks verifies that each embedded file
+// and external stream file repair runs only when its own check was reported.
+func TestFileSpecFixerRepairsOnlyReportedChecks(t *testing.T) {
+	st := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		spec := specDict("Type", specName("Filespec"), "EF", specDict("F", specStream([]byte("x"))))
+		annot := specDict("Type", specName("Annot"), "Subtype", specName("FileAttachment"), "FS", spec)
+		names := specDict("EmbeddedFiles", specDict("Names", pdf.PDFArray{}))
+		stream := specStream([]byte("x"), "F", pdf.PDFString{Value: "a"},
+			"FFilter", specName("FlateDecode"), "FDecodeParms", specDict())
+		trailer := trailerWith("Names", names)
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("Annot0", annot)
+		root.Entries.Set("S", stream)
+		gone := func(d pdf.PDFDict, key string) func() bool {
+			return func() bool { return d.Entries.Get(key) == nil }
+		}
+		return trailer, fileSpecFixer{}, []repairProbe{
+			{st.EmbeddedFileSpec, "/EF", gone(spec, "EF")},
+			{st.EmbeddedFiles, "/EmbeddedFiles", gone(names, "EmbeddedFiles")},
+			{st.StreamFileSpec, "stream /F", gone(stream, "F")},
+			{st.StreamFileFilter, "stream /FFilter", gone(stream, "FFilter")},
+			{st.StreamFileDecodeParams, "stream /FDecodeParms", gone(stream, "FDecodeParms")},
+		}
+	})
+}
+
+// TestOCConfigFixerRepairsOnlyReportedChecks verifies that each optional
+// content configuration repair runs only when its own check was reported.
+func TestOCConfigFixerRepairsOnlyReportedChecks(t *testing.T) {
+	s := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		group := specDict("Type", specName("OCG"))
+		unnamed := specDict("AS", pdf.PDFArray{}, "Order", pdf.PDFArray{})
+		named := specDict("Name", pdf.PDFString{Value: "X"})
+		repeat := specDict("Name", pdf.PDFString{Value: "X"})
+		props := specDict("OCGs", pdf.PDFArray{group}, "D", unnamed, "Configs", pdf.PDFArray{named, repeat})
+		renamed := func(d pdf.PDFDict) func() bool {
+			return func() bool { name, _ := verify.OCConfigName(d); return name != "" && name != "X" }
+		}
+		return trailerWith("OCProperties", props), ocConfigFixer{}, []repairProbe{
+			{s.OCConfigMissingName, "D /Name", renamed(unnamed)},
+			{s.OCConfigDuplicateName, "repeated /Name", renamed(repeat)},
+			{s.OCConfigOrderIncomplete, "/Order", func() bool { return len(unnamed.Entries.Get("Order").(pdf.PDFArray)) == 1 }},
+			{s.OCConfigOrderIncomplete, "group /Name", func() bool { return verify.OCGroupNames([]pdf.PDFDict{group})[0] != "" }},
+			{s.OCConfigAutoState, "/AS", func() bool { return unnamed.Entries.Get("AS") == nil }},
+		}
+	})
+}
+
+// TestEmbeddedFileFixerRepairsOnlyReportedChecks verifies that each embedded
+// file repair runs only when its own check was reported.
+func TestEmbeddedFileFixerRepairsOnlyReportedChecks(t *testing.T) {
+	s := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		fs := specDict("Type", specName("Filespec"), "EF", specDict("F", pdf.NewStreamDict(nil, []byte("text"))))
+		return trailerWith("X", fs), embeddedFileFixer{ctx: context.Background(), profile: pdf.PDFA2B}, []repairProbe{
+			{s.EmbeddedFileNotPDFA, "/EF", func() bool { return fs.Entries.Get("EF") == nil }},
+			{s.EmbeddedFileMissingNames, "/F and /UF", func() bool { return fs.Entries.Get("UF") != nil }},
+		}
+	})
+}
+
+// TestPresentationFixerRepairsOnlyReportedChecks verifies that each
+// presentation entry is deleted only when its own check was reported.
+func TestPresentationFixerRepairsOnlyReportedChecks(t *testing.T) {
+	s := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		page := specDict("Type", specName("Page"), "PresSteps", specDict())
+		names := specDict("AlternatePresentations", specDict())
+		trailer := trailerWith("Requirements", pdf.PDFArray{})
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("Names", names)
+		root.Entries.Set("Pages", specDict("Type", specName("Pages"), "Kids", pdf.PDFArray{page}))
+		return trailer, presentationFixer{}, []repairProbe{
+			{s.AlternatePresentations, "/AlternatePresentations", func() bool { return names.Entries.Get("AlternatePresentations") == nil }},
+			{s.PresentationSteps, "/PresSteps", func() bool { return page.Entries.Get("PresSteps") == nil }},
+			{s.CatalogRequirements, "/Requirements", func() bool { return root.Entries.Get("Requirements") == nil }},
+		}
+	})
 }

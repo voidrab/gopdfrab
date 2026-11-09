@@ -42,16 +42,11 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 		return pdf.Result{}, err
 	}
 
-	issues := verifyPdfA1bParts(ctx, d, p, spec).Issues()
+	issues := verifyPdfAParts(ctx, d, p, spec).Issues()
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
-	issues = filterByProfile(issues, p)
-
-	if len(issues) > 0 {
-		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}, nil
-	}
-	return pdf.Result{Type: p.Level, Valid: true}, nil
+	return ResultFromIssues(p, filterByProfile(issues, p)), nil
 }
 
 // LevelSpec returns the rules of p's level, rejecting a profile there is
@@ -83,7 +78,7 @@ func LevelSpec(p *pdf.Profile) (pdfa.Spec, error) {
 
 // Parts splits the A-1b issue list by what the checks read. PreStructural
 // and PostStructural are byte-level checks against the reader's file and
-// xref bytes, in exactly the positions verifyPdfA1b emits them (the header/
+// xref bytes, in exactly the positions verifyPdfAParts emits them (the header/
 // trailer/xref checks lead the list; object framing and the reader's parse
 // diagnostics trail it). Graph is everything in between: a function of the
 // resolved object graph and its streams only, so on a seeded reader it is a
@@ -94,7 +89,7 @@ type Parts struct {
 	PostStructural []pdf.PDFError
 }
 
-// Issues reassembles the parts in verifyPdfA1b's emission order.
+// Issues reassembles the parts in verifyPdfAParts's emission order.
 func (pt Parts) Issues() []pdf.PDFError {
 	out := make([]pdf.PDFError, 0, len(pt.PreStructural)+len(pt.Graph)+len(pt.PostStructural))
 	out = append(out, pt.PreStructural...)
@@ -119,7 +114,7 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 // the byte-level checks. A validated profile leaves nothing to fail, so it
 // returns no error; a panic is the caller's to recover.
 func VerifyParts(d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
-	return verifyPdfA1bParts(context.Background(), d, p, spec).filter(p)
+	return verifyPdfAParts(context.Background(), d, p, spec).filter(p)
 }
 
 // VerifyStructural runs only the byte-level structural checks against d --
@@ -135,16 +130,17 @@ func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	}
 	var pt Parts
 	if !p.OnlyObjectModelChecks() {
-		pt.PreStructural = structuralPreIssues(d)
+		pt.PreStructural = structuralPreIssues(d, spec)
 		pt.PostStructural = structuralPostIssues(d, spec)
 	}
 	return pt.filter(p), nil
 }
 
 // ResultFromIssues builds the Result Verify would return for an
-// already-filtered issue list.
+// already-filtered issue list, stamping each issue with p's level.
 func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
 	if len(issues) > 0 {
+		pdf.StampLevel(issues, p.Level)
 		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}
 	}
 	return pdf.Result{Type: p.Level, Valid: true}
@@ -247,16 +243,19 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 	return out
 }
 
-// PDF/A-1b (ISO 19005-1:2005)
+// PDF/A (ISO 19005)
 
-// structuralPreIssues runs the byte-level checks that lead the A-1b issue
-// list: file header, linearized ID consistency, trailer, and xref format.
-func structuralPreIssues(d *pdf.Reader) []pdf.PDFError {
+// structuralPreIssues runs the byte-level checks that lead the issue list:
+// file header, linearized ID consistency where the level requires it,
+// trailer, and xref format.
+func structuralPreIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	issues := []pdf.PDFError{}
-	issues = append(issues, verifyFileHeader(d)...)
-	issues = append(issues, checkLinearizedFileID(d)...)
-	issues = append(issues, verifyFileTrailer(d)...)
-	issues = append(issues, verifyCrossReferenceTable(d)...)
+	issues = append(issues, verifyFileHeader(d, spec)...)
+	if spec.LinearizedFileID {
+		issues = append(issues, checkLinearizedFileID(d)...)
+	}
+	issues = append(issues, verifyFileTrailer(d, spec)...)
+	issues = append(issues, verifyCrossReferenceTable(d, spec)...)
 	return issues
 }
 
@@ -267,9 +266,9 @@ func structuralPostIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	return append(issues, spec.Issues(d.Diagnostics())...)
 }
 
-// verifyPdfA1bParts runs the A-1b checks. A cancelled run returns early with
-// partial parts; the caller checks run.Err() and discards them.
-func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
+// verifyPdfAParts runs the checks of spec's level. A cancelled run returns
+// early with partial parts; the caller checks run.Err() and discards them.
+func verifyPdfAParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
 	// at the end, so VerifyObjectModel never decodes content streams, parses
@@ -278,7 +277,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 	var pt Parts
 
 	if !schemaOnly {
-		pt.PreStructural = structuralPreIssues(d)
+		pt.PreStructural = structuralPreIssues(d, spec)
 	}
 
 	// Resolve the graph once up front; all subsequent checks work on the
@@ -320,7 +319,8 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 	}
 	ctx.PageIndex = pageIndex
 	if !schemaOnly {
-		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
+		reachable, invisibleOnly, usedCodes, usedCIDs, partialCodes, complete := ComputeContentUsage(graph, ctx)
+		ctx.partialCodeFonts = partialCodes
 		// An object degraded to null makes the usage sets a subset of the
 		// truth the same way an undecodable content stream does.
 		complete = complete && !d.HasDegradedObjects()
@@ -399,6 +399,12 @@ func realOutOfRange(v pdf.PDFReal, l pdfa.Limits) bool {
 	return l.MaxReal > 0 && math.Abs(float64(v)) > l.MaxReal
 }
 
+// realTooCloseToZero reports whether v is nonzero and nearer zero than the
+// level's smallest real; a zero limit sets none.
+func realTooCloseToZero(v pdf.PDFReal, l pdfa.Limits) bool {
+	return v != 0 && math.Abs(float64(v)) < l.MinReal
+}
+
 func verifyAllObjectFraming(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	issues := indirectObjectLimit(d.IndirectObjectCount(), spec)
 
@@ -415,8 +421,18 @@ func verifyAllObjectFraming(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 // pdfVersionRe matches a valid %PDF-N.M header line.
 var pdfVersionRe = regexp.MustCompile(`^%PDF-\d\.\d$`)
 
+// headerVersionAllowed reports whether a %PDF-N.M header line names a version
+// the level allows. Single-digit versions compare as strings.
+func headerVersionAllowed(header string, spec pdfa.Spec) bool {
+	if !pdfVersionRe.MatchString(header) {
+		return false
+	}
+	version := header[len("%PDF-"):]
+	return spec.MaxPDFVersion == "" || version[0] == spec.MaxPDFVersion[0] && version <= spec.MaxPDFVersion
+}
+
 // verifyFileHeader verifies requirements outlined in 6.1.2.
-func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
+func verifyFileHeader(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	buf := make([]byte, 128)
 	n, _ := d.ReadAt(buf, 0)
 
@@ -425,10 +441,14 @@ func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
 	errs := []pdf.PDFError{}
 
 	header, ok := cur.ReadLine()
-	if !ok || !pdfVersionRe.MatchString(header) {
+	if !ok || !headerVersionAllowed(header, spec) {
+		want := "%PDF-N.M"
+		if spec.MaxPDFVersion != "" {
+			want = fmt.Sprintf("%%PDF-%c.M, at most %%PDF-%s", spec.MaxPDFVersion[0], spec.MaxPDFVersion)
+		}
 		errs = append(errs, pdf.NewError(
 			pdf.Checks.Structure.FileHeaderSignature,
-			[]error{fmt.Errorf("invalid PDF header: %q (must be %%PDF-N.M)", header)},
+			[]error{fmt.Errorf("invalid PDF header: %q (must be %s)", header, want)},
 			1,
 			nil,
 		))
@@ -480,21 +500,27 @@ func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
 }
 
 // verifyFileTrailer verifies requirements outlined in 6.1.3
-func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
+func verifyFileTrailer(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	errs := []pdf.PDFError{}
 
 	// Use the effective trailer: for linearized PDFs with a minimal overflow
 	// trailer (no /Root), this is the first-page trailer that holds /ID, /Root, etc.
 	eff := d.EffectiveTrailer()
 
-	if eff.Entries.Get("ID") == nil {
-		err := pdf.NewError(
-			pdf.Checks.Structure.TrailerID,
-			[]error{fmt.Errorf("trailer does not contain the required ID keyword")},
-			0,
-			nil,
-		)
-		errs = append(errs, err)
+	id := eff.Entries.Get("ID")
+	var resolvedID pdf.PDFValue
+	if spec.FileIDBytes {
+		resolvedID, _ = d.ResolveObject(id) // nil when it cannot be resolved
+	}
+	var idErr error
+	switch {
+	case id == nil:
+		idErr = errors.New("trailer does not contain the required ID keyword")
+	case spec.FileIDBytes && !pdf.HasFileIdentifier(resolvedID):
+		idErr = errors.New("trailer ID is not an array of non-empty file identifier strings")
+	}
+	if idErr != nil {
+		errs = append(errs, pdf.NewError(pdf.Checks.Structure.TrailerID, []error{idErr}, 0, nil))
 	}
 
 	if eff.Entries.Get("Encrypt") != nil {
@@ -534,45 +560,27 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 
 // verifyCrossReferenceTable verifies requirements outlined in 6.1.4 for the
 // current xref section and all prior sections linked via Prev.
-func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
-	if errs := checkXRefSectionFormat(d, d.XRefOffset()); len(errs) > 0 {
-		return errs
-	}
-
-	visited := map[int64]bool{d.XRefOffset(): true}
-	prev := d.Trailer().Entries.Get("Prev")
-	for {
-		prevInt, ok := prev.(pdf.PDFInteger)
-		if !ok {
-			break
-		}
-		prevOffset := int64(prevInt)
-		if visited[prevOffset] {
-			break
-		}
-		visited[prevOffset] = true
-
-		if errs := checkXRefSectionFormat(d, prevOffset); len(errs) > 0 {
+func verifyCrossReferenceTable(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
+	for _, off := range d.XRefSectionOffsets() {
+		if errs := checkXRefSectionFormat(d, off, spec); len(errs) > 0 {
 			return errs
 		}
-
-		prevTrailer, err := d.ParseXRefSectionAt(prevOffset+d.PDFStart(), false)
-		if err != nil {
-			break
-		}
-		prev = prevTrailer.Entries.Get("Prev")
 	}
-
 	return nil
 }
 
 // checkXRefSectionFormat reads the xref section at the given file offset and
 // validates the xref keyword, all subsection headers, and their format per 6.1.4.
-func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
+// If the level permits cross-reference streams, a section that does not start
+// with the xref keyword is not checked.
+func checkXRefSectionFormat(d *pdf.Reader, offset int64, spec pdfa.Spec) []pdf.PDFError {
 	cur := d.SectionAt(offset + d.PDFStart())
 
 	// The xref keyword and the cross reference subsection header shall be separated by a single EOL marker.
 	xRef, ok := cur.ReadLine()
+	if spec.XRefStreams && !bytes.HasPrefix(xRef, []byte("xref")) {
+		return nil
+	}
 	if !ok || string(xRef) != "xref" {
 		return []pdf.PDFError{pdf.NewError(
 			pdf.Checks.Structure.XRefKeyword,
@@ -751,6 +759,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	// addressable). expectedType is the Arlington type name this node should
 	// conform to (per the parent key's Link), or "" once the descent has lost
 	// track of it; see arlingtonChildType/arlingtonElementType.
+	model := ctx.objectModel()
 	var walk func(node any, owner pdf.PDFValue, ownerKey, expectedType string, depth int)
 
 	walk = func(node any, owner pdf.PDFValue, ownerKey, expectedType string, depth int) {
@@ -766,7 +775,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			// A subtree that lost its schema type can re-anchor when the dict's own
 			// /Type (+/Subtype) names identify exactly one Arlington type.
 			if expectedType == "" {
-				expectedType = selfIdentifiedType(v)
+				expectedType = selfIdentifiedType(model, v)
 			}
 			ptr := pdf.ValuePointer(v.Entries)
 			first := !visited[ptr]
@@ -796,9 +805,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			// spaces of 6.2.3.3 are read from that scope, so a form's own
 			// resources have to displace the page's for its content and images.
 			if res, ok := v.Entries.Get("Resources").(pdf.PDFDict); ok {
-				saved := ctx.resourceScope
-				ctx.resourceScope = res
-				defer func() { ctx.resourceScope = saved }()
+				saved, savedParent := ctx.resourceScope, ctx.parentResourceScope
+				ctx.resourceScope, ctx.parentResourceScope = res, saved
+				defer func() { ctx.resourceScope, ctx.parentResourceScope = saved, savedParent }()
 			}
 
 			if first && !ctx.schemaOnly {
@@ -834,7 +843,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 				var childType string
 				if expectedType != "" {
-					childType = arlingtonChildType(expectedType, k, val)
+					childType = arlingtonChildType(model, expectedType, k, val)
 				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
 				walk(val, node, k, childType, depth+1)
@@ -877,7 +886,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 				var elemType string
 				if expectedType != "" {
-					elemType = arlingtonElementType(expectedType, item)
+					elemType = arlingtonElementType(model, expectedType, item)
 				}
 				walk(item, owner, "", elemType, depth+1)
 			}
@@ -893,7 +902,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFRef:
-			// Unreachable while verifyPdfA1bParts resolves the graph first. The
+			// Unreachable while verifyPdfAParts resolves the graph first. The
 			// case is spelled out because falling through would leave an
 			// unresolved subtree unverified, without any report.
 			ctx.Report(
@@ -949,11 +958,15 @@ func isContainer(val pdf.PDFValue) bool {
 //
 // complete is false when any content stream failed to decode, meaning the
 // sets are a subset of the truth. Since every one of them drives a check
-// *suppression*, callers must discard them all in that case.
+// *suppression*, callers must discard them all in that case. partialCodes
+// names the composite fonts for which a shown string ends in the middle of a
+// two-byte code. It drives reports rather than suppressions, so it is
+// returned even when complete is false.
 func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	reachable map[uintptr]bool,
 	invisibleOnly map[uintptr]bool,
 	usedCodes, usedCIDs map[uintptr]map[int]bool,
+	partialCodes map[uintptr]bool,
 	complete bool,
 ) {
 	complete = true
@@ -1013,7 +1026,18 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			invisibleOnly[ptr] = true
 		}
 	}
-	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, complete
+	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, fu.partialCodes, complete
+}
+
+// VisibleFonts returns the Entries pointers of the fonts page shows with a
+// visible text rendering mode, under any encoding: a Type 0 font and its
+// descendant CIDFont both count.
+func VisibleFonts(page pdf.PDFDict, ctx *ValidationContext) map[uintptr]bool {
+	fu := newFontUsage()
+	reachable := map[uintptr]bool{}
+	collectContentUsage(ctx, page.Entries.Get("Contents"), pdf.PageResources(page), reachable, fu)
+	collectAnnotAppearanceUsage(ctx, page, reachable, fu)
+	return fu.visible
 }
 
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
@@ -1043,20 +1067,10 @@ func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reach
 
 func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) bool {
 	complete := true
-	switch v := n.(type) {
-	case pdf.PDFDict:
-		if v.IsStream() {
-			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
-			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
-		} else {
-			for _, sv := range v.Entries.All() {
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
-					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
-					if !collectContentUsage(ctx, sd, apRes, reachable, fu) {
-						complete = false
-					}
-				}
-			}
+	for _, s := range pdf.AppearanceStreams(n) {
+		apRes, _ := s.Entries.Get("Resources").(pdf.PDFDict)
+		if !collectContentUsage(ctx, s, apRes, reachable, fu) {
+			complete = false
 		}
 	}
 	return complete
@@ -1110,17 +1124,20 @@ type usageText struct {
 	haveSimpleFont    bool
 	compositeFontPtr  uintptr
 	haveCompositeFont bool
+	type3Font         pdf.PDFDict
 }
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
 // scannedPatterns dedupes tiling-pattern content streams across the walk;
-// scannedForms dedupes form XObjects by the text state they are drawn in.
+// scannedForms dedupes form XObjects and Type 3 fonts by the text state they are
+// drawn in.
 type fontUsage struct {
 	visible         map[uintptr]bool
 	invisible       map[uintptr]bool
 	usedCodes       map[uintptr]map[int]bool
 	usedCIDs        map[uintptr]map[int]bool
+	partialCodes    map[uintptr]bool
 	scannedPatterns map[uintptr]bool
 	scannedForms    map[formScan]bool
 }
@@ -1132,6 +1149,7 @@ func newFontUsage() *fontUsage {
 		invisible:       map[uintptr]bool{},
 		usedCodes:       map[uintptr]map[int]bool{},
 		usedCIDs:        map[uintptr]map[int]bool{},
+		partialCodes:    map[uintptr]bool{},
 		scannedPatterns: map[uintptr]bool{},
 		scannedForms:    map[formScan]bool{},
 	}
@@ -1171,6 +1189,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			st.currentFontPtrs = nil
 			st.haveSimpleFont = false
 			st.haveCompositeFont = false
+			st.type3Font = pdf.PDFDict{}
 			if len(operands) >= 2 && fonts.Entries != nil {
 				if name, ok := operands[len(operands)-2].(pdf.PDFName); ok {
 					if fd, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict); ok {
@@ -1192,6 +1211,9 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 							// Simple font: codes shown via Tj/TJ are single bytes.
 							st.simpleFontPtr = pdf.ValuePointer(fd.Entries)
 							st.haveSimpleFont = true
+							if fd.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"}) {
+								st.type3Font = fd
+							}
 						}
 					}
 				}
@@ -1220,10 +1242,17 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set = map[int]bool{}
 					fu.usedCIDs[st.compositeFontPtr] = set
 				}
-				shown := pdf.ShownStringBytes(op, operands)
-				for i := 0; i+1 < len(shown); i += 2 {
-					set[int(shown[i])<<8|int(shown[i+1])] = true
-				}
+				pdf.EachShownString(op, operands, func(shown []byte) {
+					for i := 0; i+1 < len(shown); i += 2 {
+						set[int(shown[i])<<8|int(shown[i+1])] = true
+					}
+					if len(shown)%2 != 0 {
+						fu.partialCodes[st.compositeFontPtr] = true
+					}
+				})
+			}
+			if st.type3Font.Entries != nil && !collectType3Usage(ctx, st.type3Font, st.renderMode, resources, reachable, fu) {
+				complete = false
 			}
 		case "scn", "SCN":
 			// A tiling pattern set as fill/stroke colour runs its own content
@@ -1300,6 +1329,43 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 	return complete
 }
 
+// hexStringBytes returns the number of bytes a hexadecimal string encodes,
+// counting an odd final digit as a whole byte and ignoring anything else.
+func hexStringBytes(v pdf.PDFHexString) int {
+	digits := 0
+	for i := 0; i < len(v.Value); i++ {
+		if pdf.IsHexDigit(v.Value[i]) {
+			digits++
+		}
+	}
+	return (digits + 1) / 2
+}
+
+// collectType3Usage records the fonts and XObjects the glyph procedures of a
+// shown Type 3 font use. ISO 32000-1 9.3.6 gives the text rendering mode no
+// effect on Type 3 glyphs, but veraPDF hands it to the procedures, so this does
+// too. Every procedure counts, not only those of the shown codes, also as in
+// veraPDF. It reports whether every procedure decoded.
+func collectType3Usage(ctx *ValidationContext, font pdf.PDFDict, renderMode int, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
+	key := formScan{form: pdf.ValuePointer(font.Entries), renderMode: renderMode}
+	if fu.scannedForms[key] {
+		return true
+	}
+	fu.scannedForms[key] = true
+	complete := true
+	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+		res := r.Resources
+		if res.Entries == nil {
+			res = resources
+		}
+		st := &usageState{usageText: usageText{renderMode: renderMode}}
+		if !collectUsageFromBytes(ctx, r.Stream, res, reachable, fu, st) {
+			complete = false
+		}
+	})
+	return complete
+}
+
 // validateHexString validates requirements outlined in 6.1.6, reporting
 // against owner (the enclosing dict or content stream) so fixers can resolve
 // the violation by ref.
@@ -1354,6 +1420,7 @@ func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
 	if pdf.HasFilter(v.Entries.Get("Filter"), pdf.FilterLZW) {
 		ctx.Report(pdf.Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
 	}
+	checkStreamFilters(v, ctx)
 }
 
 // validateObject validates requirements outlined in 6.1.11, in a level
@@ -1391,8 +1458,15 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 		if realOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, owner, fmt.Sprintf("real number out of range: %g", float64(v)))
 		}
+		if realTooCloseToZero(v, ctx.Spec.Limits) {
+			ctx.Report(pdf.Checks.Structure.RealTooCloseToZero, owner, fmt.Sprintf("real number too close to zero: %g", float64(v)))
+		}
 	case pdf.PDFString:
 		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
+		}
+	case pdf.PDFHexString:
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(hexStringBytes(v), limit) {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
 		}
 	case pdf.PDFDict:
@@ -1411,8 +1485,8 @@ func catalog(d *pdf.Reader) pdf.PDFValue {
 	return root
 }
 
-// verifyOptionalContent verifies requirements outlined in 6.1.13, in a level
-// without optional content.
+// verifyOptionalContent verifies requirements outlined in 6.1.13 of ISO
+// 19005-1, in a level without optional content.
 func verifyOptionalContent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	if spec.OptionalContent {
 		return nil
@@ -1460,6 +1534,18 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		)}
 	}
 
+	return outputIntentIssues(intents, spec, catalog(d))
+}
+
+// OutputIntentsConform reports whether an OutputIntents array passes the level's
+// output intent checks.
+func OutputIntentsConform(intents pdf.PDFArray, spec pdfa.Spec) bool {
+	return len(outputIntentIssues(intents, spec, nil)) == 0
+}
+
+// outputIntentIssues returns the problems with an OutputIntents array. An issue
+// that is not tied to a single intent refers to cat, the document catalog.
+func outputIntentIssues(intents pdf.PDFArray, spec pdfa.Spec, cat pdf.PDFValue) []pdf.PDFError {
 	errs := []pdf.PDFError{}
 
 	var indirectObject pdf.PDFValue
@@ -1471,7 +1557,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentNotDict,
 				[]error{fmt.Errorf("expected OutputIntent to be a pdf.PDFDict")},
 				0,
-				refOf(catalog(d)),
+				refOf(cat),
 			)
 			errs = append(errs, err)
 			continue
@@ -1488,7 +1574,17 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 			continue
 		}
 
-		if s.Value != spec.OutputIntentSubtype {
+		if s.Value == "GTS_PDFX" && intent.Entries.Get("DestOutputProfileRef") != nil {
+			errs = append(errs, pdf.NewError(
+				pdf.Checks.Colour.OutputIntentDestOutputProfileRef,
+				[]error{fmt.Errorf("PDF/X output intent contains a DestOutputProfileRef entry")},
+				0,
+				refOf(intent),
+			))
+		}
+
+		other := s.Value != spec.OutputIntentSubtype
+		if other && !spec.OtherOutputIntents {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentWrongS,
 				[]error{fmt.Errorf("S is /%s, expected /%s", s.Value, spec.OutputIntentSubtype)},
@@ -1510,6 +1606,10 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		}
 
 		destOutputProfile := intent.Entries.Get("DestOutputProfile")
+		if destOutputProfile == nil && other && spec.OtherOutputIntents {
+			// Only the PDF/A output intent needs a profile of its own.
+			continue
+		}
 		if destOutputProfile == nil {
 			// 6.2.2: DestOutputProfile shall be present unless OutputConditionIdentifier
 			// names a standard ICC registry profile, which is not the case for "Custom".
@@ -1690,7 +1790,7 @@ func ICCInputProfileDefect(data []byte, spec pdfa.Spec) string {
 		return fmt.Sprintf("ICC profile has device class %q, which an ICCBased colour space may not use", class)
 	}
 	if colorSpace := string(data[16:20]); !iccInputColourSpace(colorSpace) {
-		return fmt.Sprintf("ICC profile has colour space %q, which PDF/A-1 does not permit", colorSpace)
+		return fmt.Sprintf("ICC profile has colour space %q, which an ICCBased colour space may not use", colorSpace)
 	}
 	return ""
 }

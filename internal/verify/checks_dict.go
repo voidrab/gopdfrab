@@ -2,10 +2,12 @@ package verify
 
 import (
 	"fmt"
+	"iter"
 	"math"
 	"sort"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // HasAnyKey reports whether dict v contains any of the given keys.
@@ -20,8 +22,8 @@ func HasAnyKey(v pdf.PDFDict, keys ...string) bool {
 
 // --- 6.6 Actions ---
 
-// ActionTypes is the set of /S values that identify an action dictionary.
-var ActionTypes = map[string]bool{
+// actionTypes is the set of /S values that identify an action dictionary.
+var actionTypes = map[string]bool{
 	"GoTo": true, "GoToR": true, "GoToE": true, "Launch": true, "Thread": true,
 	"URI": true, "Sound": true, "Movie": true, "Hide": true, "Named": true,
 	"SubmitForm": true, "ResetForm": true, "ImportData": true, "JavaScript": true,
@@ -30,53 +32,145 @@ var ActionTypes = map[string]bool{
 }
 
 // ActionOwnerKey returns the entry of d whose value is an action dictionary,
-// or "" when d owns no action. The key alone does not settle it: /A on a
-// structure element is an attribute dictionary and /Next on an outline item is
-// a sibling, so only an annotation's /A and the catalogue's /OpenAction count.
-// Exported for the fixer.
+// or "" when d owns no action. The key name alone does not settle it: the
+// action entry (/A) of a structure element is an attribute dictionary, and the
+// next entry (/Next) of an outline item is a sibling. Only the action entry of
+// an annotation or outline item, the open-action entry (/OpenAction) of the
+// catalog, and the next entry of an action count. The next entry holds one
+// action or an array of them. Exported for the fixer.
 func ActionOwnerKey(d pdf.PDFDict) string {
 	switch {
-	case IsAnnotationDict(d):
+	case IsAnnotationDict(d), isOutlineItem(d):
 		return "A"
 	case d.Entries.Get("Type") == (pdf.PDFName{Value: "Catalog"}):
 		return "OpenAction"
+	case IsActionDict(d):
+		return "Next"
 	}
 	return ""
+}
+
+// IsActionDict reports whether d is an action dictionary of a known type. The
+// Type entry is optional, but a dictionary whose Type is not Action, such as a
+// structure element, is not an action whatever its /S. It is exported for use
+// by internal/convert.
+func IsActionDict(d pdf.PDFDict) bool {
+	if t := d.Entries.Get("Type"); t != nil && t != (pdf.PDFName{Value: "Action"}) {
+		return false
+	}
+	s, ok := d.Entries.Get("S").(pdf.PDFName)
+	return ok && actionTypes[s.Value]
+}
+
+// ActionList returns the actions that v, the value of an owner's entry key,
+// holds. Only /Next may hold an array of actions. Any other entry holds one
+// action, except that an array there, such as the destination an /OpenAction
+// may name, holds none. It is exported for use by internal/convert.
+func ActionList(key string, v pdf.PDFValue) []pdf.PDFValue {
+	switch v := v.(type) {
+	case nil:
+		return nil
+	case pdf.PDFArray:
+		if key == "Next" {
+			return v
+		}
+		return nil
+	}
+	return []pdf.PDFValue{v}
+}
+
+// isOutlineItem reports whether d is an outline item, which has both a Title
+// and a Parent entry (ISO 32000-1 Table 153). A document information
+// dictionary has a Title but no Parent.
+func isOutlineItem(d pdf.PDFDict) bool {
+	return d.Entries.Get("Title") != nil && d.Entries.Get("Parent") != nil
+}
+
+// reportUntypedActions reports each action dictionary in owned, the value of
+// owner's entry key or AA trigger key, that has no /S.
+func reportUntypedActions(owner pdf.PDFDict, owned pdf.PDFValue, key string, ctx *ValidationContext) {
+	for _, t := range ActionList(key, owned) {
+		if target, ok := t.(pdf.PDFDict); ok {
+			if _, hasS := target.Entries.Get("S").(pdf.PDFName); !hasS {
+				ctx.Report(pdf.Checks.Action.ForbiddenActionType, owner,
+					fmt.Sprintf("/%s names an action dictionary with no /S", key))
+			}
+		}
+	}
+}
+
+// ActionEntries yields each entry of d that names an action, as the
+// dictionary holding it and its key: the entry ActionOwnerKey returns, and
+// each trigger of an AA entry. The trigger keys are read up front, so the
+// caller may change the AA dictionary. Exported for the fixer.
+func ActionEntries(d pdf.PDFDict) iter.Seq2[pdf.PDFDict, string] {
+	return func(yield func(pdf.PDFDict, string) bool) {
+		if key := ActionOwnerKey(d); key != "" && !yield(d, key) {
+			return
+		}
+		if aa, ok := d.Entries.Get("AA").(pdf.PDFDict); ok {
+			for _, trigger := range aa.Entries.Keys() {
+				if !yield(aa, trigger) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// ActionViolation returns the check an action dictionary d breaks, a
+// forbidden type or a disallowed named action, or the zero Check when d is
+// no action or a permitted one. Exported for the fixer.
+func ActionViolation(d pdf.PDFDict, spec *pdfa.Spec) pdf.Check {
+	if !IsActionDict(d) {
+		return pdf.Check{}
+	}
+	s := d.Entries.Get("S").(pdf.PDFName)
+	if spec.ForbiddenActions.Has(s.Value) {
+		return pdf.Checks.Action.ForbiddenActionType
+	}
+	if s.Value == "Named" {
+		if n, ok := d.Entries.Get("N").(pdf.PDFName); !ok || !spec.NamedActions.Has(n.Value) {
+			return pdf.Checks.Action.DisallowedNamedAction
+		}
+	}
+	return pdf.Check{}
 }
 
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
 func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 	// /S is required in an action dictionary (ISO 32000-1 Table 193), so a
-	// target without one names an action of no known type, which 6.6.1 does not
-	// permit either.
-	if key := ActionOwnerKey(v); key != "" {
-		if target, ok := v.Entries.Get(key).(pdf.PDFDict); ok {
-			if _, hasS := target.Entries.Get("S").(pdf.PDFName); !hasS {
-				ctx.Report(pdf.Checks.Action.ForbiddenActionType, v,
-					fmt.Sprintf("/%s names an action dictionary with no /S", key))
-			}
-		}
+	// target without one is an action of no known type, which 6.6.1 does
+	// not permit.
+	for owner, key := range ActionEntries(v) {
+		reportUntypedActions(v, owner.Entries.Get(key), key, ctx)
 	}
 
-	s, ok := v.Entries.Get("S").(pdf.PDFName)
-	if !ok || !ActionTypes[s.Value] {
-		return
+	switch ActionViolation(v, ctx.Spec) {
+	case pdf.Checks.Action.ForbiddenActionType:
+		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v,
+			fmt.Sprintf("forbidden action type /%s", v.Entries.Get("S").(pdf.PDFName).Value))
+	case pdf.Checks.Action.DisallowedNamedAction:
+		ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
 	}
-	if ctx.Spec.ForbiddenActions.Has(s.Value) {
-		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v, fmt.Sprintf("forbidden action type /%s", s.Value))
-		return
+}
+
+// AdditionalActionsBarred reports whether d holds an AA entry the level does
+// not permit. Exported for the fixer.
+func AdditionalActionsBarred(d pdf.PDFDict, spec *pdfa.Spec) bool {
+	if d.Entries.Get("AA") == nil {
+		return false
 	}
-	if s.Value == "Named" {
-		n, ok := v.Entries.Get("N").(pdf.PDFName)
-		if !ok || !ctx.Spec.NamedActions.Has(n.Value) {
-			ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
-		}
+	if spec.AABarredTypes.Len() == 0 {
+		return true
 	}
+	t, _ := d.Entries.Get("Type").(pdf.PDFName)
+	return spec.AABarredTypes.Has(t.Value)
 }
 
 // validateAdditionalActions flags presence of an additional-actions dictionary (6.6.2).
 func validateAdditionalActions(v pdf.PDFDict, ctx *ValidationContext) {
-	if v.Entries.Get("AA") != nil {
+	if AdditionalActionsBarred(v, ctx.Spec) {
 		ctx.Report(pdf.Checks.Action.AdditionalActions, v, "additional-actions (AA) dictionary not allowed")
 	}
 }
@@ -109,9 +203,10 @@ func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	if t, ok := v.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 		return
 	}
-	if !HasAnyKey(v, "TR", "TR2", "SMask", "BM", "CA", "ca", "RI") {
+	if !HasAnyKey(v, "TR", "TR2", "SMask", "BM", "CA", "ca", "RI", "HT", "HTP") {
 		return
 	}
+	validateHalftones(v, ctx)
 
 	if v.Entries.Get("TR") != nil {
 		ctx.Report(pdf.Checks.Transparency.TransferFunction, v, "ExtGState shall not contain a TR key")
@@ -191,15 +286,20 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 		if intent, ok := v.Entries.Get("Intent").(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(intent.Value) {
 			ctx.Report(pdf.Checks.Image.ImageRenderingIntent, v, fmt.Sprintf("image uses invalid rendering intent /%s", intent.Value))
 		}
-		// 6.2.4-4 / 6.2.4-5: BitsPerComponent must be 1/2/4/8, or 1 for image masks.
+		// 6.2.4-4 / 6.2.4-5: BitsPerComponent must be 1, 2, 4 or 8 (or, where
+		// the level allows it, 16), and 1 for image masks.
 		if bpc, ok := v.Entries.Get("BitsPerComponent").(pdf.PDFInteger); ok {
 			isMask, _ := v.Entries.Get("ImageMask").(pdf.PDFBoolean)
 			if bool(isMask) {
 				if bpc != 1 {
 					ctx.Report(pdf.Checks.Image.ImageMaskBitsPerComponent, v, fmt.Sprintf("image mask BitsPerComponent is %d, must be 1", int(bpc)))
 				}
-			} else if bpc != 1 && bpc != 2 && bpc != 4 && bpc != 8 {
-				ctx.Report(pdf.Checks.Image.ImageBitsPerComponent, v, fmt.Sprintf("image BitsPerComponent is %d, must be 1, 2, 4, or 8", int(bpc)))
+			} else if !ctx.Spec.BitsPerComponentAllowed(int(bpc)) {
+				allowed := "1, 2, 4, or 8"
+				if ctx.Spec.SixteenBitImages {
+					allowed = "1, 2, 4, 8 or 16"
+				}
+				ctx.Report(pdf.Checks.Image.ImageBitsPerComponent, v, fmt.Sprintf("image BitsPerComponent is %d, must be %s", int(bpc), allowed))
 			}
 		}
 		// 6.4: soft-masked images introduce transparency.
@@ -259,11 +359,40 @@ func resolveInheritedFT(v pdf.PDFDict) pdf.PDFValue {
 
 // Annotation flag bits (PDF 32000 12.5.3).
 const (
-	AnnotFlagInvisible = 1 << 0
-	AnnotFlagHidden    = 1 << 1
-	AnnotFlagPrint     = 1 << 2
-	AnnotFlagNoView    = 1 << 5
+	AnnotFlagInvisible    = 1 << 0
+	AnnotFlagHidden       = 1 << 1
+	AnnotFlagPrint        = 1 << 2
+	AnnotFlagNoView       = 1 << 5
+	AnnotFlagToggleNoView = 1 << 8
 )
+
+// AnnotFlags returns the flags of annotation d and whether its F entry is a
+// number. A real F is read as the integer it truncates to, as veraPDF does.
+func AnnotFlags(d pdf.PDFDict) (int, bool) {
+	f, ok := pdf.PDFNumberToFloat(d.Entries.Get("F"))
+	return int(f), ok
+}
+
+// FlagsRequired reports whether annotation d must have an F key under
+// PDF/A-2: every annotation but a Popup one must (ISO 19005-2 6.3.2).
+func FlagsRequired(d pdf.PDFDict) bool {
+	return d.Entries.Get("Subtype") != pdf.PDFName{Value: "Popup"}
+}
+
+// ZeroSizeRect reports whether d's Rect has two equal corners, so the
+// annotation covers no area. Under PDF/A-2 such an annotation needs no
+// appearance (ISO 19005-2 6.3.3).
+func ZeroSizeRect(d pdf.PDFDict) bool {
+	v, err := pdf.FloatArray(d.Entries.Get("Rect"))
+	return err == nil && len(v) == 4 && v[0] == v[2] && v[1] == v[3]
+}
+
+// ButtonAppearances reports whether n, the normal appearance of a Btn
+// widget, is an appearance subdictionary holding at least one appearance
+// stream, rather than a stream or a subdictionary of none.
+func ButtonAppearances(n pdf.PDFDict) bool {
+	return !n.IsStream() && len(pdf.AppearanceStreams(n)) > 0
+}
 
 // IsAnnotationDict reports whether d is an annotation dictionary. /Type is
 // optional on one (ISO 32000-1 12.5.2), and a viewer reaches an annotation
@@ -280,7 +409,8 @@ func IsAnnotationDict(d pdf.PDFDict) bool {
 }
 
 // validateAnnotation checks annotation types (6.5.2) and annotation
-// dictionaries (6.5.3).
+// dictionaries (6.5.3), under PDF/A-2 annotation types (6.3.1), dictionaries
+// (6.3.2) and appearances (6.3.3).
 func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	if !IsAnnotationDict(v) {
 		return
@@ -288,15 +418,108 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 
 	subtype, _ := v.Entries.Get("Subtype").(pdf.PDFName)
 
+	// Under PDF/A-2 the rest of a disallowed annotation is checked too, as
+	// veraPDF does.
 	if !ctx.Spec.AnnotationSubtypes.Has(subtype.Value) {
 		ctx.Report(pdf.Checks.Annotation.DisallowedSubtype, v, fmt.Sprintf("annotation subtype /%s not allowed", subtype.Value))
-		return
+		if !ctx.part2() {
+			return
+		}
 	}
 
-	flags := 0
-	if f, ok := v.Entries.Get("F").(pdf.PDFInteger); ok {
-		flags = int(f)
+	// Under PDF/A-2 the flag bits are checked only when F is present. A missing
+	// F is reported unless FlagsRequired exempts the annotation.
+	if f, hasF := AnnotFlags(v); hasF || !ctx.part2() {
+		checkAnnotFlags(v, f, ctx)
+	} else if FlagsRequired(v) {
+		ctx.Report(pdf.Checks.Annotation.AnnotationFlagsMissing, v, "annotation dictionary has no F key")
 	}
+
+	if ca, ok := v.Entries.Lookup("CA"); ok {
+		if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
+			ctx.Report(pdf.Checks.Annotation.OpacityNotOne, v, "annotation opacity (CA) shall be 1.0")
+		}
+	}
+
+	checkAnnotColour(v, v.Entries.Get("C"), ctx)
+	checkAnnotColour(v, v.Entries.Get("IC"), ctx)
+
+	for _, f := range AppearanceFaults(v, ctx.Spec) {
+		ctx.Report(f.Check, v, f.Message)
+	}
+}
+
+// AppearanceFault is one appearance rule an annotation breaks.
+type AppearanceFault struct {
+	Check   pdf.Check
+	Message string
+}
+
+// AppearanceFaults returns the appearance rules that annotation d breaks under
+// spec: 6.5.3 and 6.9, or 6.3.3 under PDF/A-2. Apart from a zero-area
+// annotation that spec exempts, an annotation other than a Popup or Link one
+// needs an appearance dictionary whose only entry is N. N is an appearance
+// stream, or for a Btn widget a subdictionary of appearance streams.
+func AppearanceFaults(d pdf.PDFDict, spec *pdfa.Spec) []AppearanceFault {
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	ft := resolveInheritedFT(d)
+	ap, hasAP := d.Entries.Get("AP").(pdf.PDFDict)
+	if !hasAP {
+		if subtype.Value == "Popup" || subtype.Value == "Link" || spec.ZeroAreaAnnotsExempt && ZeroSizeRect(d) {
+			return nil
+		}
+		// Before PDF/A-2, a form field widget without an appearance breaks 6.9
+		// rather than 6.5.3. Under PDF/A-2, 6.3.3 applies to every annotation.
+		if ft != nil && spec.Part < 2 {
+			return []AppearanceFault{{pdf.Checks.Form.WidgetMissingAppearance, "form field widget annotation lacks an appearance dictionary (AP)"}}
+		}
+		return []AppearanceFault{{pdf.Checks.Annotation.MissingAppearance, "annotation lacks a normal (N) appearance stream"}}
+	}
+
+	var faults []AppearanceFault
+	n, hasN := ap.Entries.Lookup("N")
+	if !hasN {
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceMissingN, "appearance dictionary has no N entry"})
+	}
+	var extras []string
+	for k := range ap.Entries.All() {
+		if k != "N" {
+			extras = append(extras, k)
+		}
+	}
+	if len(extras) > 0 {
+		// Name the lexicographically first extra entry, so that the message
+		// does not depend on the order of the entries.
+		sort.Strings(extras)
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceExtraEntries,
+			fmt.Sprintf("appearance dictionary has entry other than N: %s", extras[0])})
+	}
+	if !hasN {
+		return faults
+	}
+	nd, ok := n.(pdf.PDFDict)
+	switch {
+	case !ok:
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceNNotStream, "appearance N value is not a stream or subdictionary"})
+	case ft == pdf.PDFName{Value: "Btn"}:
+		if !ButtonAppearances(nd) {
+			faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceNNotStream, "Btn widget appearance N shall be a subdictionary of appearance streams"})
+		}
+	case !nd.IsStream():
+		faults = append(faults, AppearanceFault{pdf.Checks.Annotation.AppearanceNNotStream, "appearance N value is not a stream"})
+	}
+	return faults
+}
+
+// IsButtonField reports whether d is a Btn form field, with FT resolved
+// through the Parent chain as resolveInheritedFT does.
+func IsButtonField(d pdf.PDFDict) bool {
+	return resolveInheritedFT(d) == pdf.PDFName{Value: "Btn"}
+}
+
+// checkAnnotFlags reports each of the flag bits in flags that the level
+// requires set or clear.
+func checkAnnotFlags(v pdf.PDFDict, flags int, ctx *ValidationContext) {
 	if flags&AnnotFlagPrint == 0 {
 		ctx.Report(pdf.Checks.Annotation.PrintFlagNotSet, v, "annotation Print flag shall be set")
 	}
@@ -309,60 +532,8 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	if flags&AnnotFlagNoView != 0 {
 		ctx.Report(pdf.Checks.Annotation.NoViewFlagSet, v, "annotation NoView flag shall be clear")
 	}
-
-	if ca, ok := v.Entries.Lookup("CA"); ok {
-		if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
-			ctx.Report(pdf.Checks.Annotation.OpacityNotOne, v, "annotation opacity (CA) shall be 1.0")
-		}
-	}
-
-	checkAnnotColour(v, v.Entries.Get("C"), ctx)
-	checkAnnotColour(v, v.Entries.Get("IC"), ctx)
-
-	// 6.5.3: appearance dictionary, where present, shall contain only N, an
-	// appearance stream. Non-Popup/Link annotations require an appearance.
-	ap, hasAP := v.Entries.Get("AP").(pdf.PDFDict)
-	isFormField := resolveInheritedFT(v) != nil
-	switch {
-	case !hasAP:
-		if subtype.Value != "Popup" && subtype.Value != "Link" {
-			if isFormField {
-				// Missing AP on a form-field widget is a 6.9 violation, not 6.5.3.
-				ctx.Report(pdf.Checks.Form.WidgetMissingAppearance, v, "form field widget annotation lacks an appearance dictionary (AP)")
-			} else {
-				ctx.Report(pdf.Checks.Annotation.MissingAppearance, v, "annotation lacks a normal (N) appearance stream")
-			}
-		}
-	default:
-		n, hasN := ap.Entries.Lookup("N")
-		if !hasN {
-			ctx.Report(pdf.Checks.Annotation.AppearanceMissingN, v, "appearance dictionary has no N entry")
-		}
-		var extras []string
-		for k := range ap.Entries.All() {
-			if k != "N" {
-				extras = append(extras, k)
-			}
-		}
-		if len(extras) > 0 {
-			// Report the lexicographically first extra entry so the message does
-			// not depend on map iteration order.
-			sort.Strings(extras)
-			ctx.Report(pdf.Checks.Annotation.AppearanceExtraEntries, v, fmt.Sprintf("appearance dictionary has entry other than N: %s", extras[0]))
-		}
-		if hasN {
-			isBtn := resolveInheritedFT(v) == (pdf.PDFName{Value: "Btn"})
-			if nd, ok := n.(pdf.PDFDict); !ok {
-				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream or subdictionary")
-			} else if isBtn {
-				// Btn widget N shall be a state-name-to-stream subdictionary, not direct.
-				if nd.IsStream() {
-					ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "Btn widget appearance N shall be a subdictionary, not a direct stream")
-				}
-			} else if !nd.IsStream() {
-				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream")
-			}
-		}
+	if flags&AnnotFlagToggleNoView != 0 && ctx.part2() {
+		ctx.Report(pdf.Checks.Annotation.ToggleNoViewFlagSet, v, "annotation ToggleNoView flag shall be clear")
 	}
 }
 
@@ -391,13 +562,19 @@ func checkAnnotColour(v pdf.PDFDict, c pdf.PDFValue, ctx *ValidationContext) {
 
 // --- 6.9 Interactive form fields ---
 
-// validateFormField flags actions on interactive form fields / widget
-// annotations (6.9).
+// IsFieldOrWidget reports whether d has an FT entry or is a widget annotation.
+// The Type entry of a widget annotation is optional.
+func IsFieldOrWidget(d pdf.PDFDict) bool {
+	if d.Entries.Get("FT") != nil {
+		return true
+	}
+	return d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"} && IsAnnotationDict(d)
+}
+
+// validateFormField flags actions on interactive form fields and widget
+// annotations (6.9, under PDF/A-2 6.4.1).
 func validateFormField(v pdf.PDFDict, ctx *ValidationContext) {
-	isWidget := v.Entries.Get("Type") == pdf.PDFName{Value: "Annot"} &&
-		v.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
-	isField := v.Entries.Get("FT") != nil
-	if !isWidget && !isField {
+	if !IsFieldOrWidget(v) {
 		return
 	}
 	if v.Entries.Get("A") != nil {
@@ -410,27 +587,37 @@ func validateFormField(v pdf.PDFDict, ctx *ValidationContext) {
 
 // --- 6.9 Interactive forms ---
 
-// verifyInteractiveForms checks the AcroForm dictionary (6.9).
+// verifyInteractiveForms checks the AcroForm dictionary (6.9, under PDF/A-2
+// 6.4.1 and 6.4.2) and the catalog's NeedsRendering entry (6.4.2), which is
+// only defined for PDF/A-2 and later.
 func verifyInteractiveForms(d *pdf.Reader) []pdf.PDFError {
-	value, err := d.ResolveGraphByPath([]string{"Root", "AcroForm"})
-	if err != nil || value == nil {
-		return nil
-	}
-	form, ok := value.(pdf.PDFDict)
+	// A catalog that does not resolve is no dictionary.
+	value, _ := d.ResolveGraphByPath([]string{"Root"})
+	root, ok := value.(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
 
-	errs := []pdf.PDFError{}
+	var errs []pdf.PDFError
+	if NeedsRendering(root) {
+		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedsRendering, []error{fmt.Errorf("catalog NeedsRendering shall be false")}, 0, refOf(root)))
+	}
+	form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict)
+	if !ok {
+		return errs
+	}
 	if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
 		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedAppearances, []error{fmt.Errorf("AcroForm NeedAppearances shall not be true")}, 0, refOf(form)))
 	}
 	if form.Entries.Get("XFA") != nil {
 		errs = append(errs, pdf.NewError(pdf.Checks.Form.XFA, []error{fmt.Errorf("AcroForm shall not contain XFA")}, 0, refOf(form)))
 	}
+	return errs
+}
 
-	if len(errs) > 0 {
-		return errs
-	}
-	return nil
+// NeedsRendering reports whether the catalog has a NeedsRendering entry
+// other than false. A value that is not a boolean also counts.
+func NeedsRendering(root pdf.PDFDict) bool {
+	v, ok := root.Entries.Lookup("NeedsRendering")
+	return ok && v != pdf.PDFBoolean(false)
 }

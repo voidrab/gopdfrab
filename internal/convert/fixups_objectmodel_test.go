@@ -5,8 +5,12 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/arlington"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
+
+// om14 is the PDF 1.4 object model, which the PDF/A-1 levels repair against.
+var om14 = objModelFor(a1bSpec)
 
 func TestIndirectRequiredFixerPromotesDirectDicts(t *testing.T) {
 	trailer := pdf.NewPDFDict()
@@ -16,7 +20,7 @@ func TestIndirectRequiredFixerPromotesDirectDicts(t *testing.T) {
 	custom := pdf.NewPDFDict()
 	trailer.Entries.Set("Custom", custom)
 
-	changed, err := indirectRequiredFixer{}.Fix(&trailer, nil)
+	changed, err := indirectRequiredFixer{m: om14}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
@@ -27,7 +31,7 @@ func TestIndirectRequiredFixerPromotesDirectDicts(t *testing.T) {
 		t.Error("a key outside the indirect-required set must stay direct")
 	}
 
-	changed, err = indirectRequiredFixer{}.Fix(&trailer, nil)
+	changed, err = indirectRequiredFixer{m: om14}.Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("second Fix: changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -47,7 +51,7 @@ func TestIndirectRequiredFixerPromotesArrayElements(t *testing.T) {
 	// non-array under a non-listed key
 	trailer.Entries.Set("P", owner)
 
-	changed, err := indirectRequiredFixer{}.Fix(&trailer, nil)
+	changed, err := indirectRequiredFixer{m: om14}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
@@ -61,7 +65,7 @@ func TestIndirectRequiredFixerPromotesArrayElements(t *testing.T) {
 		t.Error("an array under a key outside the element-indirect set must stay direct")
 	}
 
-	changed, err = indirectRequiredFixer{}.Fix(&trailer, nil)
+	changed, err = indirectRequiredFixer{m: om14}.Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("second Fix: changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -80,7 +84,7 @@ func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: xmap}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.IndirectRequired, &ref, "XObjectMap", "Fx0")}
 
-	changed, handled, err := indirectRequiredFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := indirectRequiredFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -88,7 +92,7 @@ func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
 		t.Error("the wildcard-keyed direct dict was not promoted")
 	}
 
-	changed, _, err = indirectRequiredFixer{}.fixTargeted(pass, issues)
+	changed, _, err = indirectRequiredFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -120,7 +124,7 @@ func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
 		objModelIssue(c, &ref, "XObjectMap", "NilDict"),        // nil-Entries child
 		objModelIssue(c, &ref, "XObjectMap", "Already"),        // already indirect
 	}
-	changed, handled, err := indirectRequiredFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := indirectRequiredFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
@@ -184,7 +188,7 @@ func TestArrayElemTargetFailsClosed(t *testing.T) {
 		"unknown type":      objModelElemIssue(c, &ref, "NoSuchType", "Arr", "0"),
 		"no governing row":  objModelElemIssue(c, &ref, "Catalog", "Arr", "0"),
 	} {
-		if _, _, _, ok := arrayElemTarget(pass, iss); ok {
+		if _, _, _, ok := om14.arrayElemTarget(pass, iss); ok {
 			t.Errorf("%s: arrayElemTarget must fail closed", name)
 		}
 	}
@@ -205,7 +209,7 @@ func TestWrongValueTypeFixerCoercesArrayElement(t *testing.T) {
 		objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "MediaBox", "3"), // uncoercible dict: residual
 	}
 
-	changed, handled, err := wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := wrongValueTypeFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -220,7 +224,7 @@ func TestWrongValueTypeFixerCoercesArrayElement(t *testing.T) {
 		t.Error("an uncoercible element must never be deleted or nulled")
 	}
 
-	changed, _, err = wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	changed, _, err = wrongValueTypeFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -247,7 +251,7 @@ func TestDisallowedValueFixerRepairsArrayElements(t *testing.T) {
 		objModelElemIssue(c, &ref, "GammaArray", "Gamma", "1"),     // stale: already legal
 	}
 
-	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -267,7 +271,7 @@ func TestDisallowedValueFixerRepairsArrayElements(t *testing.T) {
 		t.Errorf("WP = %v, want untouched residuals", wp)
 	}
 
-	changed, _, err = disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, _, err = disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -293,7 +297,7 @@ func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
 		objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "Absent", "0"),       // unresolvable target
 	}
 
-	changed, handled, err := indirectRequiredFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := indirectRequiredFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -301,7 +305,7 @@ func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
 		t.Error("the direct array element was not promoted")
 	}
 
-	changed, _, err = indirectRequiredFixer{}.fixTargeted(pass, issues)
+	changed, _, err = indirectRequiredFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -464,7 +468,7 @@ func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
 	// not a FontDescriptor
 	trailer.Entries.Set("Other", other)
 
-	changed, err := disallowedValueFixer{}.Fix(&trailer, nil)
+	changed, err := disallowedValueFixer{m: om14}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
@@ -478,7 +482,7 @@ func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
 		t.Errorf("non-descriptor Descent = %v, want untouched 300", got)
 	}
 
-	changed, err = disallowedValueFixer{}.Fix(&trailer, nil)
+	changed, err = disallowedValueFixer{m: om14}.Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("second Fix: changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -507,7 +511,7 @@ func TestMissingRequiredKeyFixerInjectsSingleEnum(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{1: catalog}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, &ref, "Catalog", "Type")}
 
-	changed, handled, err := missingRequiredKeyFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := missingRequiredKeyFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -515,9 +519,42 @@ func TestMissingRequiredKeyFixerInjectsSingleEnum(t *testing.T) {
 		t.Errorf("Type = %v, want /Catalog", got)
 	}
 
-	changed, handled, err = missingRequiredKeyFixer{}.fixTargeted(pass, issues)
+	changed, handled, err = missingRequiredKeyFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Errorf("second fixTargeted = (%v, %v, %v), want idempotent (false, true, nil)", changed, handled, err)
+	}
+}
+
+// TestObjectModelFixersRepairAgainstTargetModel verifies that the object-model
+// fixers read the model the target level names: a PDF 1.5 type is unknown to
+// the 1.4 model, so only the 1.7 model can repair it.
+func TestObjectModelFixersRepairAgainstTargetModel(t *testing.T) {
+	for _, tc := range []struct {
+		spec *pdfa.Spec
+		want pdf.PDFValue
+	}{
+		{a1bSpec, nil},
+		{a2bSpec, pdf.PDFName{Value: "FieldMDP"}},
+	} {
+		t.Run(tc.spec.ModelVersion, func(t *testing.T) {
+			sigRef := pdf.NewPDFDict()
+			sigRef.Entries.Set("Type", pdf.PDFName{Value: "SigRef"})
+			sigRef.SetRef(pdf.PDFRef{ObjNum: 1})
+			trailer := pdf.NewPDFDict()
+			trailer.Entries.Set("SigRef", sigRef)
+			ref := pdf.PDFRef{ObjNum: 1}
+			pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{1: sigRef}}
+			issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, &ref,
+				"SignatureReferenceFieldMDP", "TransformMethod")}
+
+			fixer := standardRepairs.fixersFor(&fixerRun{spec: tc.spec})[pdf.Checks.ObjectModel.MissingRequiredKey]
+			if _, _, err := fixer.(targetedFixer).fixTargeted(pass, issues); err != nil {
+				t.Fatal(err)
+			}
+			if got := sigRef.Entries.Get("TransformMethod"); !pdf.EqualPDFValue(got, tc.want) {
+				t.Errorf("TransformMethod = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -534,7 +571,7 @@ func TestMissingRequiredKeyFixerInjectsPinnedValue(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{3: enc}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, &ref, "EncryptionStandard", "R")}
 
-	changed, _, err := missingRequiredKeyFixer{}.fixTargeted(pass, issues)
+	changed, _, err := missingRequiredKeyFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
@@ -570,7 +607,7 @@ func TestMissingRequiredKeyFixerSkipsUnsynthesizable(t *testing.T) {
 		objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, nil, "Catalog", "Type"),
 	}
 
-	changed, handled, err := missingRequiredKeyFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := missingRequiredKeyFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
@@ -686,7 +723,7 @@ func TestWrongValueTypeFixerCoercesAndDeletes(t *testing.T) {
 		objModelIssue(pdf.Checks.ObjectModel.WrongValueType, &ref, "DocInfo", "CustomDict"),
 	}
 
-	changed, handled, err := wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := wrongValueTypeFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -700,7 +737,7 @@ func TestWrongValueTypeFixerCoercesAndDeletes(t *testing.T) {
 		t.Error("uncoercible optional key must be deleted")
 	}
 
-	changed, _, err = wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	changed, _, err = wrongValueTypeFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op (values now conform)", changed, err)
 	}
@@ -727,14 +764,14 @@ func TestWrongValueTypeFixerNeverDeletesRequiredOrConditional(t *testing.T) {
 		objModelIssue(pdf.Checks.ObjectModel.WrongValueType, &tref, "FileTrailer", "ID"),
 	}
 
-	changed, handled, err := wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := wrongValueTypeFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
 	if _, ok := catalog.Entries.Lookup("Pages"); !ok {
 		t.Error("a required key must never be deleted")
 	}
-	if changed, _, _ := (wrongValueTypeFixer{}).fixTargeted(pass, tissues); changed {
+	if changed, _, _ := (wrongValueTypeFixer{m: om14}).fixTargeted(pass, tissues); changed {
 		t.Error("a conditionally-required key must never be deleted")
 	}
 	if _, ok := tr.Entries.Lookup("ID"); !ok {
@@ -763,7 +800,7 @@ func TestWrongValueTypeFixerSkipsStaleAndUntargetable(t *testing.T) {
 		objModelIssue(pdf.Checks.ObjectModel.WrongValueType, nil, "DocInfo", "Trapped"),     // no ref
 		pdf.NewError(pdf.Checks.ObjectModel.WrongValueType, nil, 0, &ref),                   // no detail
 	}
-	changed, handled, err := wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := wrongValueTypeFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
@@ -807,7 +844,7 @@ func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{6: meta}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "Metadata", "Type")}
 
-	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -815,7 +852,7 @@ func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
 		t.Errorf("Type = %v, want /Metadata", got)
 	}
 
-	changed, _, err = disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, _, err = disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -833,7 +870,7 @@ func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{7: enc}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "EncryptionStandard", "R")}
 
-	changed, _, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, _, err := disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
@@ -849,7 +886,7 @@ func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
 	pass = &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{8: enc2}}
 	ref2 := pdf.PDFRef{ObjNum: 8}
 	issues = []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref2, "EncryptionStandard", "R")}
-	changed, _, err = disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, _, err = disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("fixTargeted changed=%v err=%v, want required key left as residual", changed, err)
 	}
@@ -872,7 +909,7 @@ func TestDisallowedValueFixerClampsRanges(t *testing.T) {
 		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "GraphicsStateParameter", "ca"),
 	}
 
-	changed, _, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, _, err := disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
@@ -896,7 +933,7 @@ func TestDisallowedValueFixerNegatesUntypedDescent(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "FontDescriptorType1", "Descent")}
 
-	changed, _, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, _, err := disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
@@ -923,7 +960,7 @@ func TestDisallowedValueFixerDeletesOptionalEnum(t *testing.T) {
 		pdf.NewError(pdf.Checks.ObjectModel.DisallowedValue, nil, 0, &ref),
 	}
 
-	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -1015,7 +1052,7 @@ func TestDisallowedValueFixerSkipsNullValue(t *testing.T) {
 		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &dead, "DocInfo", "Trapped"),
 	}
 
-	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := disallowedValueFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Errorf("fixTargeted = (%v, %v, %v), want (false, true, nil) for a null value", changed, handled, err)
 	}
@@ -1033,7 +1070,7 @@ func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontDescriptorType1", "Flags")}
 
-	changed, handled, err := constraintFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := constraintFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
@@ -1041,7 +1078,7 @@ func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
 		t.Errorf("Flags = %v, want 32 (reserved bit cleared)", got)
 	}
 
-	changed, _, err = constraintFixer{}.fixTargeted(pass, issues)
+	changed, _, err = constraintFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -1069,7 +1106,7 @@ func TestConstraintFixerResizesDecodeParms(t *testing.T) {
 		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &refTrim, "Stream", "DecodeParms"),
 	}
 
-	changed, _, err := constraintFixer{}.fixTargeted(pass, issues)
+	changed, _, err := constraintFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
@@ -1098,7 +1135,7 @@ func TestConstraintFixerPrunesFontFiles(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontDescriptorTrueType", "FontFile2")}
 
-	changed, _, err := constraintFixer{}.fixTargeted(pass, issues)
+	changed, _, err := constraintFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
@@ -1126,7 +1163,7 @@ func TestConstraintFixerClampsLength1(t *testing.T) {
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: ff}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontFile", "Length1")}
 
-	changed, _, err := constraintFixer{}.fixTargeted(pass, issues)
+	changed, _, err := constraintFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
@@ -1156,7 +1193,7 @@ func TestConstraintFixerLeavesMustBeSetResidual(t *testing.T) {
 		pdf.NewError(pdf.Checks.ObjectModel.ConstraintViolated, nil, 0, &ref),
 	}
 
-	changed, handled, err := constraintFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := constraintFixer{m: om14}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
@@ -1204,7 +1241,7 @@ func TestConstraintHelperEdges(t *testing.T) {
 	fd.Entries.Set("Flags", pdf.PDFInteger(32+1<<14))
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("FD", fd)
-	changed, err := constraintFixer{}.Fix(&trailer, nil)
+	changed, err := constraintFixer{m: om14}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = (%v, %v), want the typed descriptor's reserved bit cleared", changed, err)
 	}
@@ -1260,7 +1297,7 @@ func TestConstraintHelperEdges(t *testing.T) {
 	// A dead ref in the targeted loop is skipped.
 	dead := pdf.PDFRef{ObjNum: 9}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{}}
-	changed, handled, err := constraintFixer{}.fixTargeted(pass, []pdf.PDFError{
+	changed, handled, err := constraintFixer{m: om14}.fixTargeted(pass, []pdf.PDFError{
 		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &dead, "Stream", "DecodeParms"),
 	})
 	if err != nil || changed || !handled {
@@ -1501,7 +1538,7 @@ func TestObjectModelFixersRunDocumentRepairs(t *testing.T) {
 	pass := &fixPass{trailer: &trailer}
 
 	issue := objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, nil, "OutlineItem", "Title")
-	changed, handled, err := missingRequiredKeyFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := missingRequiredKeyFixer{m: om14}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil || !changed || !handled {
 		t.Fatalf("missingRequiredKeyFixer.fixTargeted = %v, %v, %v; want changed and handled", changed, handled, err)
 	}
@@ -1513,7 +1550,7 @@ func TestObjectModelFixersRunDocumentRepairs(t *testing.T) {
 	metadata.SetStream(nil)
 	trailer.Entries.Set("Info", metadata)
 	issue = objModelIssue(pdf.Checks.ObjectModel.WrongValueType, nil, "FileTrailer", "Info")
-	changed, handled, err = wrongValueTypeFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err = wrongValueTypeFixer{m: om14}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil || !changed || !handled {
 		t.Fatalf("wrongValueTypeFixer.fixTargeted = %v, %v, %v; want changed and handled", changed, handled, err)
 	}
@@ -1536,4 +1573,13 @@ func TestRepairDisallowedValueExpandsStreamFilterName(t *testing.T) {
 	if got := d.Entries.Get("Filter"); got != (pdf.PDFName{Value: "ASCIIHexDecode"}) {
 		t.Errorf("Filter = %v, want /ASCIIHexDecode", got)
 	}
+}
+
+func TestObjModelForPanicsWithoutModel(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("objModelFor with PDF 9.9 did not panic")
+		}
+	}()
+	objModelFor(&pdfa.Spec{ModelVersion: "9.9"})
 }

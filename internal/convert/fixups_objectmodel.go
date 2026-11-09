@@ -4,47 +4,79 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/arlington"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// indirectRequiredKeys holds every key name some Arlington row requires to be an indirect
-// reference (unpredicated rows only), computed once from the compiled-in model.
-var indirectRequiredKeys = func() map[string]bool {
-	keys := map[string]bool{}
-	for _, ot := range arlington.Types() {
+// objModel is the Arlington model for the target level, selected by
+// Spec.ModelVersion, with the tables derived from it. The object-model fixers
+// repair against it, as the verify checks do.
+type objModel struct {
+	*arlington.Model
+	// indirectRequiredKeys holds every key name some row requires to be an
+	// indirect reference (unpredicated rows only).
+	indirectRequiredKeys map[string]bool
+	// arrayElemIndirectKeys holds every dict key whose linked array type
+	// requires its elements to be indirect (unpredicated wildcard rows only),
+	// such as Kids -> ArrayOfPageTreeNodeKids.
+	arrayElemIndirectKeys map[string]bool
+	// flagWordRules lists the flag words constraintFixer repairs.
+	flagWordRules []flagWordRule
+}
+
+// objModels caches one objModel per model version.
+var objModels sync.Map
+
+// objModelFor returns the objModel for the PDF version spec names. It panics
+// when no model for that version is vendored, as the verifier does.
+func objModelFor(spec *pdfa.Spec) *objModel {
+	if om, ok := objModels.Load(spec.ModelVersion); ok {
+		return om.(*objModel)
+	}
+	m := arlington.ModelFor(spec.ModelVersion)
+	if m == nil {
+		panic("convert: no Arlington model for PDF " + spec.ModelVersion)
+	}
+	om, _ := objModels.LoadOrStore(spec.ModelVersion, newObjModel(m))
+	return om.(*objModel)
+}
+
+func newObjModel(m *arlington.Model) *objModel {
+	om := &objModel{
+		Model:                 m,
+		indirectRequiredKeys:  map[string]bool{},
+		arrayElemIndirectKeys: map[string]bool{},
+	}
+	for _, ot := range m.Types() {
 		for _, kd := range ot.Keys {
 			if kd.IndirectReference == arlington.IndirectRequired && !kd.Predicated.Indirect {
-				keys[kd.Name] = true
+				om.indirectRequiredKeys[kd.Name] = true
 			}
-		}
-	}
-	return keys
-}()
-
-// arrayElemIndirectKeys holds every dict key whose linked array type requires its elements
-// to be indirect (unpredicated wildcard rows only), e.g. Kids -> ArrayOfPageTreeNodeKids.
-var arrayElemIndirectKeys = func() map[string]bool {
-	keys := map[string]bool{}
-	for _, ot := range arlington.Types() {
-		for _, kd := range ot.Keys {
 			for _, g := range kd.LinkGroups {
 				for _, cand := range g.Candidates {
-					ct, ok := arlington.Type(cand)
-					if !ok || ct.Wildcard == nil {
-						continue
-					}
-					if ct.Wildcard.IndirectReference == arlington.IndirectRequired && !ct.Wildcard.Predicated.Indirect {
-						keys[kd.Name] = true
+					ct, ok := m.Type(cand)
+					if ok && ct.Wildcard != nil &&
+						ct.Wildcard.IndirectReference == arlington.IndirectRequired &&
+						!ct.Wildcard.Predicated.Indirect {
+						om.arrayElemIndirectKeys[kd.Name] = true
 					}
 				}
 			}
 		}
 	}
-	return keys
-}()
+	om.flagWordRules = []flagWordRule{
+		{"Type", "FontDescriptor", "Flags", om.typeMask("FontDescriptorType1", "Flags", arlington.CondBitsClear), 0},
+		{"FT", "Tx", "Ff", om.typeMask("FieldTx", "Ff", arlington.CondBitsClear), 0},
+		{"FT", "Ch", "Ff", om.typeMask("FieldCh", "Ff", arlington.CondBitsClear), 0},
+		{"Subtype", "TrapNet", "F", om.typeMask("AnnotTrapNetwork", "F", arlington.CondBitsClear),
+			om.typeMask("AnnotTrapNetwork", "F", arlington.CondBitsSet)},
+	}
+	return om
+}
 
 // indirectRequiredFixer remediates the object model's IndirectRequired check: a direct
 // dictionary under an indirect-required key -- or inside an array whose elements the model
@@ -52,13 +84,13 @@ var arrayElemIndirectKeys = func() map[string]bool {
 // indirect object. No enforced row demands directness, so promoting by key name across all
 // types is a safe overshoot; wildcard-row requirements (e.g. XObject resource maps), where
 // the key name is arbitrary, are handled by the targeted path.
-type indirectRequiredFixer struct{}
+type indirectRequiredFixer struct{ m *objModel }
 
 func (indirectRequiredFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.IndirectRequired
 }
 
-func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	next := nextAvailableObjNum(*trailer)
 	changed := false
 	promote := func(v pdf.PDFValue) {
@@ -75,10 +107,10 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {
-			if indirectRequiredKeys[k] {
+			if f.m.indirectRequiredKeys[k] {
 				promote(v)
 			}
-			if arr, ok := v.(pdf.PDFArray); ok && arrayElemIndirectKeys[k] {
+			if arr, ok := v.(pdf.PDFArray); ok && f.m.arrayElemIndirectKeys[k] {
 				for _, item := range arr {
 					promote(item)
 				}
@@ -110,7 +142,7 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 		if isArrayIndexKey(detail.Key) {
 			// A wildcard array under an arbitrary dict key, invisible to the
 			// whole-graph name table.
-			arr, kd, idx, ok := arrayElemTarget(p, iss)
+			arr, kd, idx, ok := f.m.arrayElemTarget(p, iss)
 			if !ok || kd.IndirectReference != arlington.IndirectRequired {
 				continue
 			}
@@ -127,7 +159,7 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 		if !ok {
 			continue
 		}
-		kd := keyDefFor(detail.TypeName, detail.Key)
+		kd := f.m.keyDefFor(detail.TypeName, detail.Key)
 		if kd == nil || kd.IndirectReference != arlington.IndirectRequired {
 			continue
 		}
@@ -173,74 +205,113 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 	return changed, true, nil
 }
 
-// clearMaskFromCond collects the bits cond requires clear on key, from its conjunctive
-// structure only (an Or/Not subtree could make clearing wrong, so it contributes nothing).
-func clearMaskFromCond(c *arlington.Cond, key string) int64 {
+// maskFromCond returns the bits of key that cond requires clear when op is
+// CondBitsClear, or set when op is CondBitsSet. Only conjunctive (And)
+// subtrees are searched: an Or or Not subtree could make the repair wrong, so
+// it contributes nothing.
+func maskFromCond(c *arlington.Cond, key string, op arlington.CondOp) int64 {
 	var mask int64
 	switch c.Op {
-	case arlington.CondBitsClear:
+	case op:
 		if c.Key == key {
 			mask |= (1<<uint(c.BitHi) - 1) &^ (1<<uint(c.BitLo-1) - 1)
 		}
 	case arlington.CondAnd:
 		for i := range c.Kids {
-			mask |= clearMaskFromCond(&c.Kids[i], key)
+			mask |= maskFromCond(&c.Kids[i], key, op)
 		}
 	}
 	return mask
 }
 
-// mustBeClearMask collects the bits an Arlington type's SpecialCase requires clear on the
-// given key. Zero means no clearable rule.
-func mustBeClearMask(typeName, key string) int64 {
-	ot, ok := arlington.Type(typeName)
+// typeMask returns the bits of key that the SpecialCase rules of typeName
+// require clear or set, as op selects. It returns zero when there is no such
+// rule.
+func (m *objModel) typeMask(typeName, key string, op arlington.CondOp) int64 {
+	ot, ok := m.Type(typeName)
 	if !ok {
 		return 0
 	}
 	var mask int64
 	for _, kd := range ot.Keys {
 		if kd.Name == key && kd.SpecialCase != nil {
-			mask |= clearMaskFromCond(kd.SpecialCase, key)
+			mask |= maskFromCond(kd.SpecialCase, key, op)
 		}
 	}
 	return mask
 }
 
-// constraintFixer remediates the object model's ConstraintViolated check where a
-// conformance-neutral repair exists: reserved flag bits are cleared (readers must ignore
-// them), a DecodeParms array is resized to its Filter coupling, surplus FontFile* variants
-// are pruned to the descriptor's preferred one, and own-key numeric bounds (Length1 >= 0)
-// are clamped. Cross-key semantic couplings (image-mask consistency, must-be-set bits,
-// structure-attribute key sets) have no neutral repair and stay residuals.
-type constraintFixer struct{}
+// constraintFixer remediates the object model's ConstraintViolated check where
+// a conformance-neutral repair exists: reserved flag bits are cleared (readers
+// must ignore them), a DecodeParms array is resized to its Filter coupling,
+// surplus FontFile* variants are pruned to the descriptor's preferred one,
+// own-key numeric bounds (Length1 >= 0) are clamped, and a font descriptor's
+// Style gets a 12-byte Panose or is removed (see fixPanose). Bits that must be
+// set are set only on an annotation's F, where they are the flags ISO 32000-1
+// prescribes for the subtype. Cross-key semantic couplings (image-mask
+// consistency, structure-attribute key sets) and other must-be-set bits have
+// no neutral repair and stay residuals.
+type constraintFixer struct{ m *objModel }
 
 func (constraintFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.ConstraintViolated
 }
 
-var reservedFlagBits = map[string]struct {
+// flagWordRule describes a flag word that constraintFixer repairs in every
+// dictionary, including direct objects that no finding can target. clear holds
+// the bits that must be clear. set holds the bits that must be set; it is used
+// only for trap network annotations.
+type flagWordRule struct {
 	discKey, discVal, flagKey string
-	clear                     int64
-}{
-	"FontDescriptor": {"Type", "FontDescriptor", "Flags", mustBeClearMask("FontDescriptorType1", "Flags")},
-	"FieldTx":        {"FT", "Tx", "Ff", mustBeClearMask("FieldTx", "Ff")},
-	"FieldCh":        {"FT", "Ch", "Ff", mustBeClearMask("FieldCh", "Ff")},
+	clear, set                int64
 }
 
-func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := pruneEmptyPageTreeNodes(*trailer)
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		for _, r := range reservedFlagBits {
+		for _, r := range f.m.flagWordRules {
 			if t, ok := d.Entries.Get(r.discKey).(pdf.PDFName); !ok || t.Value != r.discVal {
 				continue
 			}
-			if v, ok := d.Entries.Get(r.flagKey).(pdf.PDFInteger); ok && int64(v)&r.clear != 0 {
-				d.Entries.Set(r.flagKey, v&^pdf.PDFInteger(r.clear))
-				changed = true
+			if v, ok := d.Entries.Get(r.flagKey).(pdf.PDFInteger); ok {
+				if want := v&^pdf.PDFInteger(r.clear) | pdf.PDFInteger(r.set); want != v {
+					d.Entries.Set(r.flagKey, want)
+					changed = true
+				}
 			}
+		}
+		if fixPanose(d) {
+			changed = true
 		}
 	})
 	return changed, nil
+}
+
+// fixPanose repairs the Style dictionary of font descriptor d whose Panose is
+// not the 12 bytes ISO 32000-1 9.8.3.2 requires: a 2-byte family class
+// followed by the 10-byte PANOSE classification. A bare 10-byte classification
+// gets the family class 0, which means no classification. Any other value
+// cannot be read, so the Style dictionary, which only guides font substitution,
+// is removed. The Style dictionary is direct, so no finding names an object to
+// repair, and the whole-graph walk applies this fix.
+func fixPanose(d pdf.PDFDict) bool {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "FontDescriptor"}) {
+		return false
+	}
+	style, ok := d.Entries.Get("Style").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	panose, _ := pdf.StringBytes(style.Entries.Get("Panose"))
+	switch len(panose) {
+	case 12:
+		return false
+	case 10:
+		style.Entries.Set("Panose", pdf.PDFString{Value: "\x00\x00" + string(panose)})
+	default:
+		d.Entries.Del("Style")
+	}
+	return true
 }
 
 // pruneEmptyPageTreeNodes drops page tree nodes with no kids from the tree. The
@@ -314,7 +385,7 @@ func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, b
 		if !ok {
 			continue
 		}
-		kd := keyDefFor(detail.TypeName, detail.Key)
+		kd := f.m.keyDefFor(detail.TypeName, detail.Key)
 		if kd == nil || kd.SpecialCase == nil || d.Entries.Get(detail.Key) == nil {
 			continue
 		}
@@ -330,7 +401,7 @@ func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, b
 
 // repairConstraint applies the neutral repair for key's violated SpecialCase on d.
 func repairConstraint(d pdf.PDFDict, typeName, key string, kd *arlington.KeyDef) bool {
-	if mask := clearMaskFromCond(kd.SpecialCase, key); mask != 0 {
+	if mask := maskFromCond(kd.SpecialCase, key, arlington.CondBitsClear); mask != 0 {
 		if v, ok := d.Entries.Get(key).(pdf.PDFInteger); ok && int64(v)&mask != 0 {
 			d.Entries.Set(key, v&^pdf.PDFInteger(mask))
 			return true
@@ -435,19 +506,20 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 	return changed
 }
 
-// missingRequiredKeyFixer remediates the object model's MissingRequiredKey check for keys
-// with exactly one legal value: a single-entry enum (e.g. /Type on most types) or a pinned
-// value whose condition definitely holds on the dict. Anything else has no synthesizable
+// missingRequiredKeyFixer remediates the object model's MissingRequiredKey
+// check for keys with exactly one legal value: a single-entry enum (e.g. /Type
+// on most types), a pinned value whose condition definitely holds on the dict,
+// or the value given by requiredDefaults. Anything else has no synthesizable
 // value and stays a residual. It is targeted only: without the walk's type
 // propagation a whole-graph pass cannot know which schema each dict was
 // validated under.
-type missingRequiredKeyFixer struct{}
+type missingRequiredKeyFixer struct{ m *objModel }
 
 func (missingRequiredKeyFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.MissingRequiredKey
 }
 
-func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
+func (f missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
 	changed := false
 	if namesType(issues, "OutlineItem") && repairOutlineTree(*p.trailer) {
 		changed = true
@@ -461,7 +533,7 @@ func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 		if !ok {
 			continue
 		}
-		kd := namedKeyDef(detail.TypeName, detail.Key)
+		kd := f.m.namedKeyDef(detail.TypeName, detail.Key)
 		if kd == nil {
 			continue
 		}
@@ -469,6 +541,9 @@ func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 			continue // repaired by an earlier pass; stale finding
 		}
 		val, ok := synthesizedValue(kd, d)
+		if !ok {
+			val, ok = requiredDefaults[[2]string{detail.TypeName, detail.Key}]
+		}
 		if !ok {
 			continue
 		}
@@ -582,7 +657,7 @@ func isArrayIndexKey(key string) bool {
 // entry named by the detail must hold an array, the decimal key an in-range index, and the
 // array's type a governing row (fixed-index else wildcard). ok is false -- the finding
 // stays a residual -- for nested arrays (empty Entry) and anything unresolvable.
-func arrayElemTarget(p *fixPass, iss pdf.PDFError) (arr pdf.PDFArray, kd *arlington.KeyDef, idx int, ok bool) {
+func (m *objModel) arrayElemTarget(p *fixPass, iss pdf.PDFError) (arr pdf.PDFArray, kd *arlington.KeyDef, idx int, ok bool) {
 	detail, hasDetail := iss.ObjModelDetail()
 	if !hasDetail || detail.Entry == "" || !isArrayIndexKey(detail.Key) {
 		return nil, nil, 0, false
@@ -600,15 +675,15 @@ func arrayElemTarget(p *fixPass, iss pdf.PDFError) (arr pdf.PDFArray, kd *arling
 	if !isArr || idx >= len(arr) {
 		return nil, nil, 0, false
 	}
-	if kd = keyDefFor(detail.TypeName, detail.Key); kd == nil {
+	if kd = m.keyDefFor(detail.TypeName, detail.Key); kd == nil {
 		return nil, nil, 0, false
 	}
 	return arr, kd, idx, true
 }
 
 // namedKeyDef returns typeName's schema row for key, or nil when either is unknown.
-func namedKeyDef(typeName, key string) *arlington.KeyDef {
-	ot, ok := arlington.Type(typeName)
+func (m *objModel) namedKeyDef(typeName, key string) *arlington.KeyDef {
+	ot, ok := m.Type(typeName)
 	if !ok {
 		return nil
 	}
@@ -618,6 +693,16 @@ func namedKeyDef(typeName, key string) *arlington.KeyDef {
 		}
 	}
 	return nil
+}
+
+// requiredDefaults gives values for required keys that the schema leaves open
+// and that no ordinary reader consults. A trap network annotation's AS names an
+// appearance state, although its normal appearance is a single stream. The PCM
+// of a trap network form names the process colour model it was trapped for,
+// which only a trapping application reads.
+var requiredDefaults = map[[2]string]pdf.PDFValue{
+	{"AnnotTrapNetwork", "AS"}:    pdf.PDFName{Value: "Off"},
+	{"XObjectFormTrapNet", "PCM"}: pdf.PDFName{Value: "DeviceCMYK"},
 }
 
 // synthesizedValue returns the single value the schema permits for kd on d, if one exists:
@@ -663,13 +748,13 @@ func scalarFromEnum(s string, types []arlington.ValueType) (pdf.PDFValue, bool) 
 // and a required key stays a residual. Array elements are coerced in place but never
 // deleted or nulled (index shift / null-element semantics are never neutral).
 // Like missingRequiredKeyFixer, it is targeted only.
-type wrongValueTypeFixer struct{}
+type wrongValueTypeFixer struct{ m *objModel }
 
 func (wrongValueTypeFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.WrongValueType
 }
 
-func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
+func (f wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
 	changed := false
 	if namesType(issues, "FileTrailer") && repairTrailerInfo(p.trailer) {
 		changed = true
@@ -680,7 +765,7 @@ func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool,
 			continue
 		}
 		if isArrayIndexKey(detail.Key) {
-			arr, kd, idx, ok := arrayElemTarget(p, iss)
+			arr, kd, idx, ok := f.m.arrayElemTarget(p, iss)
 			if !ok || len(kd.Types) == 0 || arr[idx] == nil ||
 				verify.MatchesValueType(arr[idx], kd.Types) {
 				continue // unresolvable, null, or repaired earlier: stale finding
@@ -695,7 +780,7 @@ func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool,
 		if !ok {
 			continue
 		}
-		kd := keyDefFor(detail.TypeName, detail.Key)
+		kd := f.m.keyDefFor(detail.TypeName, detail.Key)
 		if kd == nil || len(kd.Types) == 0 {
 			continue
 		}
@@ -718,11 +803,11 @@ func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool,
 
 // keyDefFor returns the schema row governing key on typeName: the named row if one exists,
 // else the type's wildcard row, else nil.
-func keyDefFor(typeName, key string) *arlington.KeyDef {
-	if kd := namedKeyDef(typeName, key); kd != nil {
+func (m *objModel) keyDefFor(typeName, key string) *arlington.KeyDef {
+	if kd := m.namedKeyDef(typeName, key); kd != nil {
 		return kd
 	}
-	ot, ok := arlington.Type(typeName)
+	ot, ok := m.Type(typeName)
 	if !ok {
 		return nil
 	}
@@ -792,7 +877,7 @@ func coerceScalar(val pdf.PDFValue, types []arlington.ValueType) (pdf.PDFValue, 
 // the schema: a single-entry enum or a definitely-true pinned value replaces the offending
 // value, a compiled inclusive range clamps it, and an unconditionally-optional key with no
 // repair is deleted.
-type disallowedValueFixer struct{}
+type disallowedValueFixer struct{ m *objModel }
 
 func (disallowedValueFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.DisallowedValue
@@ -820,7 +905,7 @@ func (f disallowedValueFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bo
 			continue
 		}
 		if isArrayIndexKey(detail.Key) {
-			if repairDisallowedElement(p, iss) {
+			if repairDisallowedElement(f.m, p, iss) {
 				changed = true
 			}
 			continue
@@ -833,7 +918,7 @@ func (f disallowedValueFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bo
 		if !ok {
 			continue
 		}
-		kd := keyDefFor(detail.TypeName, detail.Key)
+		kd := f.m.keyDefFor(detail.TypeName, detail.Key)
 		if kd == nil {
 			continue
 		}
@@ -972,8 +1057,8 @@ func expandFilterAbbrevs(v pdf.PDFValue) (pdf.PDFValue, bool) {
 // element: a single-entry enum replaces the value (e.g. a misspelled colour-space
 // discriminator), a compiled inclusive range clamps it. Elements are never deleted --
 // index shift is never conformance-neutral -- so anything else stays a residual.
-func repairDisallowedElement(p *fixPass, iss pdf.PDFError) bool {
-	arr, kd, idx, ok := arrayElemTarget(p, iss)
+func repairDisallowedElement(m *objModel, p *fixPass, iss pdf.PDFError) bool {
+	arr, kd, idx, ok := m.arrayElemTarget(p, iss)
 	if !ok || arr[idx] == nil {
 		return false // unresolvable, or a null element (null matches everything)
 	}

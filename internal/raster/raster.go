@@ -97,11 +97,7 @@ func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int
 	base := content.Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
 	// The colour a drawing starts in is black in DeviceGray, so "1 sc"
 	// without a preceding cs selects white.
-	gs := renderState{
-		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
-		clip: [4]float64{0, 0, float64(width), float64(height)},
-	}
-	gs.CTM = base
+	gs := newRenderState(base, [4]float64{0, 0, float64(width), float64(height)})
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
@@ -156,6 +152,10 @@ func PageContentBytes(page pdf.PDFDict) ([]byte, error) {
 type renderState struct {
 	content.GState
 	fillAlpha, strokeAlpha float64
+	// blendMode is the current blend mode, "" for Normal, and softMask the
+	// current soft mask, nil for none.
+	blendMode string
+	softMask  *softMask
 	// fillPattern and strokePattern are the pattern dictionaries the
 	// colours' pattern names select, zero when none is selected or usable.
 	// A colour that paints with a pattern paints it or nothing, never the
@@ -173,6 +173,15 @@ type renderState struct {
 	rise       float64 // Ts: baseline offset in unscaled text space
 	renderMode int     // Tr: 3 and 7 are invisible (no marks)
 	tm, tlm    content.Matrix
+}
+
+// newRenderState is the graphics state a drawing starts in.
+func newRenderState(ctm content.Matrix, clip [4]float64) renderState {
+	gs := renderState{
+		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1, clip: clip,
+	}
+	gs.CTM = ctm
+	return gs
 }
 
 // renderer carries the mutable bits shared across a RenderPage call: the
@@ -193,7 +202,19 @@ type renderer struct {
 	dropped map[string]bool
 	// oc hides the optional content the document turns off.
 	oc *content.OptionalContent
+	// softMasks holds rendered soft masks; nil records one with nothing to draw.
+	softMasks map[softMaskKey]*softMask
+	// softMaskBytes is the size of the masks softMasks holds, for
+	// softMaskCacheBytes.
+	softMaskBytes int
+	// effectPixels counts what blend modes and soft masks have composited, for
+	// effectPixelBudget.
+	effectPixels int64
 }
+
+// maxFormDepth bounds the nesting of forms and soft-mask groups, against
+// pathological and cyclic graphs.
+const maxFormDepth = 12
 
 // raster-drop feature names, reported so a rasterized conversion does not
 // silently lose them.
@@ -371,7 +392,11 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "W*":
 			pendingClip, pendingClipEvenOdd = true, true
 		case "f", "F", "f*", "S", "s", "B", "B*", "b", "b*", "n":
-			r.paintPath(&path, &gs, op)
+			// The end-path operator (n) only sets a clip and
+			// paints nothing.
+			if op != "n" {
+				r.withEffects(&gs, func() image.Rectangle { return pathReach(&path, &gs) }, func() { r.paintPath(&path, &gs, op) })
+			}
 			applyPendingClip()
 			_ = pendingClipEvenOdd
 			path.reset()
@@ -383,7 +408,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "gs":
 			r.applyExtGState(operands, resources, &gs)
 		case "Do":
-			r.doXObject(operands, resources, &gs)
+			r.paintDo(operands, resources, &gs)
 		case "BT":
 			gs.tm, gs.tlm = content.IdentityMatrix, content.IdentityMatrix
 		case "Tf":
@@ -417,27 +442,27 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "Tj":
-			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
+			r.showTextWithEffects(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "'":
 			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
+			r.showTextWithEffects(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "\"":
 			a3 := nums(2) // aw ac on top, string is the operand itself, handled by shownStringBytes
 			gs.wordSpace, gs.charSpace = a3[0], a3[1]
 			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
+			r.showTextWithEffects(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "TJ":
-			r.showTextArray(operands, resources, &gs)
+			r.withEffects(&gs, func() image.Rectangle { return tjReach(operands, &gs) }, func() { r.showTextArray(operands, resources, &gs) })
 		case "Ts":
 			gs.rise = nums(1)[0]
 		case "Tr":
 			gs.renderMode = int(nums(1)[0])
 		case "sh":
-			r.paintShadingOp(operands, resources, &gs)
+			r.withEffects(&gs, nil, func() { r.paintShadingOp(operands, resources, &gs) })
 		case "INLINEIMAGE":
-			r.paintInlineImage(operands, resources, &gs)
+			r.withEffects(&gs, func() image.Rectangle { return imageReach(&gs) }, func() { r.paintInlineImage(operands, resources, &gs) })
 		}
 	})
 }
@@ -502,8 +527,6 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	case "B", "B*", "b", "b*":
 		fill()
 		stroke()
-	case "n":
-		// Path constructed only to set a clip region; no paint.
 	}
 }
 
@@ -538,11 +561,8 @@ func ctmScale(ctm content.Matrix) float64 {
 	return (sx + sy) / 2
 }
 
-// applyExtGState applies a gs operator's ca/CA alpha from the named
-// ExtGState resource (soft-mask groups are out of scope -- see raster.go's
-// doc comment; the dedicated ImageWithSoftMask check is handled per-image
-// in doXObject, and ExtGState /SMask is already neutralized by extGStateFixer
-// before this renderer ever runs).
+// applyExtGState applies a gs operator's alpha, blend mode and soft mask from
+// the named ExtGState resource.
 func (r *renderer) applyExtGState(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
 	if len(operands) == 0 {
 		return
@@ -562,60 +582,133 @@ func (r *renderer) applyExtGState(operands []pdf.PDFValue, resources pdf.PDFDict
 	if CA, ok := pdf.PDFNumberToFloat(egs.Entries.Get("CA")); ok {
 		gs.strokeAlpha = CA
 	}
+	if bm, ok := egs.Entries.Lookup("BM"); ok {
+		gs.blendMode = blendModeOf(bm)
+	}
+	if sm, ok := egs.Entries.Lookup("SMask"); ok {
+		r.applySoftMask(sm, resources, gs)
+	}
+}
+
+// noHint is the reach of a painting operation that may mark anywhere.
+var noHint = image.Rect(math.MinInt32, math.MinInt32, math.MaxInt32, math.MaxInt32)
+
+// pathReach is the device area a path's fill and stroke can mark.
+func pathReach(path *pathBuilder, gs *renderState) image.Rectangle {
+	contours := path.deviceContours(gs.CTM)
+	if len(contours) == 0 {
+		return image.Rectangle{}
+	}
+	minX, minY, maxX, maxY := boundsOfContours(contours)
+	grow := gs.lineWidth*ctmScale(gs.CTM) + 2
+	return clipToBounds(noHint, [4]float64{minX - grow, minY - grow, maxX + grow, maxY + grow})
+}
+
+// paintDo paints the XObject named by the XObject operator (Do), through the
+// graphics state's effects. A form that is not a transparency group is not an
+// object of its own, so each operation in its content takes effects separately;
+// any other XObject is painted as one object.
+func (r *renderer) paintDo(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+	xobj, ok := namedXObject(operands, resources)
+	if !ok || r.oc.Hides(xobj.Entries.Get("OC")) {
+		return
+	}
+	group, _ := xobj.Entries.Get("Group").(pdf.PDFDict)
+	if xobj.Entries.Get("Subtype") == pdf.PDFValue(pdf.PDFName{Value: "Form"}) && !isTransparencyGroup(group) {
+		r.doXObject(xobj, resources, gs)
+		return
+	}
+	r.withEffects(gs, func() image.Rectangle { return xobjectReach(xobj, gs) }, func() { r.doXObject(xobj, resources, gs) })
+}
+
+// showTextWithEffects is showText through the graphics state's effects.
+func (r *renderer) showTextWithEffects(raw []byte, resources pdf.PDFDict, gs *renderState) {
+	r.withEffects(gs, func() image.Rectangle { return textReach(len(raw), 0, gs) }, func() { r.showText(raw, resources, gs) })
+}
+
+// namedXObject returns the XObject stream that the last operand names. It
+// reports false when that operand is not a name, or names no XObject stream.
+func namedXObject(operands []pdf.PDFValue, resources pdf.PDFDict) (pdf.PDFDict, bool) {
+	if len(operands) == 0 {
+		return pdf.PDFDict{}, false
+	}
+	name, ok := operands[len(operands)-1].(pdf.PDFName)
+	if !ok {
+		return pdf.PDFDict{}, false
+	}
+	xobj, ok := pdf.LookupResource(resources, "XObject", name.Value).(pdf.PDFDict)
+	return xobj, ok && xobj.IsStream()
 }
 
 // doXObject paints a Form (recursing with composed CTM/Resources) or Image
 // (decoded via DecodeImageRGBA, compositing its /SMask if present) XObject.
-func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
-	if len(operands) == 0 {
-		return
-	}
-	name, ok := operands[len(operands)-1].(pdf.PDFName)
-	if !ok {
-		return
-	}
-	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
-	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-	if !ok || !xobj.IsStream() || r.oc.Hides(xobj.Entries.Get("OC")) {
-		return
-	}
+func (r *renderer) doXObject(xobj, resources pdf.PDFDict, gs *renderState) {
 	subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)
 	switch subtype.Value {
 	case "Form":
-		if r.depth > 12 {
+		if r.depth > maxFormDepth {
 			return
 		}
 		r.depth++
 		defer func() { r.depth-- }()
-		formRes, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
-		if formRes.Entries == nil {
-			formRes = resources
-		}
+		formRes := resourcesOr(xobj, resources)
 		childGS := *gs
-		if m, err := pdf.FloatArray(xobj.Entries.Get("Matrix")); err == nil && len(m) == 6 {
-			fm := content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
-			childGS.CTM = fm.Mul(gs.CTM)
-		}
-		// The form paints only inside its /BBox (ISO 32000-1 8.10.1), mapped
-		// through Matrix and CTM -- like a W clip, as its device-space bounds.
-		if bbox, err := pdf.FloatArray(xobj.Entries.Get("BBox")); err == nil && len(bbox) == 4 {
-			var box pathBuilder
-			box.rect(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1])
-			minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(childGS.CTM))
-			childGS.clip = intersectRect(childGS.clip, [4]float64{minX, minY, maxX, maxY})
-		}
+		childGS.CTM = formCTM(xobj, gs.CTM)
+		childGS.clip = formClip(xobj, childGS.CTM, childGS.clip)
 		data, err := pdf.DecodeStream(xobj)
 		if err != nil {
 			return
 		}
 		if group, _ := xobj.Entries.Get("Group").(pdf.PDFDict); isTransparencyGroup(group) {
-			r.paintGroup(data, formRes, childGS, gs.fillAlpha)
-			return
+			if !paintsThrough(group, gs) {
+				r.paintGroup(data, formRes, childGS, gs.fillAlpha)
+				return
+			}
+			// A group's content starts at full opacity whichever way it paints.
+			childGS.strokeAlpha = 1
 		}
 		r.execContent(data, formRes, childGS)
 	case "Image":
 		r.paintImage(xobj, resources, gs)
 	}
+}
+
+// resourcesOr returns the resources a form's content reads names from: its own,
+// or those of what draws it.
+func resourcesOr(form, inherited pdf.PDFDict) pdf.PDFDict {
+	if res, _ := form.Entries.Get("Resources").(pdf.PDFDict); res.Entries != nil {
+		return res
+	}
+	return inherited
+}
+
+// formCTM is the CTM a form's content runs under, given the one it is drawn
+// under.
+func formCTM(form pdf.PDFDict, ctm content.Matrix) content.Matrix {
+	if m, err := pdf.FloatArray(form.Entries.Get("Matrix")); err == nil && len(m) == 6 {
+		return content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}.Mul(ctm)
+	}
+	return ctm
+}
+
+// formClip intersects clip with a form's bounding box (/BBox), since a form
+// paints only inside it (ISO 32000-1 8.10.1). ctm is the form's own CTM. The
+// box is applied like a clipping path, by its device-space bounds.
+func formClip(form pdf.PDFDict, ctm content.Matrix, clip [4]float64) [4]float64 {
+	bbox, err := pdf.FloatArray(form.Entries.Get("BBox"))
+	if err != nil || len(bbox) != 4 {
+		return clip
+	}
+	return intersectRect(clip, deviceBounds(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1], ctm, 0))
+}
+
+// paintsThrough reports whether a group drawn in the graphics state gs is the
+// same as painting its content straight onto the backdrop: non-isolated, not
+// knockout, at full opacity. Painting it that way lets its content blend with
+// what the group is drawn over, which a separate canvas cannot do.
+func paintsThrough(group pdf.PDFDict, gs *renderState) bool {
+	return group.Entries.Get("I") != pdf.PDFValue(pdf.PDFBoolean(true)) &&
+		group.Entries.Get("K") != pdf.PDFValue(pdf.PDFBoolean(true)) && gs.fillAlpha >= 1
 }
 
 // isTransparencyGroup reports whether a form's /Group is a transparency group.
@@ -627,34 +720,18 @@ func isTransparencyGroup(group pdf.PDFDict) bool {
 // paintGroup paints a transparency group as specified in ISO 32000-1 11.6.6.
 // The content is rendered onto a separate transparent canvas starting at
 // alpha 1, and the result is composited onto the current canvas at alpha, the
-// fill alpha in effect where the group is drawn. Every group is treated as
-// isolated and non-knockout.
+// fill alpha in effect where the group is drawn. Every group passed here is
+// treated as isolated and non-knockout; doXObject paints the others straight
+// onto the backdrop (see paintsThrough).
 func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState, alpha float64) {
 	area := clipToBounds(r.canvas.Bounds(), gs.clip)
 	if area.Empty() {
 		return
 	}
-	backdrop := r.canvas
-	r.canvas = image.NewRGBA(area)
 	gs.fillAlpha, gs.strokeAlpha = 1, 1
-	r.execContent(data, resources, gs)
-	group := r.canvas
-	r.canvas = backdrop
-
-	// Source-over with premultiplied samples, the group's scaled by alpha.
-	for y := area.Min.Y; y < area.Max.Y; y++ {
-		src := group.Pix[group.PixOffset(area.Min.X, y):group.PixOffset(area.Max.X, y)]
-		dst := backdrop.Pix[backdrop.PixOffset(area.Min.X, y):backdrop.PixOffset(area.Max.X, y)]
-		for i := 0; i < len(src); i += 4 {
-			sa := float64(src[i+3]) * alpha / 255
-			if sa == 0 {
-				continue
-			}
-			for c := range 4 {
-				dst[i+c] = uint8(float64(src[i+c])*alpha + float64(dst[i+c])*(1-sa) + 0.5)
-			}
-		}
-	}
+	group := image.NewRGBA(area)
+	r.onLayer(group, func() { r.execContent(data, resources, gs) })
+	compositeLayer(r.canvas, group, nil, "", alpha)
 }
 
 // paintImage decodes an Image XObject (and its /SMask, if present) and
@@ -1375,7 +1452,7 @@ func (r *renderer) drawType3Glyph(fi *fontInfo, code int, pageResources pdf.PDFD
 	}
 	// A CharProc may Do a Form or show text again; share the Form recursion
 	// guard rather than adding a second one.
-	if r.depth > 12 {
+	if r.depth > maxFormDepth {
 		return
 	}
 	data, err := pdf.DecodeStream(proc)

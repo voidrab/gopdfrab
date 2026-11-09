@@ -138,7 +138,8 @@ func TestEachCMapCID(t *testing.T) {
 <23> 600 % outside any block
 1 begincidrange <30> <31> 700 endcidchar <32> <33> 800 endcidrange`)
 	var got []string
-	EachCMapCID(data, func(tok CmapToken) {
+	EachCMapCID(data, func(e CMapCIDEntry) {
+		tok := e.CID
 		got = append(got, tok.Text)
 		if string(data[tok.Start:tok.End]) != tok.Text {
 			t.Errorf("token %q spans %q", tok.Text, data[tok.Start:tok.End])
@@ -149,5 +150,49 @@ func TestEachCMapCID(t *testing.T) {
 	want := []string{"100", "200", "300", "400", "500", "700", "800"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("CIDs = %v, want %v", got, want)
+	}
+}
+
+func TestCMapCIDEntryLastCID(t *testing.T) {
+	tok := func(s string) CmapToken { return CmapToken{Text: s} }
+	cases := []struct {
+		name   string
+		e      CMapCIDEntry
+		want   int64
+		wantOK bool
+	}{
+		{"cidchar", CMapCIDEntry{CID: tok("7")}, 7, true},
+		{"range", CMapCIDEntry{Lo: tok("<3f00>"), Hi: tok("<3fff>"), CID: tok("65535")}, 65790, true},
+		{"reversed codes", CMapCIDEntry{Lo: tok("<10>"), Hi: tok("<01>"), CID: tok("7")}, 7, true},
+		{"low code malformed", CMapCIDEntry{Lo: tok("10"), Hi: tok("<11>"), CID: tok("7")}, 7, true},
+		{"high code not hex", CMapCIDEntry{Lo: tok("<10>"), Hi: tok("<zz>"), CID: tok("7")}, 7, true},
+		{"white space in codes", CMapCIDEntry{Lo: tok("<00 00>"), Hi: tok("<ff ff>"), CID: tok("1")}, 65536, true},
+		{"signed code", CMapCIDEntry{Lo: tok("<-1>"), Hi: tok("<11>"), CID: tok("7")}, 7, true},
+		{"empty code", CMapCIDEntry{Lo: tok("<>"), Hi: tok("<11>"), CID: tok("7")}, 7, true},
+		{"CID not a number", CMapCIDEntry{CID: tok("x")}, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := tc.e.LastCID()
+			if ok != tc.wantOK || (ok && got != tc.want) {
+				t.Errorf("LastCID = %d, %v; want %d, %v", got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestCMapCodeAfter(t *testing.T) {
+	for _, tc := range []struct {
+		code string
+		n    int64
+		want string
+	}{
+		{"<3f00>", 0x23, "<3f23>"},
+		{"<00 10>", 1, "<0011>"},
+		{"<0f>", 0, "<0f>"},
+	} {
+		if got := CMapCodeAfter(tc.code, tc.n); got != tc.want {
+			t.Errorf("CMapCodeAfter(%s, %d) = %s, want %s", tc.code, tc.n, got, tc.want)
+		}
 	}
 }

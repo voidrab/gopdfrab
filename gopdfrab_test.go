@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -131,7 +130,7 @@ const plainPDF = "%PDF-1.4\n" +
 // TestProfileLookup verifies that the facade's profile lookup finds each
 // ready-made profile under its name and the package variable holding it.
 func TestProfileLookup(t *testing.T) {
-	want := []*Profile{PDFA1B, Legacy1B, PDF}
+	want := []*Profile{PDFA1B, Legacy1B, PDFA2B, PDF}
 	for i, p := range Profiles() {
 		if p != want[i] {
 			t.Errorf("Profiles()[%d] = %v, want %v", i, p, want[i])
@@ -380,54 +379,26 @@ func TestResultMarshalsToJSON(t *testing.T) {
 	}
 }
 
-// passFixtures returns every "pass" fixture path in the veraPDF corpus, or
-// nil if the corpus isn't present.
+// passFixtures returns the path of every PDF/A-1b pass fixture in the
+// committed corpora, or nil if none is present.
 func passFixtures(t *testing.T) []string {
 	t.Helper()
-	if _, err := os.Stat(veraDir); err != nil {
-		return nil
-	}
-	var found []string
-	filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() && strings.Contains(strings.ToLower(d.Name()), "-pass-") {
-			found = append(found, path)
-		}
-		return nil
-	})
-	return found
+	return a1bFixtures(false)
 }
 
-// failFixturesByExpectedClause walks both corpora and returns every "fail"
-// fixture's path paired with the clause its filename targets (see
-// veraClauseAndKind / expectedClauseFromName).
-func failFixturesByExpectedClause(t *testing.T) map[string]string {
+// failFixtures returns the path of every PDF/A-1b fail fixture in the
+// committed corpora, or nil if none is present.
+func failFixtures(t *testing.T) []string {
 	t.Helper()
-	out := map[string]string{}
+	return a1bFixtures(true)
+}
 
-	if _, err := os.Stat(veraDir); err == nil {
-		filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
-				return nil
-			}
-			if clause, wantFail := veraClauseAndKind(d.Name()); wantFail && clause != "" {
-				out[path] = clause
-			}
-			return nil
-		})
-	}
-	if _, err := os.Stat(isartorDir); err == nil {
-		filepath.WalkDir(isartorDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
-				return nil
-			}
-			if clause := expectedClauseFromName(d.Name()); clause != "" {
-				out[path] = clause
-			}
-			return nil
-		})
+func a1bFixtures(wantFail bool) []string {
+	var out []string
+	for _, f := range corpustest.AllFixtures(wantFail) {
+		if f.Corpus.Level() == pdf.A1B {
+			out = append(out, f.Path)
+		}
 	}
 	return out
 }
@@ -439,7 +410,7 @@ func failFixturesByExpectedClause(t *testing.T) map[string]string {
 func TestUnsupportedLevelIsAnError(t *testing.T) {
 	data := []byte(plainPDF)
 	for name, p := range map[string]*Profile{
-		"unknown level": NewProfile("A-2b").AddCheck(AllChecks()...),
+		"unknown level": NewProfile("A-3b").AddCheck(AllChecks()...),
 		"zero value":    {},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -450,5 +421,56 @@ func TestUnsupportedLevelIsAnError(t *testing.T) {
 				t.Errorf("ConvertBytes = (Valid %v, %v), want an error", cr.Result.Valid, err)
 			}
 		})
+	}
+}
+
+// pdfa2bDeviceGray is a PDF/A-2b fail file whose device-colour rule is
+// 6.2.4.3 under Part 2 but 6.2.3.3 under Part 1.
+var pdfa2bDeviceGray = filepath.Join("tests", "veraPDF", "PDF_A-2b", "6.2 Graphics",
+	"6.2.4.3 Uncalibrated -Device colour spaces", "veraPDF test suite 6-2-4-3-t01-fail-g.pdf")
+
+// TestPDFA2BReportsPart2Clauses verifies that the exported PDF/A-2b profile
+// reports each issue under A2B, so it names the Part 2 clause.
+func TestPDFA2BReportsPart2Clauses(t *testing.T) {
+	res, err := Verify(pdfa2bDeviceGray, PDFA2B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Valid || res.Type != A2B {
+		t.Fatalf("Verify = valid %v type %q, want invalid A2B", res.Valid, res.Type)
+	}
+	for _, e := range res.Issues {
+		if e.Level() != A2B {
+			t.Errorf("issue %s has level %q, want %q", e, e.Level(), A2B)
+		}
+		if clause, _, _ := e.Check().ClauseIn(A2B); clause != "6.2.4.3" {
+			t.Errorf("issue %s is under clause %q, want 6.2.4.3", e, clause)
+		}
+	}
+}
+
+// TestConvertPDFA2BWritesPDF17 verifies that a file converted to PDF/A-2b
+// declares PDF 1.7, the version whose object model Part 2 builds on, while
+// PDF/A-1b output stays at 1.4.
+func TestConvertPDFA2BWritesPDF17(t *testing.T) {
+	for _, tc := range []struct {
+		profile *Profile
+		header  string
+	}{
+		{PDFA2B, "%PDF-1.7\n"},
+		{PDFA1B, "%PDF-1.4\n"},
+	} {
+		cr, err := Convert(pdfa2bDeviceGray, tc.profile)
+		if err != nil {
+			t.Fatalf("Convert(%s): %v", tc.profile.Name(), err)
+		}
+		out := mustOutput(t, cr)
+		cr.Close()
+		if !cr.Result.Valid {
+			t.Errorf("Convert(%s) left %s", tc.profile.Name(), cr.Result.Summary())
+		}
+		if !bytes.HasPrefix(out, []byte(tc.header)) {
+			t.Errorf("Convert(%s) header = %q, want %q", tc.profile.Name(), out[:min(len(out), 9)], tc.header)
+		}
 	}
 }

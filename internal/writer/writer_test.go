@@ -3,25 +3,21 @@ package writer
 import (
 	"bytes"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
-
-// veraDir locates the veraPDF reference corpus relative to this package's
-// directory (two levels under the repo root).
-const veraDir = "../../tests/veraPDF/PDF_A-1b"
 
 // issueClauses returns the violated clause for each issue, for diagnostics.
 func issueClauses(issues []pdf.PDFError) []string {
 	out := make([]string, 0, len(issues))
 	for _, iss := range issues {
-		out = append(out, iss.Check().Clause())
+		clause, _ := iss.Clause()
+		out = append(out, clause)
 	}
 	return out
 }
@@ -213,29 +209,30 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 	}
 }
 
-// TestWriterRoundTripConformantCorpusFiles takes every PDF/A-1b-conformant
-// "pass" fixture from the veraPDF corpus, round-trips each through WritePDF,
-// and checks that the rewritten file is still reported fully conformant. This
-// verifies that renumbering and verbatim stream pass-through do not corrupt a
-// structurally rich, potentially cyclic (for example Page/Parent) document.
-// The "pass" files span annotations, forms, optional content and transparency
-// groups, so they cover far more structure than a single hand-picked fixture.
+// TestWriterRoundTripConformantCorpusFiles round-trips every pass fixture of
+// the committed corpora through WritePDF and checks that each rewritten file is
+// still reported fully conformant. Renumbering and verbatim stream pass-through
+// must not corrupt structurally rich documents with cycles, such as
+// Page/Parent references. The pass files cover annotations, forms, optional
+// content and transparency groups. A rewrite moves every byte, so no signature
+// in the output can cover its revision. That one finding is expected for a
+// signed file and is excluded from the check.
 func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
-	paths := passFixtures(t)
-	if len(paths) == 0 {
-		t.Skip("veraPDF suite not present")
+	fixtures := corpustest.AllFixtures(false)
+	if len(fixtures) == 0 {
+		t.Skip("no corpus present")
 	}
 
-	for _, path := range paths {
-		rel, _ := filepath.Rel(veraDir, path)
-		t.Run(rel, func(t *testing.T) {
+	for _, f := range fixtures {
+		path := f.Path
+		t.Run(f.Corpus.Name+"/"+f.Corpus.Rel(path), func(t *testing.T) {
 			orig, err := pdf.Open(path)
 			if err != nil {
 				t.Fatalf("pdf.Open(%s): %v", path, err)
 			}
 			defer orig.Close()
 
-			origRes, err := verify.Verify(orig, pdf.PDFA1B)
+			origRes, err := verify.Verify(orig, f.Corpus.Default)
 			if err != nil {
 				t.Fatalf("Verify(original): %v", err)
 			}
@@ -262,35 +259,21 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 				t.Errorf("PageCount(rewritten) = %d, %v; want %d, nil", n, err, origPages)
 			}
 
-			res, err := verify.Verify(rewritten, pdf.PDFA1B)
+			res, err := verify.Verify(rewritten, f.Corpus.Default)
 			if err != nil {
 				t.Fatalf("Verify(rewritten): %v", err)
 			}
-			if !res.Valid {
-				t.Errorf("round-tripped output is no longer PDF/A-1b conformant; issues: %v", issueClauses(res.Issues))
+			var issues []pdf.PDFError
+			for _, iss := range res.Issues {
+				if iss.Check() != pdf.Checks.Form.SignatureByteRange {
+					issues = append(issues, iss)
+				}
+			}
+			if len(issues) > 0 {
+				t.Errorf("round-tripped output is no longer conformant; issues: %v", issueClauses(issues))
 			}
 		})
 	}
-}
-
-// passFixtures returns every "pass" fixture path in the veraPDF corpus, or
-// nil if the corpus is not present.
-func passFixtures(t *testing.T) []string {
-	t.Helper()
-	if _, err := os.Stat(veraDir); err != nil {
-		return nil
-	}
-	var found []string
-	filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() && strings.Contains(strings.ToLower(d.Name()), "-pass-") {
-			found = append(found, path)
-		}
-		return nil
-	})
-	return found
 }
 
 // errAfter is an io.Writer that succeeds for its first n writes, then fails,
@@ -552,7 +535,7 @@ func TestSizeHintDoesNotChangeOutput(t *testing.T) {
 	var wantCount int
 	for _, hint := range []int{-1, 0, 1, 4, 100000} {
 		var buf bytes.Buffer
-		order, err := WriteDocumentIndexed(&buf, build(), hint)
+		order, err := WriteDocumentIndexed(&buf, build(), hint, "1.4")
 		if err != nil {
 			t.Fatalf("hint %d: WriteDocumentIndexed: %v", hint, err)
 		}
@@ -577,4 +560,42 @@ func TestSizeHintDoesNotChangeOutput(t *testing.T) {
 func withRef(d pdf.PDFDict, ref pdf.PDFRef) pdf.PDFDict {
 	d.SetRef(ref)
 	return d
+}
+
+// TestWriteDocumentReplacesEmptyFileID verifies that an ID holding no
+// identifier bytes is replaced by a synthesized one, as a missing ID is, while
+// a real one is kept.
+func TestWriteDocumentReplacesEmptyFileID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		id   pdf.PDFValue
+		keep bool
+	}{
+		{"real", pdf.PDFArray{pdf.PDFHexString{Value: "ABCD"}, pdf.PDFHexString{Value: "ABCD"}}, true},
+		{"empty strings", pdf.PDFArray{pdf.PDFHexString{}, pdf.PDFHexString{}}, false},
+		{"not an array", pdf.PDFString{Value: "x"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Type": pdf.PDFName{Value: "Catalog"},
+			})}, pdf.PDFRef{ObjNum: 1})
+			trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog, "ID": tc.id})}
+			var buf bytes.Buffer
+			if err := WriteDocument(&buf, trailer, 0); err != nil {
+				t.Fatalf("WriteDocument: %v", err)
+			}
+			doc, err := pdf.Open(writeTempPDF(t, "id.pdf", buf.Bytes()))
+			if err != nil {
+				t.Fatalf("pdf.Open: %v", err)
+			}
+			defer doc.Close()
+			got := doc.Trailer().Entries.Get("ID")
+			if !pdf.HasFileIdentifier(got) {
+				t.Errorf("written ID %v holds no identifier bytes", got)
+			}
+			if kept := pdf.EqualPDFValue(got, tc.id); kept != tc.keep {
+				t.Errorf("written ID %v; kept the input's = %v, want %v", got, kept, tc.keep)
+			}
+		})
+	}
 }

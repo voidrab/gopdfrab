@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
@@ -508,6 +509,51 @@ func TestCheckInfoXMPSyncBadDateFormat(t *testing.T) {
 	}
 }
 
+// TestCompleteDateDigits verifies that the fields a date leaves out take their
+// ISO 32000-1 7.9.4 defaults.
+func TestCompleteDateDigits(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                 "",
+		"199":              "199",
+		"1999":             "19990101000000",
+		"199912":           "19991201000000",
+		"19991231":         "19991231000000",
+		"1999123123":       "19991231230000",
+		"19991231235959":   "19991231235959",
+		"1999123123595905": "1999123123595905",
+	} {
+		if got := completeDateDigits(in); got != want {
+			t.Errorf("completeDateDigits(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestSplitDates verifies that the timezone of a date is kept apart from its date
+// and time fields, however many of those the date gives.
+func TestSplitDates(t *testing.T) {
+	for _, tc := range []struct{ in, fields, zone string }{
+		{"D:20150310", "20150310", ""},
+		{"D:20150310+01'00'", "20150310", "0100"},
+		{"D:2015031012-05'30'", "2015031012", "0530"},
+		{"20150310", "20150310", ""},
+	} {
+		if f, z := splitPDFDate(tc.in); f != tc.fields || z != tc.zone {
+			t.Errorf("splitPDFDate(%q) = %q, %q; want %q, %q", tc.in, f, z, tc.fields, tc.zone)
+		}
+	}
+	for _, tc := range []struct{ in, fields, zone string }{
+		{"2015-03-10", "20150310", ""},
+		{"2015-03-10T00:00:00Z", "20150310000000", ""},
+		{"2015-03-10T00:00:00+01:00", "20150310000000", "0100"},
+		{"2015-03-10T00:00:00.5-05:30", "201503100000005", "0530"},
+		{"2015-03-10T12:30", "201503101230", ""},
+	} {
+		if f, z := splitXMPDate(tc.in); f != tc.fields || z != tc.zone {
+			t.Errorf("splitXMPDate(%q) = %q, %q; want %q, %q", tc.in, f, z, tc.fields, tc.zone)
+		}
+	}
+}
+
 func TestCheckInfoXMPSyncCorpus(t *testing.T) {
 	failPath := firstFileMatching(t, infoSyncDir, "t01-fail")
 	doc, xmp := rawXMPOf(t, failPath)
@@ -533,7 +579,7 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec})
+	errs := checkNonCatalogXMPStreams(nil, trailer, &ValidationContext{Spec: a1bSpec})
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want a single ObjectXMPNoXPacket", errs)
 	}
@@ -547,12 +593,12 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	root2.Entries.Set("Other", wrapped)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec}); len(errs) != 0 {
+	if errs := checkNonCatalogXMPStreams(nil, trailer2, &ValidationContext{Spec: a1bSpec}); len(errs) != 0 {
 		t.Errorf("unexpected violation for an xpacket-wrapped stream: %v", errs)
 	}
 
 	// Non-dict graphs (e.g. a bare array) are ignored.
-	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{Spec: a1bSpec}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(nil, pdf.PDFArray{}, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Error("checkNonCatalogXMPStreams on a non-dict graph should return nil")
 	}
 }
@@ -759,7 +805,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	trailer.Entries.Set("Root", root)
 
 	ctx := &ValidationContext{Spec: a1bSpec}
-	errs := checkNonCatalogXMPStreams(trailer, ctx)
+	errs := checkNonCatalogXMPStreams(nil, trailer, ctx)
 	for _, e := range errs {
 		if e.Check() == pdf.Checks.Metadata.ObjectXMPNoXPacket {
 			t.Error("an undecodable metadata stream was reported as a missing xpacket wrapper")
@@ -779,7 +825,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	root2.Entries.Set("Other", plain)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec})
+	errs2 := checkNonCatalogXMPStreams(nil, trailer2, &ValidationContext{Spec: a1bSpec})
 	if len(errs2) != 1 || errs2[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("decodable stream without xpacket = %v, want one ObjectXMPNoXPacket", errs2)
 	}
@@ -1301,7 +1347,7 @@ func TestVerifyXMPMetadataUndecodableStream(t *testing.T) {
 func TestCheckNonCatalogXMPStreamsRootNotDictionary(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFArray{})
-	if errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(nil, trailer, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want nil", errs)
 	}
 }
@@ -1421,5 +1467,45 @@ func TestXmpValidatePropValueErrors(t *testing.T) {
 	}
 	if errs := xmpValidateProp(tiff, "BitsPerSample", xmpKindSeq, "", []xmpPropItem{{text: "8"}, {text: ""}}); len(errs) != 0 {
 		t.Errorf("valid Seq items reported: %v", errs)
+	}
+}
+
+func TestXMPConforms(t *testing.T) {
+	spec, _ := pdfa.For(pdf.A2B)
+	wrap := func(body string) []byte {
+		return []byte("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>" +
+			`<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
+			body + `</rdf:RDF></x:xmpmeta><?xpacket end="r"?>`)
+	}
+	id := func(part string) string {
+		return `<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"><pdfaid:part>` + part +
+			`</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance></rdf:Description>`
+	}
+	const undeclared = `<rdf:Description rdf:about="" xmlns:acme="http://acme.example/ns/"><acme:x>1</acme:x></rdf:Description>`
+
+	if !DocumentXMPConforms(wrap(id("2")), spec) {
+		t.Error("a packet identifying part 2 should conform")
+	}
+	if DocumentXMPConforms(wrap(id("1")), spec) {
+		t.Error("a packet identifying part 1 should not conform")
+	}
+	if DocumentXMPConforms(wrap(id("2")+undeclared), spec) {
+		t.Error("a packet with an undeclared property should not conform")
+	}
+	if DocumentXMPConforms([]byte("not xml"), spec) {
+		t.Error("a packet with no XML should not conform")
+	}
+	if DocumentXMPConforms([]byte("<a><b></a>"), spec) {
+		t.Error("an unparsable packet should not conform")
+	}
+
+	if !ObjectXMPChecker(wrap(id("2")))(wrap("")) {
+		t.Error("an empty object packet should conform")
+	}
+	if !ObjectXMPChecker([]byte("<a><b></a>"))(wrap("")) {
+		t.Error("an unparsable document packet should not affect an empty object packet")
+	}
+	if ObjectXMPChecker(wrap(id("2")))(wrap(undeclared)) {
+		t.Error("an object packet with an undeclared property should not conform")
 	}
 }

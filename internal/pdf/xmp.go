@@ -73,12 +73,19 @@ func (d *Reader) RawXMP() (data []byte, meta PDFDict, err error) {
 		return nil, meta, fmt.Errorf("unable to read XMP metadata stream: %w", err)
 	}
 	// Normalise UTF-16/UTF-32 XMP streams to UTF-8 before any further processing.
-	return decodeXMPEncoding(data), meta, nil
+	return DecodeXMPEncoding(data), meta, nil
 }
 
-// decodeXMPEncoding converts an XMP stream to UTF-8 if it is UTF-16 or
+// RDFNamespace and PDFAIDNamespace are the XML namespaces of the RDF model and
+// of the PDF/A identification schema.
+const (
+	RDFNamespace    = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	PDFAIDNamespace = "http://www.aiim.org/pdfa/ns/id/"
+)
+
+// DecodeXMPEncoding converts an XMP stream to UTF-8 if it is UTF-16 or
 // UTF-32 encoded, detected by BOM or the leading '<' byte pattern.
-func decodeXMPEncoding(data []byte) []byte {
+func DecodeXMPEncoding(data []byte) []byte {
 	if len(data) < 4 {
 		if len(data) >= 2 {
 			return decodeXMPEncoding16(data, 0)

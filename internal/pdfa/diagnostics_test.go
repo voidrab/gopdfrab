@@ -66,6 +66,12 @@ func TestIssueFollowsTheLevel(t *testing.T) {
 		t.Error("permitting xref streams also excused a rebuilt xref table")
 	}
 
+	s = mustFor(t, pdf.A1B)
+	s.ExactXRefOffsets = false
+	if e, ok := s.Issue(pdf.Diagnostic{Kind: pdf.DiagXRefRebuilt}); ok {
+		t.Errorf("a level not requiring exact xref offsets raised %v", e)
+	}
+
 	om := mustFor(t, pdf.ObjectModel)
 	for kind := pdf.DiagObjectFraming; kind <= pdf.DiagStringUndecryptable; kind++ {
 		if e, ok := om.Issue(pdf.Diagnostic{Kind: kind}); ok {

@@ -10,8 +10,9 @@ picked for variety rather than volume. It runs in four phases, each resumable:
               candidate list. No downloads.
     fetch     download candidates into the staging directory, under a global
               byte budget and per-host rate limits.
-    classify  run veraPDF over the staged files and let its verdict decide
-              should-pass/ vs should-convert/. Provenance does not predict
+    classify  run veraPDF over the staged files and let its verdict, for the
+              --flavour given (default 1b), decide should-pass/<flavour>/ vs
+              should-convert/. Provenance does not predict
               this -- a US Federal Register PDF is iText output and fails 1b,
               while a LibreOffice PDF/A-1b export passes -- so the split is
               measured, never guessed.
@@ -729,21 +730,22 @@ def cmd_fetch(args) -> int:
     return 0
 
 
-def verapdf_verdicts(paths: list[Path]) -> dict[str, bool]:
-    """Run veraPDF once over a batch and return path -> is PDF/A-1b. A file the
-    reference verifier cannot even parse counts as not-1b, which is the honest
-    reading and puts it in should-convert where it is more interesting."""
+def verapdf_verdicts(paths: list[Path], flavour: str) -> dict[str, bool]:
+    """Run veraPDF once over a batch and return path -> conforms to flavour
+    ("1b", "2b", ...). A file the reference verifier cannot even parse counts
+    as not conforming, which is the honest reading and puts it in
+    should-convert where it is more interesting."""
     verdicts: dict[str, bool] = {}
     batch = 40
     for i in range(0, len(paths), batch):
         chunk = [str(p) for p in paths[i : i + batch]]
         try:
             out = subprocess.run(
-                [str(VERAPDF), "--flavour", "1b", "--format", "text", *chunk],
+                [str(VERAPDF), "--flavour", flavour, "--format", "text", *chunk],
                 capture_output=True, text=True, timeout=1800,
             ).stdout
         except subprocess.TimeoutExpired:
-            log(f"  veraPDF timed out on batch {i // batch}; marking as not-1b")
+            log(f"  veraPDF timed out on batch {i // batch}; marking as not-{flavour}")
             for p in chunk:
                 verdicts[p] = False
             continue
@@ -765,8 +767,9 @@ def cmd_classify(args) -> int:
     if not staged:
         log("nothing staged; run 'fetch' first")
         return 1
-    log(f"classifying {len(staged)} files with veraPDF")
-    verdicts = verapdf_verdicts(staged)
+    flavour = args.flavour
+    log(f"classifying {len(staged)} files with veraPDF, flavour {flavour}")
+    verdicts = verapdf_verdicts(staged, flavour)
     moved = {"should-pass": 0, "should-convert": 0}
     unknown = 0
     for path in staged:
@@ -775,12 +778,15 @@ def cmd_classify(args) -> int:
             unknown += 1
             v = False
         sub = "should-pass" if v else "should-convert"
-        dest = CORPUS / sub / path.parent.name / path.name
+        # should-pass is split by the flavour that accepted the file, so each
+        # level's verifier is held to its own set of genuine files.
+        base = CORPUS / sub / flavour if v else CORPUS / sub
+        dest = base / path.parent.name / path.name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(path), str(dest))
         moved[sub] += 1
     log(f"classified: {moved['should-pass']} should-pass, {moved['should-convert']} should-convert"
-        + (f" ({unknown} with no veraPDF verdict, treated as not-1b)" if unknown else ""))
+        + (f" ({unknown} with no veraPDF verdict, treated as not-{flavour})" if unknown else ""))
     return 0
 
 
@@ -911,6 +917,8 @@ def main() -> int:
     p.set_defaults(fn=cmd_fetch)
 
     p = sub.add_parser("classify", help="split staged files by veraPDF verdict")
+    p.add_argument("--flavour", default="1b", choices=["1b", "2b", "2u", "3b"],
+                   help="veraPDF flavour whose verdict decides should-pass/<flavour>/ (default 1b)")
     p.set_defaults(fn=cmd_classify)
 
     p = sub.add_parser("manifest", help="merge provenance into tests/realworld/manifest.json")

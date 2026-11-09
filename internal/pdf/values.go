@@ -197,6 +197,22 @@ func DecodePDFHexStringBytes(s string) []byte {
 	return out
 }
 
+// EncodePDFName returns the name whose decoded bytes are b, escaping as #XX
+// every byte that is not a regular printable character, and the number sign.
+// It is the inverse of DecodePDFName.
+func EncodePDFName(b []byte) string {
+	const hex = "0123456789ABCDEF"
+	out := make([]byte, 0, len(b))
+	for _, c := range b {
+		if c > 0x20 && c < 0x7F && c != '#' && !isDelimiter(c) {
+			out = append(out, c)
+			continue
+		}
+		out = append(out, '#', hex[c>>4], hex[c&0xF])
+	}
+	return string(out)
+}
+
 // DecodePDFName decodes PDF name #XX escape sequences and returns the
 // resulting byte slice. Unescaped bytes are returned as-is.
 func DecodePDFName(s string) []byte {

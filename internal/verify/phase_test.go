@@ -1,9 +1,6 @@
 package verify
 
 import (
-	"io/fs"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -71,15 +68,7 @@ func TestDiagnosticChecksArePostStructural(t *testing.T) {
 // both PDF/A-1b profiles, every issue VerifyParts returns sits in a part its
 // check is declared for.
 func TestCheckPhasesMatchParts(t *testing.T) {
-	var files []string
-	for _, dir := range []string{isartorDir, veraPDFDir} {
-		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".pdf") {
-				files = append(files, path)
-			}
-			return nil
-		})
-	}
+	files := a1bCorpusFiles()
 	if len(files) == 0 {
 		t.Skip("reference corpora not present")
 	}

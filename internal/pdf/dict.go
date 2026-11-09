@@ -164,6 +164,14 @@ func (d Dict) Clone() Dict {
 	return &c
 }
 
+// CloneAsNew returns a Clone that is no indirect object yet, so the writer gives
+// it an object number of its own rather than taking it for d.
+func (d Dict) CloneAsNew() Dict {
+	c := d.Clone()
+	c.ref, c.hasRef = PDFRef{}, false
+	return c
+}
+
 // Assign replaces d's entries, reference and stream with src's. Every copy of
 // d shares its body, so all references to the object see the change. Use
 // Assign to publish an edit prepared on a Clone.

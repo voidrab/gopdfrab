@@ -8,6 +8,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/raster"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // hiddenLayerDoc builds a one-page document with two optional content
@@ -28,7 +29,8 @@ func hiddenLayerDoc() []byte {
 	b.Obj(5, "<< /Type /OCG /Name (Hidden) >>")
 	b.Obj(6, "<< /Type /OCG /Name (Shown) >>")
 	b.StreamObj(7, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /OC 5 0 R", []byte("0 g 20 120 60 60 re f\n"))
-	b.Obj(8, "<< /Type /Annot /Subtype /Square /Rect [120 20 180 80] /F 4 /OC 5 0 R >>")
+	// An annotation's Type entry is optional.
+	b.Obj(8, "<< /Subtype /Square /Rect [120 20 180 80] /F 4 /OC 5 0 R >>")
 	return b.FinishClassic("<< /Size 9 /Root 1 0 R >>")
 }
 
@@ -140,5 +142,128 @@ func TestOptionalContentFixerReportsEachHiddenGroup(t *testing.T) {
 	}
 	if s := string(data); strings.Count(s, " f") != 0 || !strings.Contains(s, "/Fm Do") {
 		t.Errorf("rewritten content = %q, want every hidden fill gone and the visible form kept", s)
+	}
+}
+
+// ocFixture returns a trailer whose OCProperties breaks every 6.9 rule: D
+// has no Name and an AS entry, Configs repeats D itself and repeats a name,
+// a group has a name object for its Name, and an Order array, which two
+// configurations share, misses a group.
+func ocFixture() (trailer, props pdf.PDFDict) {
+	a := kv("Type", name("OCG"), "Name", pdf.PDFString{Value: "A"})
+	b := kv("Type", name("OCG"), "Name", name("B"))
+	c := kv("Type", name("OCG"))
+	shared := pdf.PDFArray{a}
+	d := kv("AS", pdf.PDFArray{}, "Order", shared)
+	x1 := kv("Name", pdf.PDFString{Value: "X"}, "Order", shared)
+	x2 := kv("Name", pdf.PDFString{Value: "X"}, "AS", pdf.PDFArray{})
+	props = kv("OCGs", pdf.PDFArray{a, b, c}, "D", d, "Configs", pdf.PDFArray{d, x1, pdf.PDFInteger(1), x2, x1})
+	return trailerWith("OCProperties", props), props
+}
+
+// TestOCConfigFixerRepairsEveryRule verifies that after a fix with every 6.9
+// check reported, the configurations break none of the rules.
+func TestOCConfigFixerRepairsEveryRule(t *testing.T) {
+	trailer, props := ocFixture()
+	s := pdf.Checks.Structure
+	changed, err := ocConfigFixer{}.Fix(&trailer, issuesOf(s.OCConfigMissingName, s.OCConfigDuplicateName,
+		s.OCConfigOrderIncomplete, s.OCConfigAutoState))
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v, want a change", changed, err)
+	}
+	configs := verify.OCConfigs(props)
+	if len(configs) != 3 {
+		t.Fatalf("%d configurations, want D and the two distinct Configs entries", len(configs))
+	}
+	var names []string
+	for i, cfg := range configs {
+		name, ok := verify.OCConfigName(cfg)
+		if !ok {
+			t.Errorf("configuration %d has no name", i)
+		}
+		names = append(names, name)
+		if _, ok := cfg.Entries.Lookup("AS"); ok {
+			t.Errorf("configuration %d kept AS", i)
+		}
+		if missing := verify.OCGroupsMissingFromOrder(cfg, verify.OCGroupNames(verify.OCGroups(props))); len(missing) != 0 {
+			t.Errorf("configuration %d Order misses %d groups", i, len(missing))
+		}
+	}
+	if want := []string{"Default", "X", "X 2"}; !slices.Equal(names, want) {
+		t.Errorf("names = %q, want %q", names, want)
+	}
+	if slices.Contains(verify.OCConfigDuplicates(configs), true) {
+		t.Error("a name is still repeated")
+	}
+	groupNames := verify.OCGroupNames(verify.OCGroups(props))
+	if want := []string{"A", "B", "Layer"}; !slices.Equal(groupNames, want) {
+		t.Errorf("group names = %q, want %q", groupNames, want)
+	}
+	if order := configs[0].Entries.Get("Order").(pdf.PDFArray); len(order) != 3 {
+		t.Errorf("D Order has %d entries, want 3", len(order))
+	}
+}
+
+// TestOCConfigFixerNoOp verifies that the fixer changes nothing without an
+// OCProperties dictionary, or when the reported check finds nothing to fix.
+func TestOCConfigFixerNoOp(t *testing.T) {
+	s := pdf.Checks.Structure
+	all := issuesOf(s.OCConfigMissingName, s.OCConfigDuplicateName, s.OCConfigOrderIncomplete, s.OCConfigAutoState)
+	conforming := kv("OCGs", pdf.PDFArray{}, "D", kv("Name", pdf.PDFString{Value: "D"}),
+		"Configs", pdf.PDFArray{kv("Name", pdf.PDFString{Value: "E"})})
+	for _, trailer := range []pdf.PDFDict{
+		kv(),
+		trailerWith("Other", pdf.PDFInteger(1)),
+		trailerWith("OCProperties", pdf.PDFInteger(1)),
+		trailerWith("OCProperties", conforming),
+		trailerWith("OCProperties", kv("Configs", pdf.PDFInteger(1))),
+	} {
+		if changed, err := (ocConfigFixer{}).Fix(&trailer, all); changed || err != nil {
+			t.Errorf("Fix(%v) = %v, %v, want no change", trailer, changed, err)
+		}
+	}
+}
+
+// TestOCConfigFixerKeepsGivenNames verifies that a hex-string name is kept,
+// and that a name object's value becomes the new Name string.
+func TestOCConfigFixerKeepsGivenNames(t *testing.T) {
+	hex := kv("Type", name("OCG"), "Name", pdf.PDFHexString{Value: "FEFF004D"})
+	cfg := kv("Name", name("Print"), "Order", pdf.PDFArray{})
+	trailer := trailerWith("OCProperties", kv("OCGs", pdf.PDFArray{hex}, "D", cfg))
+	s := pdf.Checks.Structure
+	if _, err := (ocConfigFixer{}).Fix(&trailer, issuesOf(s.OCConfigMissingName, s.OCConfigOrderIncomplete)); err != nil {
+		t.Fatal(err)
+	}
+	if hex.Entries.Get("Name") != (pdf.PDFHexString{Value: "FEFF004D"}) {
+		t.Errorf("group Name = %v, want the hex string kept", hex.Entries.Get("Name"))
+	}
+	if name, _ := verify.OCConfigName(cfg); name != "Print" {
+		t.Errorf("configuration Name = %q, want Print", name)
+	}
+}
+
+// TestOCConfigFixerSharedUnnamedConfig verifies that a D which Configs lists
+// again and which has no Name is left as a single configuration by one Fix
+// call, when only the missing name is reported.
+func TestOCConfigFixerSharedUnnamedConfig(t *testing.T) {
+	d := kv("Order", pdf.PDFArray{})
+	props := kv("D", d, "Configs", pdf.PDFArray{d})
+	trailer := trailerWith("OCProperties", props)
+	if _, err := (ocConfigFixer{}).Fix(&trailer, issuesOf(pdf.Checks.Structure.OCConfigMissingName)); err != nil {
+		t.Fatal(err)
+	}
+	configs := verify.OCConfigs(props)
+	if len(configs) != 1 || slices.Contains(verify.OCConfigDuplicates(configs), true) {
+		t.Errorf("configs = %v, want D alone", configs)
+	}
+}
+
+func TestUniqueName(t *testing.T) {
+	taken := map[string]bool{"Layer": true, "Layer 2": true}
+	if got := uniqueName(taken, "Layer"); got != "Layer 3" || !taken["Layer 3"] {
+		t.Errorf("uniqueName = %q, taken %v", got, taken)
+	}
+	if got := uniqueName(taken, "Other"); got != "Other" {
+		t.Errorf("uniqueName = %q, want Other", got)
 	}
 }

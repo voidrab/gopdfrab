@@ -14,6 +14,8 @@ type Spec struct {
 	Level pdf.LevelType
 	// PDFA is false for a level that is plain PDF, with no PDF/A rules.
 	PDFA bool
+	// Part is the part of ISO 19005 the level belongs to, or 0 for plain PDF.
+	Part int
 
 	// Limits are the level's architectural limits.
 	Limits Limits
@@ -30,9 +32,39 @@ type Spec struct {
 	BlendModes Names
 	// FontFileSubtypes are the /Subtype values an embedded font file may have.
 	FontFileSubtypes Names
+	// PredefinedCMaps are the CMaps a composite font may name without
+	// embedding them. When UseCMapPredefined is set, they are also the only
+	// CMaps an embedded CMap may use.
+	PredefinedCMaps   Names
+	UseCMapPredefined bool
+	// SymbolCmapAmongOthers says whether a symbolic TrueType font's program
+	// may have several cmap subtables when one is the Microsoft Symbol (3,0)
+	// one, rather than exactly one.
+	SymbolCmapAmongOthers bool
+	// ZeroAreaAnnotsExempt says whether an annotation whose Rect covers no
+	// area needs no appearance dictionary.
+	ZeroAreaAnnotsExempt bool
+	// AABarredTypes, when not empty, are the /Type values of the only
+	// dictionaries that may not hold an AA entry. When empty, none may.
+	AABarredTypes Names
+	// SubsetSetsOptional says whether a subset font's descriptor may omit its
+	// CharSet or CIDSet, which must still be complete when present.
+	SubsetSetsOptional bool
+	// ExactSubsetSets says whether a subset's CharSet or CIDSet must list
+	// exactly the glyphs of its embedded program, .notdef aside, rather than
+	// at least the program glyphs the document uses.
+	ExactSubsetSets bool
 	// ForbiddenViewerPrefKeys are the ViewerPreferences keys the level's PDF
 	// version does not define.
 	ForbiddenViewerPrefKeys Names
+	// StreamFilters and InlineImageFilters, when not empty, are the only
+	// filters a stream and an inline image may name. A stream's Crypt filter
+	// must be the Identity one.
+	StreamFilters      Names
+	InlineImageFilters Names
+
+	// SixteenBitImages says whether an image may have 16 bits per component.
+	SixteenBitImages bool
 
 	// Transparency, OptionalContent, XRefStreams and EmbeddedFiles say
 	// whether the level permits each feature.
@@ -43,8 +75,12 @@ type Spec struct {
 
 	// ICCMaxMajorVersion is the newest ICC profile major version allowed.
 	ICCMaxMajorVersion int
-	// OutputIntentSubtype is the /S an OutputIntent must have.
+	// OutputIntentSubtype is the subtype (/S) of the level's own output
+	// intent.
 	OutputIntentSubtype string
+	// OtherOutputIntents says whether output intents with another subtype,
+	// such as PDF/X ones, may stand beside the level's own.
+	OtherOutputIntents bool
 
 	// XMPPart and XMPConformance are the pdfaid:part and pdfaid:conformance
 	// a converted file declares; XMPConformances are the conformance values
@@ -53,15 +89,30 @@ type Spec struct {
 	XMPConformance  string
 	XMPConformances Names
 
-	// ModelVersion is the PDF version whose object model applies.
+	// ModelVersion is the PDF version whose object model applies, and the
+	// version a converted file's header names.
 	ModelVersion string
+	// MaxPDFVersion is the newest version the file header may name, with the
+	// same major version; empty allows any %PDF-N.M header.
+	MaxPDFVersion string
+	// LinearizedFileID says whether the first ID entry of a linearized
+	// file's trailers must agree.
+	LinearizedFileID bool
+	// FileIDBytes says whether the trailer ID must be an array whose strings
+	// hold at least one byte between them, rather than merely be present.
+	FileIDBytes bool
+	// ExactXRefOffsets says whether the startxref and Prev offsets must
+	// locate the cross-reference sections exactly, so that a table the reader
+	// had to rebuild by scanning is a violation.
+	ExactXRefOffsets bool
 }
 
 // Limits are a level's architectural limits. A zero field sets no limit.
 type Limits struct {
 	MaxInteger, MinInteger int64
-	// MaxReal bounds the absolute value of a real number.
-	MaxReal             float64
+	// MaxReal bounds the absolute value of a real number, and MinReal that of
+	// a nonzero one.
+	MaxReal, MinReal    float64
 	MaxStringBytes      int
 	MaxNameBytes        int
 	MaxArrayElements    int
@@ -71,6 +122,9 @@ type Limits struct {
 	MaxIndirectObjects  int
 	// MaxQNesting is the deepest q/Q nesting a content stream may reach.
 	MaxQNesting int
+	// MinPageBoundary and MaxPageBoundary bound the width and height of each
+	// page boundary (MediaBox, CropBox, BleedBox, TrimBox and ArtBox).
+	MinPageBoundary, MaxPageBoundary float64
 }
 
 // For returns the spec of a conformance level. ok is false for a level there
@@ -79,6 +133,8 @@ func For(level pdf.LevelType) (s Spec, ok bool) {
 	switch level {
 	case pdf.A1B:
 		return a1b, true
+	case pdf.A2B:
+		return a2b, true
 	case pdf.ObjectModel:
 		return objectModel, true
 	}
@@ -103,10 +159,23 @@ func (s Spec) BlendModeAllowed(bm pdf.PDFValue) bool {
 	return false
 }
 
+// BitsPerComponentAllowed reports whether an image that is not a mask may
+// have bpc bits per component.
+func (s Spec) BitsPerComponentAllowed(bpc int) bool {
+	switch bpc {
+	case 1, 2, 4, 8:
+		return true
+	case 16:
+		return s.SixteenBitImages
+	}
+	return false
+}
+
 // a1b is PDF/A-1b, ISO 19005-1:2005 Level B.
 var a1b = Spec{
 	Level: pdf.A1B,
 	PDFA:  true,
+	Part:  1,
 	// ISO 19005-1 Table 1 (6.1.12).
 	Limits: Limits{
 		MaxInteger:          2147483647,
@@ -134,6 +203,8 @@ var a1b = Spec{
 	BlendModes: NewNames("Normal", "Compatible"),
 	// 6.3.2: the only font file subtypes PDF 1.4 defines.
 	FontFileSubtypes: NewNames("Type1C", "CIDFontType0C"),
+	// 6.3.3.3.
+	PredefinedCMaps: NewNames("Identity-H", "Identity-V"),
 	// Keys introduced after PDF 1.4.
 	ForbiddenViewerPrefKeys: NewNames("PrintScaling", "PickTrayByPDFSize", "PrintPageRange", "NumCopies"),
 	// 6.2.2: ICC.1:2003-09.
@@ -144,6 +215,95 @@ var a1b = Spec{
 	XMPConformance:  "B",
 	XMPConformances: NewNames("A", "B"),
 	ModelVersion:    "1.4",
+	// 6.1.3 and 6.1.4.
+	LinearizedFileID: true,
+	ExactXRefOffsets: true,
+}
+
+// a2b is PDF/A-2b, ISO 19005-2:2011 Level B.
+var a2b = Spec{
+	Level: pdf.A2B,
+	PDFA:  true,
+	Part:  2,
+	// ISO 19005-2 6.1.13. Arrays and dictionaries have no limit.
+	Limits: Limits{
+		MaxInteger:          2147483647,
+		MinInteger:          -2147483648,
+		MaxReal:             3.403e38,
+		MinReal:             1.175e-38,
+		MaxStringBytes:      32767,
+		MaxNameBytes:        127,
+		MaxCID:              65535,
+		MaxDeviceNColorants: 32,
+		MaxIndirectObjects:  8388607,
+		MaxQNesting:         28,
+		MinPageBoundary:     3,
+		MaxPageBoundary:     14400,
+	},
+	// 6.2.9.
+	RenderingIntents: NewNames("AbsoluteColorimetric", "RelativeColorimetric", "Saturation", "Perceptual"),
+	// 6.5.1.
+	ForbiddenActions: NewNames("Launch", "Sound", "Movie", "ResetForm", "ImportData", "JavaScript",
+		"Hide", "SetOCGState", "Rendition", "Trans", "GoTo3DView", "SetState", "NOP"),
+	NamedActions: NewNames("NextPage", "PrevPage", "FirstPage", "LastPage"),
+	// 6.3.1: ISO 32000-1 Table 169, less 3D, Sound, Screen and Movie.
+	AnnotationSubtypes: NewNames("Text", "Link", "FreeText", "Line", "Square", "Circle", "Polygon",
+		"PolyLine", "Highlight", "Underline", "Squiggly", "StrikeOut", "Stamp", "Caret", "Ink", "Popup",
+		"FileAttachment", "Widget", "PrinterMark", "TrapNet", "Watermark", "Redact"),
+	// 6.2.10: ISO 32000-1 Tables 136 and 137.
+	BlendModes: NewNames("Normal", "Compatible", "Multiply", "Screen", "Overlay", "Darken", "Lighten",
+		"ColorDodge", "ColorBurn", "HardLight", "SoftLight", "Difference", "Exclusion", "Hue",
+		"Saturation", "Color", "Luminosity"),
+	// 6.2.11.4.1.
+	FontFileSubtypes: NewNames("Type1C", "CIDFontType0C", "OpenType"),
+	// 6.2.11.3.3: ISO 32000-1 Table 118.
+	PredefinedCMaps: NewNames("Identity-H", "Identity-V",
+		"GB-EUC-H", "GB-EUC-V", "GBpc-EUC-H", "GBpc-EUC-V", "GBK-EUC-H", "GBK-EUC-V",
+		"GBKp-EUC-H", "GBKp-EUC-V", "GBK2K-H", "GBK2K-V", "UniGB-UCS2-H", "UniGB-UCS2-V",
+		"UniGB-UTF16-H", "UniGB-UTF16-V",
+		"B5pc-H", "B5pc-V", "HKscs-B5-H", "HKscs-B5-V", "ETen-B5-H", "ETen-B5-V",
+		"ETenms-B5-H", "ETenms-B5-V", "CNS-EUC-H", "CNS-EUC-V", "UniCNS-UCS2-H",
+		"UniCNS-UCS2-V", "UniCNS-UTF16-H", "UniCNS-UTF16-V",
+		"83pv-RKSJ-H", "90ms-RKSJ-H", "90ms-RKSJ-V", "90msp-RKSJ-H", "90msp-RKSJ-V",
+		"90pv-RKSJ-H", "Add-RKSJ-H", "Add-RKSJ-V", "EUC-H", "EUC-V", "Ext-RKSJ-H",
+		"Ext-RKSJ-V", "H", "V", "UniJIS-UCS2-H", "UniJIS-UCS2-V", "UniJIS-UCS2-HW-H",
+		"UniJIS-UCS2-HW-V", "UniJIS-UTF16-H", "UniJIS-UTF16-V",
+		"KSC-EUC-H", "KSC-EUC-V", "KSCms-UHC-H", "KSCms-UHC-V", "KSCms-UHC-HW-H",
+		"KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H",
+		"UniKS-UTF16-V"),
+	UseCMapPredefined: true,
+	// 6.3.3: zero-area annotations need no appearance dictionary.
+	ZeroAreaAnnotsExempt: true,
+	// 6.5.2: the AA entries of widgets and fields are left to 6.4.1.
+	AABarredTypes: NewNames("Catalog", "Page"),
+	// 6.2.11.4.2 and 6.2.11.6.
+	SubsetSetsOptional:    true,
+	ExactSubsetSets:       true,
+	SymbolCmapAmongOthers: true,
+	// 6.1.7.2 and 6.1.10: ISO 32000-1 Table 6 less LZWDecode, and for inline
+	// images also less JBIG2Decode, JPXDecode and Crypt, in either spelling.
+	StreamFilters: NewNames("ASCIIHexDecode", "ASCII85Decode", "FlateDecode", "RunLengthDecode",
+		"CCITTFaxDecode", "JBIG2Decode", "DCTDecode", "JPXDecode", "Crypt"),
+	InlineImageFilters: NewNames("ASCIIHexDecode", "ASCII85Decode", "FlateDecode", "RunLengthDecode",
+		"CCITTFaxDecode", "DCTDecode", "AHx", "A85", "Fl", "RL", "CCF", "DCT"),
+	// 6.2.8.
+	SixteenBitImages: true,
+	Transparency:     true,
+	OptionalContent:  true,
+	XRefStreams:      true,
+	EmbeddedFiles:    true,
+	// 6.2.3: ICC.1:2010.
+	ICCMaxMajorVersion:  4,
+	OutputIntentSubtype: "GTS_PDFA1",
+	OtherOutputIntents:  true,
+	// 6.6.4.
+	XMPPart:         "2",
+	XMPConformance:  "B",
+	XMPConformances: NewNames("A", "B", "U"),
+	ModelVersion:    "1.7",
+	// 6.1.2 and 6.1.3.
+	MaxPDFVersion: "1.7",
+	FileIDBytes:   true,
 }
 
 // objectModel is plain PDF: the object model, and none of PDF/A's rules.

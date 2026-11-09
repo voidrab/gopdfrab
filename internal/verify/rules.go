@@ -25,7 +25,8 @@ var dictRules = []dictRule{
 	{
 		checks: []pdf.Check{
 			pdf.Checks.Structure.StreamFileDecodeParams, pdf.Checks.Structure.StreamFileFilter,
-			pdf.Checks.Structure.StreamFileSpec, pdf.Checks.Structure.StreamLZWFilter,
+			pdf.Checks.Structure.StreamFileSpec, pdf.Checks.Structure.StreamFilterNotAllowed,
+			pdf.Checks.Structure.StreamLZWFilter,
 		},
 		fn: validateStreamObject,
 	},
@@ -34,6 +35,12 @@ var dictRules = []dictRule{
 			pdf.Checks.Structure.EmbeddedFileSpec, pdf.Checks.Structure.EmbeddedFiles,
 		},
 		fn: validateObject,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.EmbeddedFileMissingNames, pdf.Checks.Structure.EmbeddedFileNotPDFA,
+		},
+		fn: validateFileSpec,
 	},
 	{
 		checks: []pdf.Check{
@@ -51,6 +58,8 @@ var dictRules = []dictRule{
 		checks: []pdf.Check{
 			pdf.Checks.Transparency.BlendMode, pdf.Checks.Transparency.DefaultTransferFunction,
 			pdf.Checks.Transparency.ExtGStateRenderingIntent,
+			pdf.Checks.Transparency.HalftoneExtGState, pdf.Checks.Transparency.HalftoneName,
+			pdf.Checks.Transparency.HalftoneTransferFunction, pdf.Checks.Transparency.HalftoneType,
 			pdf.Checks.Transparency.NonStrokingAlpha, pdf.Checks.Transparency.SoftMaskExtGState,
 			pdf.Checks.Transparency.StrokingAlpha, pdf.Checks.Transparency.TransferFunction,
 		},
@@ -61,6 +70,26 @@ var dictRules = []dictRule{
 			pdf.Checks.Transparency.TransparencyGroup,
 		},
 		fn: validateTransparencyGroup,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Transparency.TransparencyWithoutBlendingSpace,
+		},
+		fn: validatePageTransparency,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Transparency.DeviceBlendingColourSpace,
+		},
+		fn: validateBlendingColourSpace,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Image.JPXBitDepth, pdf.Checks.Image.JPXCIEJab,
+			pdf.Checks.Image.JPXColourChannels, pdf.Checks.Image.JPXColourMethod,
+			pdf.Checks.Image.JPXColourSpecs,
+		},
+		fn: validateJPXImage,
 	},
 	{
 		checks: []pdf.Check{
@@ -80,7 +109,8 @@ var dictRules = []dictRule{
 			pdf.Checks.Annotation.DisallowedSubtype, pdf.Checks.Annotation.HiddenFlagSet,
 			pdf.Checks.Annotation.InvisibleFlagSet, pdf.Checks.Annotation.MissingAppearance,
 			pdf.Checks.Annotation.NoViewFlagSet, pdf.Checks.Annotation.OpacityNotOne,
-			pdf.Checks.Annotation.PrintFlagNotSet, pdf.Checks.Form.WidgetMissingAppearance,
+			pdf.Checks.Annotation.PrintFlagNotSet, pdf.Checks.Annotation.AnnotationFlagsMissing,
+			pdf.Checks.Annotation.ToggleNoViewFlagSet, pdf.Checks.Form.WidgetMissingAppearance,
 		},
 		fn: validateAnnotation,
 	},
@@ -92,17 +122,22 @@ var dictRules = []dictRule{
 	},
 	{
 		checks: []pdf.Check{
-			pdf.Checks.Colour.DeviceColourSpaceUsage,
+			pdf.Checks.Colour.DeviceColourBase, pdf.Checks.Colour.DeviceColourSpaceUsage,
 		},
 		fn: validateColourSpaceUsage,
 	},
 	{
 		checks: []pdf.Check{
-			pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.RenderingIntent,
+			pdf.Checks.Colour.DeviceColourBase, pdf.Checks.Colour.DeviceColourContentStream,
+			pdf.Checks.Colour.ICCBasedCMYKOverprint, pdf.Checks.Colour.InheritedResources,
+			pdf.Checks.Colour.RenderingIntent,
 			pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Image.ImageInterpolate,
+			pdf.Checks.Image.ImageRenderingIntent,
 			pdf.Checks.Structure.GraphicsStateNesting, pdf.Checks.Structure.HexStringInvalidChar,
-			pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.InlineImageLZWFilter,
+			pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.InlineImageFilterNotAllowed,
+			pdf.Checks.Structure.InlineImageLZWFilter,
 			pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.RealOutOfRange,
+			pdf.Checks.Structure.RealTooCloseToZero,
 			pdf.Checks.Structure.StreamUndecodable, pdf.Checks.Structure.StringTooLong,
 		},
 		fn: validateContentStreams,
@@ -117,7 +152,9 @@ var dictRules = []dictRule{
 			pdf.Checks.Font.InvalidSubtype, pdf.Checks.Font.SimpleNotEmbedded,
 			pdf.Checks.Font.SubsetGlyphCoverage, pdf.Checks.Font.SymbolicTrueTypeCmap,
 			pdf.Checks.Font.SymbolicTrueTypeEncoding, pdf.Checks.Font.TrueTypeEncoding,
-			pdf.Checks.Font.Type1SubsetCharSet, pdf.Checks.Structure.StreamUndecodable,
+			pdf.Checks.Font.Type1SubsetCharSet, pdf.Checks.Font.UseCMapNotPredefined,
+			pdf.Checks.Font.NonSymbolicTrueTypeCmap, pdf.Checks.Font.NotdefGlyphReference,
+			pdf.Checks.Structure.StreamUndecodable,
 		},
 		fn: ValidateFontDict,
 	},
@@ -133,6 +170,24 @@ var dictRules = []dictRule{
 		},
 		fn: validateViewerPreferences,
 	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.NameNotUTF8,
+		},
+		fn: validateUnicodeNames,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.SignatureReferenceDigest,
+		},
+		fn: validateSignatureReferences,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.PageBoundarySize,
+		},
+		fn: validatePageBoundaries,
+	},
 }
 
 // preWalkDocRules run before the walk, and postWalkDocRules after it.
@@ -145,6 +200,12 @@ var (
 			},
 			fn: docInfoRule,
 		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Structure.PermissionsKeys,
+			},
+			fn: permissionsRule,
+		},
 	}
 	postWalkDocRules = []docRule{
 		{
@@ -155,12 +216,40 @@ var (
 		},
 		{
 			checks: []pdf.Check{
+				pdf.Checks.Structure.OCConfigMissingName, pdf.Checks.Structure.OCConfigDuplicateName,
+				pdf.Checks.Structure.OCConfigOrderIncomplete, pdf.Checks.Structure.OCConfigAutoState,
+			},
+			fn: ocConfigRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Structure.EmbeddedFileMissingNames, pdf.Checks.Structure.EmbeddedFileNotPDFA,
+			},
+			fn: embeddedFilesRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Structure.AlternatePresentations, pdf.Checks.Structure.PresentationSteps,
+				pdf.Checks.Structure.CatalogRequirements,
+			},
+			fn: presentationRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Form.SignatureByteRange, pdf.Checks.Form.SignatureCertificate,
+				pdf.Checks.Form.SignatureSigners,
+			},
+			fn: signatureRule,
+		},
+		{
+			checks: []pdf.Check{
 				pdf.Checks.Colour.ICCBasedComponentsMismatch,
 				pdf.Checks.Colour.OutputIntentICCVersion, pdf.Checks.Colour.OutputIntentInvalidN,
 				pdf.Checks.Colour.OutputIntentInvalidProfile,
 				pdf.Checks.Colour.OutputIntentInvalidS,
 				pdf.Checks.Colour.OutputIntentMissingIdentifier,
 				pdf.Checks.Colour.OutputIntentMissingN,
+				pdf.Checks.Colour.OutputIntentDestOutputProfileRef,
 				pdf.Checks.Colour.OutputIntentMultipleProfiles,
 				pdf.Checks.Colour.OutputIntentNotArray, pdf.Checks.Colour.OutputIntentNotDict,
 				pdf.Checks.Colour.OutputIntentUnresolvedProfile,
@@ -170,7 +259,14 @@ var (
 		},
 		{
 			checks: []pdf.Check{
+				pdf.Checks.Colour.DeviceColourWithoutPDFAIntent,
+			},
+			fn: deviceColourWithoutPDFAIntentRule,
+		},
+		{
+			checks: []pdf.Check{
 				pdf.Checks.Form.NeedAppearances, pdf.Checks.Form.XFA,
+				pdf.Checks.Form.NeedsRendering,
 			},
 			fn: interactiveFormRule,
 		},
@@ -181,6 +277,8 @@ var (
 				pdf.Checks.Metadata.ExtPropertyMultipleName,
 				pdf.Checks.Metadata.ExtPropertyUndefinedType,
 				pdf.Checks.Metadata.ExtPropertyUndocumented, pdf.Checks.Metadata.ExtSchemaNamespace,
+				pdf.Checks.Metadata.ExtSchemaDefinitionInvalid,
+				pdf.Checks.Metadata.ExtSchemaUndefinedField,
 				pdf.Checks.Metadata.ExtSchemaWrongPrefixURI, pdf.Checks.Metadata.ExtSchemasNotBag,
 				pdf.Checks.Metadata.ExtTypeInvalid, pdf.Checks.Metadata.InfoXMPSync,
 				pdf.Checks.Metadata.MetadataFiltered, pdf.Checks.Metadata.MetadataMissing,
@@ -200,6 +298,14 @@ var (
 		{
 			checks: []pdf.Check{
 				pdf.Checks.Metadata.ObjectXMPNoXPacket, pdf.Checks.Structure.StreamUndecodable,
+				pdf.Checks.Metadata.ExtFieldInvalid, pdf.Checks.Metadata.ExtPropertyMissingField,
+				pdf.Checks.Metadata.ExtPropertyUndefinedType,
+				pdf.Checks.Metadata.ExtSchemaDefinitionInvalid,
+				pdf.Checks.Metadata.ExtSchemaUndefinedField, pdf.Checks.Metadata.ExtSchemasNotBag,
+				pdf.Checks.Metadata.ExtTypeInvalid, pdf.Checks.Metadata.MetadataUndeclaredProperty,
+				pdf.Checks.Metadata.XMPNoCorrespondingType, pdf.Checks.Metadata.XMPNotWellFormed,
+				pdf.Checks.Metadata.XPacketBytesAttribute,
+				pdf.Checks.Metadata.XPacketEncodingAttribute,
 			},
 			fn: objectXMPRule,
 		},
@@ -266,6 +372,14 @@ func optionalContentRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) 
 	return verifyOptionalContent(d, *ctx.Spec)
 }
 
+func ocConfigRule(d *pdf.Reader, _ pdf.PDFValue, _ *ValidationContext) []pdf.PDFError {
+	root, ok := catalog(d).(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	return verifyOCConfigs(root)
+}
+
 func outputIntentRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
 	return verifyOutputIntent(d, *ctx.Spec)
 }
@@ -275,9 +389,12 @@ func interactiveFormRule(d *pdf.Reader, _ pdf.PDFValue, _ *ValidationContext) []
 }
 
 func xmpMetadataRule(d *pdf.Reader, _ pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
+	if ctx.part2() {
+		return verifyXMPMetadataPart2(d, ctx)
+	}
 	return verifyXMPMetadata(d, *ctx.Spec)
 }
 
-func objectXMPRule(_ *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
-	return checkNonCatalogXMPStreams(graph, ctx)
+func objectXMPRule(d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
+	return checkNonCatalogXMPStreams(d, graph, ctx)
 }

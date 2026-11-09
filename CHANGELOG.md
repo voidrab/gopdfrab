@@ -22,6 +22,61 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
+## [1.4.0] - 2026-11-09
+
+### Added
+
+- PDF/A-2b verification and conversion: the `A2B` level and the `PDFA2B`
+  profile, also in `gopdfrab/verify`, and `--profile pdfa2b` on the CLI.
+  `Profiles` and `ProfileByName` list it as `pdfa2b`. A converted file
+  declares PDF 1.7.
+- `PDFError.Level` and `PDFError.Clause` give the level an issue was reported
+  under and its clause there. An issue's text and JSON, `Result.Summary`,
+  `Result.Checks` and the CLI number each check by the clause of that level.
+  `Check.DescriptionIn` words a check's rule as a given level does.
+- Forty-five checks for rules only PDF/A-2 sets, with no PDF/A-1 clause (so
+  `Clause()` is empty and `ClauseIn` names their PDF/A-2 clause). They cover
+  names, permissions, signatures and page boundaries in
+  `Checks.Structure`; device colour, output intents and halftones in
+  `Checks.Colour` and `Checks.Transparency`; JPEG 2000 in `Checks.Image`;
+  CMaps and .notdef in `Checks.Font`; annotation flags in `Checks.Annotation`;
+  NeedsRendering in `Checks.Form`; extension schemas in `Checks.Metadata`;
+  optional content configurations; and embedded files, presentations and
+  requirements. Metadata is checked on an RDF model of the XMP, and an
+  embedded file must itself conform to PDF/A-1b or PDF/A-2b.
+
+### Changed
+
+- The raster fallback and fidelity renderer draw blend modes and ExtGState soft
+  masks; past a work limit they stop and report it in `RasterDrops`.
+- Converting to PDF/A-2b converts embedded PDFs (two levels deep), removes
+  non-conforming embedded files and reports them in `LostObjects`, and keeps an
+  XMP packet that already passes. A valid output intent stays at every level.
+- Converting a signed file removes its signatures at every level and reports
+  each in `LostObjects`; the rewrite used to invalidate them silently.
+
+### Fixed
+
+- Convert rasterized every page when a font no fixer could embed was shown on
+  several pages; it now rasterizes only the pages that show it.
+- Fonts: CIDSet and width checks now follow a CIDToGIDMap stream, fonts used
+  only by Type 3 glyph procedures count as used, TrueType codes outside
+  `/Widths` and subset CIDFontType0 CIDs are compared with the program, and
+  convert repairs the findings instead of rasterizing.
+- Colour: the overprint rule missed DeviceCMYK under a DefaultCMYK and state
+  inherited by forms, and forms or Type 3 fonts without own resources were
+  wrongly excused by the page's Default colour spaces.
+- Annotations and actions: convert left emptied dictionaries in `/Annots` and
+  in action chains, which veraPDF reads as typeless objects; it now removes
+  them and keeps the permitted actions chained.
+- Verify reads the newest revision of an incrementally updated file
+  throughout, and reports a lone CR after `stream`.
+- Smaller fixes: XMP dates always carry a time and timezone, hexadecimal
+  strings obey the length limit, inline-image `/DP` parameters are no longer
+  lost, a trailer ID without identifier bytes is replaced, JP2 headers that
+  disagree with their codestream are corrected, and `Result.Summary` no longer
+  prints `/0`.
+
 ## [1.3.0] - 2026-10-31
 
 ### Added

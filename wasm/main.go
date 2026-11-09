@@ -32,7 +32,7 @@ func main() {
 
 // jsConvert implements:
 //
-//	gopdfrabConvert(bytes: Uint8Array) → Promise<{
+//	gopdfrabConvert(bytes: Uint8Array, profile?: string) → Promise<{
 //	  valid: boolean,
 //	  iterations: number,
 //	  output: Uint8Array,
@@ -45,16 +45,17 @@ func main() {
 //	  lostObjects: Issue[]
 //	}>
 //
-// The input is verified before conversion so the caller can be told which of
-// its original defects were resolved -- ConvertResult only reports what is
-// left over. jsapi.Issue and jsapi.DocInfo document the Issue and DocInfo
-// shapes.
+// profile names the target profile, as gopdfrabVerify's does, and defaults
+// to "pdfa1b". The input is verified against profile before conversion, so
+// the caller can tell which of its original defects were resolved;
+// ConvertResult reports only what is left over. jsapi.Issue and
+// jsapi.DocInfo document the Issue and DocInfo shapes.
 func jsConvert(_ js.Value, args []js.Value) any {
 	return jsapi.NewPromise(func() (any, error) {
-		if len(args) < 1 {
-			return nil, fmt.Errorf("gopdfrabConvert: expected 1 argument")
+		data, profile, err := jsapi.InputArgs("gopdfrabConvert", args)
+		if err != nil {
+			return nil, err
 		}
-		data := jsapi.CopyBytes(args[0])
 
 		// One parse serves both the document facts and the pre-conversion
 		// verify. A file too damaged to open still converts: Convert does its
@@ -62,12 +63,12 @@ func jsConvert(_ js.Value, args []js.Value) any {
 		var before gopdfrab.Result
 		beforeOK := false
 		if doc, err := gopdfrab.OpenBytes(data); err == nil {
-			before, err = doc.Verify(gopdfrab.PDFA1B)
+			before, err = doc.Verify(profile)
 			beforeOK = err == nil
 			doc.Close()
 		}
 
-		cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+		cr, err := gopdfrab.ConvertBytes(data, profile)
 		if err != nil {
 			return nil, fmt.Errorf("convert: %w", err)
 		}

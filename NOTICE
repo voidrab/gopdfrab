@@ -48,12 +48,22 @@ Small-footprint_FOGRA39v2.icc
     Askary".
 
 
-internal/arlington/testdata/tsv/, internal/arlington/model.bin
--------------------------------------------------------------
+internal/fontprog/assets/
+-------------------------
+
+glyphlist.txt
+    Adobe Glyph List, version 2.0, unchanged from
+    https://github.com/adobe-type-tools/agl-aglfn at commit 4036a9ca80a6.
+    BSD 3-Clause License, as the file's own header states.
+    Copyright 2002-2019 Adobe.
+    Compiled into every gopdfrab binary.
+
+internal/arlington/testdata/tsv/, internal/arlington/model-*.bin
+----------------------------------------------------------------
 
 Arlington PDF Model
     https://github.com/pdf-association/arlington-pdf-model
     Apache License 2.0 (internal/arlington/testdata/LICENSE).
     Copyright PDF Association, Inc.
-    model.bin is derived from these TSVs by internal/arlington/gen.go and is
-    compiled into every gopdfrab binary.
+    model-1.4.bin and model-1.7.bin are derived from these TSVs by
+    internal/arlington/gen.go and are compiled into every gopdfrab binary.

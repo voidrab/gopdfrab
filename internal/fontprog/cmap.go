@@ -3,8 +3,10 @@ package fontprog
 import (
 	_ "embed"
 	"encoding/binary"
+	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -142,11 +144,71 @@ func CmapTokenize(data []byte) []CmapToken {
 	return tokens
 }
 
-// EachCMapCID calls fn with the CID token of each cidrange and cidchar entry
-// in CMap PostScript content: the third token of a "<lo> <hi> cid" range,
-// and the second of a "<code> cid" mapping.
-func EachCMapCID(data []byte, fn func(tok CmapToken)) {
+// CMapCIDEntry is one cidrange or cidchar entry of a CMap: the CID token, and
+// for a range the codes it spans.
+type CMapCIDEntry struct {
+	// Lo and Hi are the first and last code of a range; they are zero for a
+	// cidchar entry.
+	Lo, Hi CmapToken
+	// CID is the token holding the CID, which for a range is the first code's.
+	CID CmapToken
+}
+
+// CodeSpan returns how many CIDs a range runs past its first one, or 0 for a
+// cidchar entry and for codes that are malformed or out of order.
+func (e CMapCIDEntry) CodeSpan() int64 {
+	lo, okLo := cmapHexValue(e.Lo.Text)
+	hi, okHi := cmapHexValue(e.Hi.Text)
+	if !okLo || !okHi || hi < lo {
+		return 0
+	}
+	return hi - lo
+}
+
+// LastCID returns the largest CID the entry maps to. ok is false when its CID
+// token is not a number.
+func (e CMapCIDEntry) LastCID() (cid int64, ok bool) {
+	first, ok := CmapParseInt(e.CID.Text)
+	return first + e.CodeSpan(), ok
+}
+
+// cmapHexDigits returns the hex digits of a hex string token such as "<00 ff>",
+// without the white space the string may hold. ok is false for any other token.
+func cmapHexDigits(tok string) (string, bool) {
+	if len(tok) < 3 || tok[0] != '<' || tok[len(tok)-1] != '>' {
+		return "", false
+	}
+	digits := tok[1 : len(tok)-1]
+	if strings.ContainsAny(digits, " \t\r\n\f\x00") {
+		digits = strings.Join(strings.FieldsFunc(digits, func(r rune) bool { return strings.ContainsRune(" \t\r\n\f\x00", r) }), "")
+	}
+	return digits, true
+}
+
+// cmapHexValue returns the value of a hex string token. ok is false when the
+// token is not one or its digits do not parse as a 63-bit integer.
+func cmapHexValue(tok string) (int64, bool) {
+	digits, ok := cmapHexDigits(tok)
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(digits, 16, 63)
+	return int64(v), err == nil
+}
+
+// CMapCodeAfter returns the hex string token, as many digits wide as code, for
+// the value of code plus n. code must be a token CodeSpan could read.
+func CMapCodeAfter(code string, n int64) string {
+	digits, _ := cmapHexDigits(code)
+	v, _ := cmapHexValue(code)
+	return fmt.Sprintf("<%0*x>", len(digits), v+n)
+}
+
+// EachCMapCID calls fn with each cidrange and cidchar entry in CMap PostScript
+// content: a "<lo> <hi> cid" range or a "<code> cid" mapping.
+func EachCMapCID(data []byte, fn func(e CMapCIDEntry)) {
 	entryLen, pos := 0, 0
+	var held [2]CmapToken
 	for _, tok := range CmapTokenize(data) {
 		switch tok.Text {
 		case "begincidrange":
@@ -163,10 +225,16 @@ func EachCMapCID(data []byte, fn func(tok CmapToken)) {
 			if entryLen == 0 {
 				continue
 			}
-			if pos++; pos == entryLen {
-				fn(tok)
-				pos = 0
+			if pos++; pos < entryLen {
+				held[pos-1] = tok
+				continue
 			}
+			e := CMapCIDEntry{CID: tok}
+			if entryLen == 3 {
+				e.Lo, e.Hi = held[0], held[1]
+			}
+			fn(e)
+			pos = 0
 		}
 	}
 }

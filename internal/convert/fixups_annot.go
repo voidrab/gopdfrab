@@ -1,20 +1,23 @@
 package convert
 
 import (
+	"slices"
+
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // --- 6.5.2 Annotation subtypes ---
 
 // disallowedAnnotFixer remediates Checks.Annotation.DisallowedSubtype by
-// clearing (clearDict) any annotation dictionary whose /Subtype is not
-// permitted by the level, mirroring validateAnnotation in checks_dict.go. The
-// dictionary is emptied rather than removed from the page's /Annots array, as
-// actionFixer does for forbidden action dictionaries: no check reads /Annots
-// membership, only each entry's own Type and Subtype, so an emptied dictionary
-// is ignored by every other check. The annotation is content the output no
-// longer holds, so each one cleared is reported to lost, when non-nil.
+// removing each annotation whose /Subtype the level does not permit from its
+// page's /Annots, mirroring validateAnnotation in checks_dict.go. The
+// dictionary is also emptied (clearDict), so that a reference from elsewhere,
+// such as a popup's /Parent, reaches nothing a check reads. An emptied
+// dictionary left in /Annots would still be read as an annotation with no
+// subtype, so it is dropped from the array as well. Each removal is reported
+// to lost, when non-nil.
 type disallowedAnnotFixer struct {
 	spec *pdfa.Spec
 	lost *[]pdf.PDFError
@@ -30,25 +33,58 @@ func (f disallowedAnnotFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (
 
 func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
-			return
-		}
-		subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
-		if !f.spec.AnnotationSubtypes.Has(subtype.Value) {
-			msg := "annotation removed"
-			if subtype.Value != "" {
-				msg = subtype.Value + " " + msg
-			}
-			// A file attachment's file goes with it, unless something else
-			// still holds the file specification.
-			if fs, ok := d.Entries.Get("FS").(pdf.PDFDict); ok && fs.Entries.Get("EF") != nil {
-				msg += " with its " + embeddedFileName(fs)
-			}
-			clearDict(d)
+		// The page is visited before or after its annotations, so it removes
+		// and clears them itself.
+		if annots, ok := d.Entries.Get("Annots").(pdf.PDFArray); ok && slices.ContainsFunc(annots, f.drop) {
+			d.Entries.Set("Annots", slices.DeleteFunc(slices.Clone(annots), f.drop))
 			*changed = true
-			reportLost(f.lost, pdf.Checks.Annotation.DisallowedSubtype, d, msg)
+		}
+		// A disallowed annotation reached before its page, or through no page
+		// at all, is cleared here.
+		if f.disallowed(d) {
+			f.remove(d)
+			*changed = true
 		}
 	}, true
+}
+
+// drop reports whether the Annots element e is to be removed. A disallowed
+// annotation is cleared first, so that it is then empty and removed as well.
+func (f disallowedAnnotFixer) drop(e pdf.PDFValue) bool {
+	d, ok := e.(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	if f.disallowed(d) {
+		f.remove(d)
+	}
+	return d.Entries.Len() == 0
+}
+
+// disallowed reports whether d is an annotation of a subtype the level does
+// not permit.
+func (f disallowedAnnotFixer) disallowed(d pdf.PDFDict) bool {
+	if !verify.IsAnnotationDict(d) {
+		return false
+	}
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	return !f.spec.AnnotationSubtypes.Has(subtype.Value)
+}
+
+// remove empties the disallowed annotation d and reports it to lost.
+func (f disallowedAnnotFixer) remove(d pdf.PDFDict) {
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	msg := "annotation removed"
+	if subtype.Value != "" {
+		msg = subtype.Value + " " + msg
+	}
+	// A file attachment's file goes with it, unless something else still
+	// holds the file specification.
+	if fs, ok := d.Entries.Get("FS").(pdf.PDFDict); ok && fs.Entries.Get("EF") != nil {
+		msg += " with its " + embeddedFileName(fs)
+	}
+	clearDict(d)
+	reportLost(f.lost, pdf.Checks.Annotation.DisallowedSubtype, d, msg)
 }
 
 // --- 6.5.3 Annotation colour without intent ---
@@ -70,7 +106,7 @@ func (f annotColourFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool
 func (f annotColourFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	hasOutputIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
 	return func(d pdf.PDFDict) {
-		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
+		if !verify.IsAnnotationDict(d) {
 			return
 		}
 		for _, key := range []string{"C", "IC"} {
@@ -95,6 +131,14 @@ func (f annotColourFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, change
 			}
 		}
 	}, true
+}
+
+// coveredModels returns, for each device colour model, whether the level's
+// output intent covers it: DeviceGray by any such intent, DeviceRGB and
+// DeviceCMYK by its profile's number of components.
+func coveredModels(trailer pdf.PDFDict, subtype string) map[string]bool {
+	hasIntent, rgbCovered, cmykCovered := outputIntentCoverage(trailer, subtype)
+	return map[string]bool{"gray": hasIntent, "rgb": rgbCovered, "cmyk": cmykCovered}
 }
 
 // outputIntentCoverage replicates Document.computeColourCoverage

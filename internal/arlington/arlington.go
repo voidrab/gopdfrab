@@ -1,14 +1,16 @@
 // Package arlington exposes the Arlington PDF Model
 // (https://github.com/pdf-association/arlington-pdf-model) as a lookup table
-// embedded in the package. The table is generated from the vendored PDF 1.4
-// TSV set under testdata/tsv/1.4.
+// embedded in the package. There is one model per supported PDF version (1.4
+// and 1.7), each generated from the vendored TSV set under
+// testdata/tsv/<version>; [ModelFor] selects one.
 //
 // Arlington describes what ISO 32000 permits for every dictionary, array and
 // stream type. It does not encode PDF/A's narrower restrictions, and this
 // package does not check them.
 package arlington
 
-//go:generate go run gen.go
+//go:generate go run gen.go -version 1.4
+//go:generate go run gen.go -version 1.7
 
 // ValueType is one of the plain PDF value types Arlington's Type column enumerates.
 type ValueType int
@@ -221,8 +223,9 @@ type KeyDef struct {
 	// Predicated.Values.
 	ValueCond         *Cond
 	IndirectReference IndirectRule
-	// SinceVersion/DeprecatedIn are unread at runtime (the 1.4 TSV set is pre-filtered);
-	// kept as groundwork for the predicate evaluator's version-gate families.
+	// SinceVersion/DeprecatedIn are unread at runtime (each version's TSV
+	// set is pre-filtered); kept as groundwork for the predicate
+	// evaluator's version-gate families.
 	SinceVersion   string
 	DeprecatedIn   string   // empty if never deprecated
 	PossibleValues []string // enumerated legal values, when constrained; predicate-only entries are dropped
@@ -248,10 +251,11 @@ type ObjectType struct {
 	Name     string
 	Keys     []KeyDef // named keys and fixed array indices, in TSV row order
 	Wildcard *KeyDef  // the "*" row, if this type has one; nil otherwise
-	// Post14Keys lists keys this type gained after PDF 1.4, computed by diffing the vendored
-	// tsv/latest set against tsv/1.4. Empty if the type itself did not exist in tsv/latest
-	// (e.g. renamed across versions), which is a safe (false-negative) default.
-	Post14Keys []string
+	// LaterKeys lists keys this type gained after the model's PDF version,
+	// computed by diffing the vendored tsv/latest set against the model's
+	// own set. Empty if the type itself did not exist in tsv/latest (e.g.
+	// renamed across versions), which is a safe (false-negative) default.
+	LaterKeys []string
 
 	// keyByName indexes Keys by row name (first row wins on duplicates,
 	// matching a front-to-back scan), built when the model is decoded so the
@@ -317,23 +321,3 @@ var standard14Fonts = map[string]bool{
 // IsStandard14 reports whether name is exactly one of the 14 standard font names. A
 // subset-tagged name (ABCDEF+Helvetica) refers to an embedded subset, not a standard font.
 func IsStandard14(name string) bool { return standard14Fonts[name] }
-
-// Type looks up a vendored PDF 1.4 Arlington type by name (e.g. "Catalog", "ExtGState").
-func Type(name string) (ObjectType, bool) {
-	t, ok := Types()[name]
-	return t, ok
-}
-
-// SelfIdentified returns the one Arlington type an untyped dictionary's own /Type (and
-// /Subtype) names unambiguously identify, or "" when the pair is unknown or ambiguous.
-// The generated table only contains pairs exactly one type in the model is consistent with,
-// so re-anchoring on the result never guesses.
-func SelfIdentified(typeVal, subtypeVal string) string {
-	load()
-	if subtypeVal != "" {
-		if n, ok := selfIdentifiedMap[[2]string{typeVal, subtypeVal}]; ok {
-			return n
-		}
-	}
-	return selfIdentifiedMap[[2]string{typeVal, ""}]
-}

@@ -30,6 +30,16 @@ func TTLocaHasGlyph(tables map[string][]byte) func(gid int) bool {
 	}
 }
 
+// TTNumHMetrics returns the number of horizontal metrics the hhea table
+// declares, or 0 when it is missing or too short.
+func TTNumHMetrics(tables map[string][]byte) int {
+	hhea := tables["hhea"]
+	if len(hhea) < 36 {
+		return 0
+	}
+	return int(binary.BigEndian.Uint16(hhea[34:36]))
+}
+
 // TTNumGlyphs returns the number of glyphs in the font from the maxp table,
 // or 0 if unavailable. A glyph ID is valid (present in the font) when it is
 // in [0, numGlyphs-1]; empty outlines (space/whitespace) are still valid.
@@ -85,7 +95,7 @@ func TTAdvanceWidth(tables map[string][]byte, gid int) float64 {
 	if len(hmtx) == 0 || len(hhea) < 36 || !ok {
 		return -1
 	}
-	nHM := int(binary.BigEndian.Uint16(hhea[34:36]))
+	nHM := TTNumHMetrics(tables)
 	var aw int
 	if gid < nHM {
 		if gid*4+2 > len(hmtx) {
@@ -276,6 +286,27 @@ func ScaledCapHeight(tables map[string][]byte, fallback int) int {
 		return fallback
 	}
 	return int(int16(binary.BigEndian.Uint16(os2[88:90]))) * 1000 / upm
+}
+
+// CmapSummary describes a cmap table: how many subtables it has, and whether
+// a Microsoft Symbol (3,0) or Unicode (3,1) subtable is among them.
+type CmapSummary struct {
+	Count           int
+	Symbol, Unicode bool
+}
+
+// SummarizeCmap describes the cmap table of a parsed sfnt, and reports false
+// when it has no usable one.
+func SummarizeCmap(tables map[string][]byte) (CmapSummary, bool) {
+	cmap := tables["cmap"]
+	if len(cmap) < 4 {
+		return CmapSummary{}, false
+	}
+	return CmapSummary{
+		Count:   int(binary.BigEndian.Uint16(cmap[2:4])),
+		Symbol:  TTCmapSubtable(tables, 3, 0) != nil,
+		Unicode: TTCmapSubtable(tables, 3, 1) != nil,
+	}, true
 }
 
 // CmapSubtableCount returns the number of subtables in the cmap table of the

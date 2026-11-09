@@ -2,13 +2,11 @@ package convert
 
 import (
 	"image"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
@@ -40,66 +38,22 @@ const (
 	veraDir    = "../../tests/veraPDF/PDF_A-1b"
 )
 
-// veraPDFNameRe matches veraPDF test filenames: an optional "veraPDF test
-// suite " prefix, then clause segments separated by dashes, then
-// -tNN-(pass|fail)-<letter>.pdf, e.g. "veraPDF test suite 6-1-2-t01-fail-a.pdf"
-// → clause 6.1.2, fail.
-var veraPDFNameRe = regexp.MustCompile(`^(?:veraPDF test suite )?((?:\d+-)+)t\d+-(pass|fail)-`)
-
-// veraClauseAndKind returns the expected clause and whether the file is a
-// fail (negative) test. Returns ("", false) if the name does not match.
-func veraClauseAndKind(name string) (clause string, wantFail bool) {
-	m := veraPDFNameRe.FindStringSubmatch(name)
-	if m == nil {
-		return "", false
-	}
-	segs := strings.Split(strings.TrimSuffix(m[1], "-"), "-")
-	clause = strings.Join(segs, ".")
-	wantFail = m[2] == "fail"
-	return clause, wantFail
-}
-
-// isartorNameRe matches an Isartor filename like "isartor-6-6-1-t01-fail-a.pdf".
-var isartorNameRe = regexp.MustCompile(`^isartor-((?:\d+-)+)t\d+`)
-
-// expectedClauseFromName maps a name like "isartor-6-6-1-t01-fail-a.pdf"
-// to its target clause, e.g. "6.6.1".
-func expectedClauseFromName(name string) string {
-	m := isartorNameRe.FindStringSubmatch(name)
-	if m == nil {
-		return ""
-	}
-	segs := strings.Split(strings.TrimSuffix(m[1], "-"), "-")
-	return strings.Join(segs, ".")
-}
-
-// issueClauses returns the violated clause for each issue, for diagnostics.
+// issueClauses returns the PDF/A-1b clause of each issue, for diagnostics.
 func issueClauses(issues []pdf.PDFError) []string {
-	out := make([]string, 0, len(issues))
-	for _, iss := range issues {
-		out = append(out, iss.Check().Clause())
-	}
-	return out
+	return corpustest.Clauses(issues, pdf.A1B)
 }
 
-// passFixtures returns every "pass" fixture path in the veraPDF corpus, or
-// nil if the corpus isn't present.
+// passFixtures returns the path of every PDF/A-1b pass fixture in the
+// committed corpora, or nil if none is present.
 func passFixtures(t *testing.T) []string {
 	t.Helper()
-	if _, err := os.Stat(veraDir); err != nil {
-		return nil
+	var out []string
+	for _, f := range corpustest.AllFixtures(false) {
+		if f.Corpus.Level() == pdf.A1B {
+			out = append(out, f.Path)
+		}
 	}
-	var found []string
-	filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() && strings.Contains(strings.ToLower(d.Name()), "-pass-") {
-			found = append(found, path)
-		}
-		return nil
-	})
-	return found
+	return out
 }
 
 // mustOutput returns cr's converted bytes, failing the test on error. Use it

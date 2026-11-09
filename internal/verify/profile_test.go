@@ -6,12 +6,27 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
+// part1Checks returns the catalog's checks that have a Part 1 clause, in
+// catalog order.
+func part1Checks() []pdf.Check {
+	var out []pdf.Check
+	for _, c := range pdf.AllChecks() {
+		if c.Clause() != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestProfile_Legacy1BIsFullProfile verifies that Legacy1B enables every check
+// with a Part 1 clause.
 func TestProfile_Legacy1BIsFullProfile(t *testing.T) {
-	all := pdf.AllChecks()
+	all := part1Checks()
 	if len(pdf.Legacy1B.Checks()) != len(all) {
 		t.Errorf("Legacy1B has %d checks, catalog has %d", len(pdf.Legacy1B.Checks()), len(all))
 	}
@@ -92,7 +107,7 @@ func TestProfile_RemoveCheck(t *testing.T) {
 }
 
 func TestProfile_ChecksOrder(t *testing.T) {
-	all := pdf.AllChecks()
+	all := part1Checks()
 	got := pdf.Legacy1B.Checks()
 	if len(got) != len(all) {
 		t.Fatalf("Checks() length mismatch: %d vs %d", len(got), len(all))
@@ -182,7 +197,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	}
 	caught := false
 	for _, iss := range full.Issues {
-		if clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			caught = true
 			break
 		}
@@ -195,7 +210,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	p := pdf.PDFA1B.RemoveCheck(header61checks()...)
 	res, _ := Verify(doc, p)
 	for _, iss := range res.Issues {
-		if clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			t.Errorf("disabled 6.1.2 check still reported: %s", iss)
 		}
 	}
@@ -213,13 +228,13 @@ func TestVerifyProfile_ClearThenAddOnlyFiresEnabledCheck(t *testing.T) {
 	p := pdf.PDFA1B.Clear().AddCheck(header61checks()...)
 	res, _ := Verify(doc, p)
 	for _, iss := range res.Issues {
-		if !clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if !corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			t.Errorf("unexpected clause %q reported with only 6.1.2 checks enabled", iss.Check().Clause())
 		}
 	}
 	caught := false
 	for _, iss := range res.Issues {
-		if clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			caught = true
 			break
 		}

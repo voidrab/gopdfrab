@@ -2,12 +2,14 @@ package convert
 
 import (
 	"math"
+	"slices"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/raster"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
 // This file registers Fixers for the dictionary-level violations classified
@@ -117,25 +119,13 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool, spec *pdfa.Spec) {
 	}
 }
 
-// deadAction reports whether v is an action dictionary that can no longer be
-// used -- a forbidden type, or one already emptied by this pass. /S is
-// required in an action dictionary (ISO 32000-1 Table 193), so an /A pointing
-// at a dict without one reads as an action of unknown type. Clearing an action
-// in place produces exactly that state.
-func deadAction(v pdf.PDFValue, spec *pdfa.Spec) bool {
-	d, ok := v.(pdf.PDFDict)
-	if !ok {
-		return false
-	}
-	s, ok := d.Entries.Get("S").(pdf.PDFName)
-	return !ok || spec.ForbiddenActions.Has(s.Value)
-}
-
 // --- 6.6 Actions ---
 
 // actionFixer remediates Checks.Action.ForbiddenActionType,
 // DisallowedNamedAction and AdditionalActions, mirroring
-// validateActions/validateAdditionalActions in checks_dict.go.
+// validateActions/validateAdditionalActions in checks_dict.go. Each repair
+// runs only when its own check was reported. The JavaScript name tree goes
+// with the forbidden action types, because its leaves are JavaScript actions.
 type actionFixer struct{ spec *pdfa.Spec }
 
 func (actionFixer) Applies(c pdf.Check) bool {
@@ -150,45 +140,102 @@ func (f actionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, err
 	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (f actionFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+	reported := reportedChecks(issues)
+	ac := pdf.Checks.Action
+	forbidden, named := reported[ac.ForbiddenActionType], reported[ac.DisallowedNamedAction]
+	additional := reported[ac.AdditionalActions]
+	// cleared maps each action this pass emptied to the /Next it had, so an
+	// owner visited after it can still splice the rest of the chain in.
+	cleared := map[uintptr]pdf.PDFValue{}
+	// dead reports whether v is an action this pass removes. /S is required
+	// in an action dictionary (ISO 32000-1 Table 193), so a dictionary
+	// without one is an action of unknown type; clearing an action in place
+	// leaves exactly that state.
+	dead := func(v pdf.PDFValue) bool {
+		d, ok := v.(pdf.PDFDict)
+		if !ok {
+			return false
+		}
+		if _, hasS := d.Entries.Get("S").(pdf.PDFName); !hasS {
+			_, emptied := cleared[pdf.ValuePointer(d.Entries)]
+			return emptied || forbidden
+		}
+		return reported[verify.ActionViolation(d, f.spec)]
+	}
+	// live returns what replaces v in its owner's entry: v itself, or, for a
+	// dead action, the live actions its /Next chain leads to.
+	var live func(v pdf.PDFValue, depth int) []pdf.PDFValue
+	live = func(v pdf.PDFValue, depth int) []pdf.PDFValue {
+		if !dead(v) {
+			return []pdf.PDFValue{v}
+		}
+		if depth > maxGraphWalkDepth {
+			return nil
+		}
+		d := v.(pdf.PDFDict)
+		next, ok := cleared[pdf.ValuePointer(d.Entries)]
+		if !ok {
+			next = d.Entries.Get("Next")
+		}
+		var out []pdf.PDFValue
+		for _, n := range verify.ActionList("Next", next) {
+			out = append(out, live(n, depth+1)...)
+		}
+		return out
+	}
+	empty := func(d pdf.PDFDict) {
+		cleared[pdf.ValuePointer(d.Entries)] = d.Entries.Get("Next")
+		clearDict(d)
+		*changed = true
+	}
+	// unlink removes the dead actions from owner's key and keeps the live
+	// actions chained after them. Emptying an action dictionary does not
+	// remove the owner's reference to it, so the reference is dropped here.
+	unlink := func(owner pdf.PDFDict, key string) {
+		v := owner.Entries.Get(key)
+		actions := verify.ActionList(key, v)
+		if !slices.ContainsFunc(actions, dead) {
+			return
+		}
+		var kept pdf.PDFArray
+		for _, a := range actions {
+			kept = append(kept, live(a, 0)...)
+		}
+		_, isArray := v.(pdf.PDFArray)
+		switch {
+		case len(kept) == 0:
+			owner.Entries.Del(key)
+		case key == "Next" && (isArray || len(kept) > 1):
+			owner.Entries.Set(key, kept)
+		default:
+			// Every other owner entry holds one action.
+			owner.Entries.Set(key, kept[0])
+		}
+		*changed = true
+	}
 	return func(d pdf.PDFDict) {
-		if _, ok := d.Entries.Lookup("AA"); ok {
+		if additional && verify.AdditionalActionsBarred(d, f.spec) {
 			d.Entries.Del("AA")
 			*changed = true
 		}
 
 		// Remove catalog /Names/JavaScript name tree entry (6.6.1). Clear leaf
 		// action dicts first -- walkDicts won't reach them after the key is gone.
-		if jsTree, ok := d.Entries.Get("JavaScript").(pdf.PDFDict); ok {
+		if jsTree, ok := d.Entries.Get("JavaScript").(pdf.PDFDict); ok && forbidden {
 			clearJSNameTree(jsTree, changed, f.spec)
 			d.Entries.Del("JavaScript")
 			*changed = true
 		}
 
-		// Take a dead action off whatever points at it. Emptying the action
-		// dictionary is not enough on its own: the owner still names it.
-		if key := verify.ActionOwnerKey(d); key != "" {
-			if v, ok := d.Entries.Lookup(key); ok && deadAction(v, f.spec) {
-				d.Entries.Del(key)
-				*changed = true
-			}
-		}
-
-		s, ok := d.Entries.Get("S").(pdf.PDFName)
-		if !ok || !verify.ActionTypes[s.Value] {
+		if !forbidden && !named {
 			return
 		}
-		if f.spec.ForbiddenActions.Has(s.Value) {
-			clearDict(d)
-			*changed = true
-			return
+		for owner, key := range verify.ActionEntries(d) {
+			unlink(owner, key)
 		}
-		if s.Value == "Named" {
-			n, ok := d.Entries.Get("N").(pdf.PDFName)
-			if !ok || !f.spec.NamedActions.Has(n.Value) {
-				clearDict(d)
-				*changed = true
-			}
+		if reported[verify.ActionViolation(d, f.spec)] {
+			empty(d)
 		}
 	}, true
 }
@@ -296,16 +343,19 @@ func extGStateDictVisitor(changed *bool, spec *pdfa.Spec, reported map[pdf.Check
 
 // annotationFlagsFixer remediates the annotation flag-bit and opacity
 // checks, mirroring the relevant part of validateAnnotation in
-// checks_dict.go. It deliberately does not touch DisallowedSubtype,
-// ColourWithoutIntent, or the appearance-stream checks (resource synthesis
-// or harder per the converter plan).
+// checks_dict.go. Each flag bit, a missing F key and the constant opacity
+// (/CA) are repaired only when their own check was reported. It deliberately
+// does not touch DisallowedSubtype, ColourWithoutIntent, or the
+// appearance-stream checks, which need resource synthesis or more than a
+// neutral repair.
 type annotationFlagsFixer struct{}
 
 func (annotationFlagsFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Annotation.PrintFlagNotSet, pdf.Checks.Annotation.HiddenFlagSet,
 		pdf.Checks.Annotation.InvisibleFlagSet, pdf.Checks.Annotation.NoViewFlagSet,
-		pdf.Checks.Annotation.OpacityNotOne:
+		pdf.Checks.Annotation.OpacityNotOne, pdf.Checks.Annotation.AnnotationFlagsMissing,
+		pdf.Checks.Annotation.ToggleNoViewFlagSet:
 		return true
 	}
 	return false
@@ -315,24 +365,43 @@ func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (
 	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+	reported := reportedChecks(issues)
+	an := pdf.Checks.Annotation
+	set, unset := 0, 0
+	if reported[an.PrintFlagNotSet] {
+		set |= verify.AnnotFlagPrint
+	}
+	if reported[an.HiddenFlagSet] {
+		unset |= verify.AnnotFlagHidden
+	}
+	if reported[an.InvisibleFlagSet] {
+		unset |= verify.AnnotFlagInvisible
+	}
+	if reported[an.NoViewFlagSet] {
+		unset |= verify.AnnotFlagNoView
+	}
+	if reported[an.ToggleNoViewFlagSet] {
+		unset |= verify.AnnotFlagToggleNoView
+	}
+	addMissing := reported[an.AnnotationFlagsMissing]
+	opacity := reported[an.OpacityNotOne]
 	return func(d pdf.PDFDict) {
 		if !verify.IsAnnotationDict(d) {
 			return
 		}
 
-		flags := 0
-		if f, ok := d.Entries.Get("F").(pdf.PDFInteger); ok {
-			flags = int(f)
+		flags, hasF := verify.AnnotFlags(d)
+		want := (flags | set) &^ unset
+		if !hasF && addMissing && verify.FlagsRequired(d) {
+			want |= verify.AnnotFlagPrint
 		}
-		want := flags | verify.AnnotFlagPrint
-		want &^= verify.AnnotFlagHidden | verify.AnnotFlagInvisible | verify.AnnotFlagNoView
 		if want != flags {
 			d.Entries.Set("F", pdf.PDFInteger(want))
 			*changed = true
 		}
 
-		if ca, ok := d.Entries.Lookup("CA"); ok {
+		if ca, ok := d.Entries.Lookup("CA"); ok && opacity {
 			if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
 				d.Entries.Set("CA", pdf.PDFReal(1.0))
 				*changed = true
@@ -343,15 +412,17 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *b
 
 // --- 6.9 Interactive forms ---
 
-// formFixer remediates AcroForm-level (NeedAppearances, XFA) and
-// field-level (A, AA) form violations, mirroring verifyInteractiveForms and
-// validateFormField in checks_dict.go/document.go.
+// formFixer remediates catalog-level (NeedsRendering), AcroForm-level
+// (NeedAppearances, XFA) and field-level (A, AA) form violations, mirroring
+// verifyInteractiveForms and validateFormField. Each key is repaired only when
+// its own check was reported.
 type formFixer struct{}
 
 func (formFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Form.NeedAppearances, pdf.Checks.Form.XFA,
-		pdf.Checks.Form.FieldAction, pdf.Checks.Form.FieldAdditionalActions:
+		pdf.Checks.Form.FieldAction, pdf.Checks.Form.FieldAdditionalActions,
+		pdf.Checks.Form.NeedsRendering:
 		return true
 	}
 	return false
@@ -361,32 +432,36 @@ func (f formFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error
 	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (formFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+	reported := reportedChecks(issues)
+	fm := pdf.Checks.Form
 	if root, ok := trailer.Entries.Get("Root").(pdf.PDFDict); ok {
+		if reported[fm.NeedsRendering] && verify.NeedsRendering(root) {
+			root.Entries.Del("NeedsRendering")
+			*changed = true
+		}
 		if form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict); ok {
-			if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
+			if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) && reported[fm.NeedAppearances] {
 				form.Entries.Set("NeedAppearances", pdf.PDFBoolean(false))
 				*changed = true
 			}
-			if _, ok := form.Entries.Lookup("XFA"); ok {
+			if _, ok := form.Entries.Lookup("XFA"); ok && reported[fm.XFA] {
 				form.Entries.Del("XFA")
 				*changed = true
 			}
 		}
 	}
 
+	action, additional := reported[fm.FieldAction], reported[fm.FieldAdditionalActions]
 	return func(d pdf.PDFDict) {
-		isWidget := d.Entries.Get("Type") == pdf.PDFName{Value: "Annot"} &&
-			d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
-		isField := d.Entries.Get("FT") != nil
-		if !isWidget && !isField {
+		if !verify.IsFieldOrWidget(d) {
 			return
 		}
-		if _, ok := d.Entries.Lookup("A"); ok {
+		if _, ok := d.Entries.Lookup("A"); ok && action {
 			d.Entries.Del("A")
 			*changed = true
 		}
-		if _, ok := d.Entries.Lookup("AA"); ok {
+		if _, ok := d.Entries.Lookup("AA"); ok && additional {
 			d.Entries.Del("AA")
 			*changed = true
 		}
@@ -397,12 +472,12 @@ func (formFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) 
 
 // imageMetadataFixer remediates the simple key-deletion Image/Form XObject
 // checks, mirroring the Image/Form cases of validateXObjectDict in
-// checks_dict.go, plus the inline-image flavour of ImageInterpolate
-// (checkInlineImageOther, checks_content.go) via fixInlineImageInterpolate
-// (fixups_inline_image.go) -- a Check can only have one registered Fixer,
-// so the inline case is folded in here rather than given its own. The
-// PostScript-related checks (FormPostScript, FormPSEntry, FormSubtype2PS,
-// PostScriptXObject) belong to postScriptXObjectFixer below.
+// checks_dict.go. It also repairs the inline-image case of ImageInterpolate
+// and, under Part 2, of ImageRenderingIntent, which checkInlineImageOther in
+// checks_content.go reports; fixInlineImage handles it because a Check can
+// have only one registered Fixer. The PostScript-related checks
+// (FormPostScript, FormPSEntry, FormSubtype2PS, PostScriptXObject) belong to
+// postScriptXObjectFixer below.
 type imageMetadataFixer struct{ spec *pdfa.Spec }
 
 func (imageMetadataFixer) Applies(c pdf.Check) bool {
@@ -451,29 +526,42 @@ func (f imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bo
 			}
 		}
 	})
-	if walkContentStreams(trailer, fixInlineImageInterpolate) {
+	if walkContentStreams(trailer, f.fixInlineImage) {
 		changed = true
 	}
 	return changed, nil
 }
 
+// fixInlineImage repairs an inline image's Interpolate and, since a Part 2
+// level reports it as ImageRenderingIntent, its rendering intent.
+func (f imageMetadataFixer) fixInlineImage(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
+	cop, keep := fixInlineImageInterpolate(op, operands, changed)
+	if op != "INLINEIMAGE" {
+		return cop, keep
+	}
+	if fixed, ok := fixInlineImageRenderingIntent(cop.Operands, f.spec); ok {
+		cop.Operands = fixed
+		*changed = true
+	}
+	return cop, keep
+}
+
 // --- 6.2.4 sample depth ---
 
-// imageSampleDepthFixer remediates ImageBitsPerComponent: PDF/A-1 allows 1, 2,
-// 4 or 8 bits per component, and 16-bit images turn up in real documents.
-// The samples are decoded and written back at 8 bits, which is the depth the
-// standard allows and the one a viewer shows anyway; the alternative -- leaving
-// it -- ends with the page rasterized around it.
+// imageSampleDepthFixer remediates ImageBitsPerComponent. PDF/A-1 allows 1, 2,
+// 4 or 8 bits per component, and PDF/A-2 also 16. The fixer rewrites an image
+// at any other depth that it can decode. The samples are written back at 8
+// bits, a depth both parts allow.
 //
 // It also clears the object model's matching finding on the same key, since the
 // enumeration it fails is the same rule.
-type imageSampleDepthFixer struct{}
+type imageSampleDepthFixer struct{ spec *pdfa.Spec }
 
 func (imageSampleDepthFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Image.ImageBitsPerComponent
 }
 
-func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
@@ -482,11 +570,11 @@ func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 		if mask, _ := d.Entries.Get("ImageMask").(pdf.PDFBoolean); bool(mask) {
 			return false // an image mask is 6.2.4-6's business, always 1 bit
 		}
-		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc {
-		case 1, 2, 4, 8:
-			return false
-		case 0:
+		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); {
+		case bpc == 0:
 			return false // absent: nothing to repair
+		case f.spec.BitsPerComponentAllowed(int(bpc)):
+			return false
 		}
 		canvas, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
@@ -592,6 +680,45 @@ func (f viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 			vp.Entries.Del(k)
 			changed = true
 		}
+	}
+	return changed, nil
+}
+
+// --- 6.10 Alternate presentations and transitions, 6.11 Document
+// requirements (PDF/A-2) ---
+
+// presentationFixer deletes the AlternatePresentations entry of the name
+// dictionary, the PresSteps entry of each page of the page tree and the
+// catalog's Requirements entry, each only when its own check was reported.
+type presentationFixer struct{}
+
+func (presentationFixer) Applies(c pdf.Check) bool {
+	s := pdf.Checks.Structure
+	return c == s.AlternatePresentations || c == s.PresentationSteps || c == s.CatalogRequirements
+}
+
+func (presentationFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
+	if !ok {
+		return false, nil
+	}
+	reported := reportedChecks(issues)
+	s := pdf.Checks.Structure
+	changed := false
+	del := func(d pdf.PDFDict, key string) {
+		if _, ok := d.Entries.Lookup(key); ok {
+			d.Entries.Del(key)
+			changed = true
+		}
+	}
+	if names, ok := root.Entries.Get("Names").(pdf.PDFDict); ok && reported[s.AlternatePresentations] {
+		del(names, "AlternatePresentations")
+	}
+	if pages, ok := root.Entries.Get("Pages").(pdf.PDFDict); ok && reported[s.PresentationSteps] {
+		pdf.WalkPages(pages, func(page, _ pdf.PDFDict, _ [4]float64, _ int) { del(page, "PresSteps") })
+	}
+	if reported[s.CatalogRequirements] {
+		del(root, "Requirements")
 	}
 	return changed, nil
 }

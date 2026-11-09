@@ -3,6 +3,7 @@ package convert
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -588,11 +589,10 @@ func resourceOperatorTarget(op string) (category string, fromEnd int) {
 
 // --- CMapCIDOutOfRange: clamping a CID value inside a CMap stream ---
 
-// cmapCIDClampFixer remediates Checks.Structure.CMapCIDOutOfRange by
-// clamping any cidrange/cidchar CID value over 65535 down to 65535 directly
-// within the CMap's PostScript stream bytes, mirroring
-// checkCMapCIDLimits' own token-position state machine so it only ever
-// touches the exact values that check would flag.
+// cmapCIDClampFixer remediates Checks.Structure.CMapCIDOutOfRange by clamping
+// the cidrange and cidchar entries that checkCMapCIDLimits reports, directly
+// within the CMap's PostScript stream bytes. It reads the same entries as that
+// check, so it changes only what the check would flag.
 type cmapCIDClampFixer struct{ spec *pdfa.Spec }
 
 func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
@@ -644,33 +644,51 @@ func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
 	return d, true
 }
 
-// clampCMapCIDs rewrites every cidrange/cidchar CID token over limit in data
-// to limit, splicing the replacement directly into the original
-// bytes (preserving everything else byte-for-byte) so it never needs to
-// re-serialize the surrounding PostScript.
+// clampCMapCIDs rewrites the cidrange and cidchar entries of data that map a
+// CID over limit, splicing the replacements into the original bytes so the
+// rest of the PostScript stays byte for byte. A range that starts at or below
+// limit is cut short so that its last CID is limit. A range that starts over
+// limit keeps only its first code, which maps to limit as in a cidchar. Codes
+// past the new end of a range are left unmapped.
 func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
-	type span struct{ start, end int }
-	var spans []span
-	fontprog.EachCMapCID(data, func(tok fontprog.CmapToken) {
-		if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > int64(limit) {
-			spans = append(spans, span{tok.Start, tok.End})
+	var splices []splice
+	top := int64(limit)
+	fontprog.EachCMapCID(data, func(e fontprog.CMapCIDEntry) {
+		last, ok := e.LastCID()
+		if !ok || last <= top {
+			return
+		}
+		first := last - e.CodeSpan()
+		if e.CodeSpan() > 0 {
+			splices = append(splices, splice{e.Hi.Start, e.Hi.End, fontprog.CMapCodeAfter(e.Lo.Text, max(top-first, 0))})
+		}
+		if first > top {
+			splices = append(splices, splice{e.CID.Start, e.CID.End, strconv.Itoa(limit)})
 		}
 	})
-	if len(spans) == 0 {
+	if len(splices) == 0 {
 		return nil, false
 	}
+	return applySplices(data, splices), true
+}
 
-	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
-	clampedText := []byte(fmt.Sprintf("%d", limit))
-	var out []byte
-	prev := 0
-	for _, s := range spans {
-		out = append(out, data[prev:s.start]...)
-		out = append(out, clampedText...)
-		prev = s.end
+// splice is a replacement of the bytes from start to end.
+type splice struct {
+	start, end int
+	text       string
+}
+
+// applySplices returns data with each splice applied. The splices must be in
+// ascending order and must not overlap.
+func applySplices(data []byte, splices []splice) []byte {
+	out := make([]byte, 0, len(data))
+	at := 0
+	for _, s := range splices {
+		out = append(out, data[at:s.start]...)
+		out = append(out, s.text...)
+		at = s.end
 	}
-	out = append(out, data[prev:]...)
-	return out, true
+	return append(out, data[at:]...)
 }
 
 // --- shared content-stream resource-aware rewriting ---

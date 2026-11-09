@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"math"
+
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -47,7 +49,7 @@ func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	case pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Colour.RenderingIntent,
 		pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.HexStringInvalidChar,
 		pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.RealOutOfRange,
-		pdf.Checks.Structure.StringTooLong:
+		pdf.Checks.Structure.RealTooCloseToZero, pdf.Checks.Structure.StringTooLong:
 		return true
 	}
 	return false
@@ -95,6 +97,9 @@ func (f contentLimitsFixer) limits() pdfa.Limits {
 	}
 	if !f.reported[st.RealOutOfRange] {
 		l.MaxReal = 0
+	}
+	if !f.reported[st.RealTooCloseToZero] {
+		l.MinReal = 0
 	}
 	if !f.reported[st.StringTooLong] {
 		l.MaxStringBytes = 0
@@ -230,11 +235,19 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 // verify reads them. Taking whole dicts rather than one operator at a time
 // lets a rewrite carry state across the stream, which rescaling a path needs.
 func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf.PDFDict, bool)) bool {
+	return walkContentStreamDictsWithResources(trailer, func(stream, _ pdf.PDFDict) (pdf.PDFDict, bool) {
+		return rewrite(stream)
+	})
+}
+
+// walkContentStreamDictsWithResources is walkContentStreamDicts, except that
+// rewrite also receives each stream's resources.
+func walkContentStreamDictsWithResources(trailer *pdf.PDFDict, rewrite func(stream, resources pdf.PDFDict) (pdf.PDFDict, bool)) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		fixedSelf := false
 		pdf.ContentRoots(d, func(r pdf.ContentRoot) {
-			fixed, ok := rewrite(r.Stream)
+			fixed, ok := rewrite(r.Stream, r.Resources)
 			if !ok {
 				return
 			}
@@ -265,6 +278,9 @@ func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits, hex bool) (fixed pdf.PD
 		}
 	case pdf.PDFReal:
 		switch {
+		case val != 0 && math.Abs(float64(val)) < l.MinReal:
+			// Too close to zero: zero is the nearest value allowed.
+			return pdf.PDFReal(0), true
 		case l.MaxReal == 0:
 		case float64(val) > l.MaxReal:
 			return pdf.PDFReal(l.MaxReal), true
@@ -276,10 +292,19 @@ func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits, hex bool) (fixed pdf.PD
 			return pdf.PDFString{Value: val.Value[:l.MaxStringBytes]}, true
 		}
 	case pdf.PDFHexString:
-		if !hex {
-			break
+		repaired := val.Value
+		if hex {
+			repaired = fixHexStringValue(repaired)
 		}
-		if repaired := fixHexStringValue(val.Value); repaired != val.Value {
+		// Normalizing drops non-hex characters and pads an odd digit count with
+		// a zero, so only a string longer than limit characters can exceed
+		// limit digits once normalized.
+		if limit := 2 * l.MaxStringBytes; limit > 0 && len(repaired) > limit {
+			if digits := fixHexStringValue(repaired); len(digits) > limit {
+				repaired = digits[:limit]
+			}
+		}
+		if repaired != val.Value {
 			return pdf.PDFHexString{Value: repaired}, true
 		}
 	case pdf.PDFArray:

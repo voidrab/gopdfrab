@@ -48,7 +48,7 @@ func Ready(module string) {
 
 // Verify implements:
 //
-//	gopdfrabVerify(bytes: Uint8Array) → Promise<{
+//	gopdfrabVerify(bytes: Uint8Array, profile?: string) → Promise<{
 //	  valid: boolean,
 //	  summary: string,
 //	  profile: string,
@@ -57,14 +57,16 @@ func Ready(module string) {
 //	  issues: Issue[]
 //	}>
 //
-// See Issue for the Issue shape and DocInfo for DocInfo.
+// profile names a ready-made profile as the CLI's --profile flag does, and
+// defaults to "pdfa1b"; see InputArgs. See Issue for the Issue shape and
+// DocInfo for DocInfo.
 func Verify(_ js.Value, args []js.Value) any {
 	return NewPromise(func() (any, error) {
-		if len(args) < 1 {
-			return nil, fmt.Errorf("gopdfrabVerify: expected 1 argument")
+		data, profile, err := InputArgs("gopdfrabVerify", args)
+		if err != nil {
+			return nil, err
 		}
-		data := CopyBytes(args[0])
-		result, err := verify.VerifyBytes(data, verify.PDFA1B)
+		result, err := verify.VerifyBytes(data, profile)
 		if err != nil {
 			return nil, fmt.Errorf("verify: %w", err)
 		}
@@ -80,14 +82,49 @@ func Verify(_ js.Value, args []js.Value) any {
 	})
 }
 
+// InputArgs returns a copy of the input bytes in args[0] and the profile named
+// by the optional args[1]. fn names the calling function in errors.
+func InputArgs(fn string, args []js.Value) ([]byte, *verify.Profile, error) {
+	if len(args) < 1 {
+		return nil, nil, fmt.Errorf("%s: expected 1 or 2 arguments", fn)
+	}
+	profile, err := profileArg(fn, args)
+	if err != nil {
+		return nil, nil, err
+	}
+	return CopyBytes(args[0]), profile, nil
+}
+
+// profileArg returns the profile named by args[1], the optional second
+// argument, which must name a ready-made profile: "pdfa1b", "legacy1b",
+// "pdfa2b" or "pdf". A missing, undefined or null argument selects PDFA1B.
+// Any other non-string value, or an unknown name, is an error.
+func profileArg(fn string, args []js.Value) (*verify.Profile, error) {
+	if len(args) < 2 || args[1].IsUndefined() || args[1].IsNull() {
+		return verify.PDFA1B, nil
+	}
+	if args[1].Type() != js.TypeString {
+		return nil, fmt.Errorf("%s: profile must be a string, got %s", fn, args[1].Type())
+	}
+	name := args[1].String()
+	profile, ok := verify.ProfileByName(name)
+	if !ok {
+		return nil, fmt.Errorf("%s: unknown profile %q", fn, name)
+	}
+	return profile, nil
+}
+
 // Issue converts one PDFError to:
 //
 //	{ clause, subclause, name, description, group, page, documentLevel, messages }
+//
+// clause and subclause number the violation under the level it was found at.
 func Issue(iss verify.PDFError) any {
 	c := iss.Check()
+	clause, subclause := iss.Clause()
 	return map[string]any{
-		"clause":        c.Clause(),
-		"subclause":     c.Subclause(),
+		"clause":        clause,
+		"subclause":     subclause,
 		"name":          c.Name(),
 		"description":   c.Description(),
 		"group":         checkGroups[c],

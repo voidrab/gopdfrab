@@ -2,11 +2,9 @@ package verify
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -19,18 +17,7 @@ import (
 // resolve and interpret every file exactly like the mmap/bytes path, so a
 // mis-parse on it shows as a difference in issues.
 func TestSeekPathVerifyMatchesBytes(t *testing.T) {
-	var files []string
-	for _, dir := range []string{isartorDir, veraPDFDir} {
-		if _, err := os.Stat(dir); err != nil {
-			continue
-		}
-		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".pdf") {
-				files = append(files, path)
-			}
-			return nil
-		})
-	}
+	files := a1bCorpusFiles()
 	if len(files) == 0 {
 		t.Skip("no corpus present")
 	}

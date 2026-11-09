@@ -84,7 +84,7 @@ func TestActionFixerRemovesJavaScriptNameTree(t *testing.T) {
 	trailer.Entries.Set("Root", root)
 
 	fixer := actionFixer{spec: a1bSpec}
-	changed, err := fixer.Fix(&trailer, nil)
+	changed, err := fixer.Fix(&trailer, everyCheck(fixer))
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestAnnotationFlagsFixer(t *testing.T) {
 		"CA":   pdf.PDFReal(0.5),
 	})}
 	trailer := trailerWith("Annot0", annot)
-	changed, err := annotationFlagsFixer{}.Fix(&trailer, nil)
+	changed, err := annotationFlagsFixer{}.Fix(&trailer, everyCheck(annotationFlagsFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("annotationFlagsFixer.Fix = %v, %v", changed, err)
 	}
@@ -229,7 +229,7 @@ func TestFormFixer(t *testing.T) {
 			"Type": pdf.PDFName{Value: "Catalog"}, "AcroForm": acroForm,
 		})},
 	})}
-	changed, err := formFixer{}.Fix(&trailer, nil)
+	changed, err := formFixer{}.Fix(&trailer, everyCheck(formFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("formFixer.Fix = %v, %v", changed, err)
 	}
@@ -368,7 +368,7 @@ func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("XObject", xobjects)
 
-	changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil)
+	changed, err := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 	if bpc, _ := gotMask.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc != 16 {
 		t.Errorf("image mask BitsPerComponent = %v, want it left to 6.2.4-6", bpc)
 	}
-	if changed, _ := (imageSampleDepthFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("second pass reported a change, want idempotent")
 	}
 }
@@ -404,28 +404,6 @@ func TestClearJSNameTreeReachesNestedDicts(t *testing.T) {
 	clearJSNameTree(root, &changed, a1bSpec)
 	if !changed || action.Entries.Get("JS") != nil {
 		t.Errorf("changed=%v, JS=%v; want the nested action cleared", changed, action.Entries.Get("JS"))
-	}
-}
-
-func TestDeadAction(t *testing.T) {
-	typed := func(s string) pdf.PDFDict {
-		d := pdf.NewPDFDict()
-		d.Entries.Set("S", pdf.PDFName{Value: s})
-		return d
-	}
-	for name, tc := range map[string]struct {
-		v    pdf.PDFValue
-		want bool
-	}{
-		"not a dict":       {pdf.PDFInteger(1), false},
-		"allowed action":   {typed("GoTo"), false},
-		"forbidden action": {typed("JavaScript"), true},
-		"no /S (emptied)":  {pdf.NewPDFDict(), true},
-		"/S not a name":    {func() pdf.PDFDict { d := pdf.NewPDFDict(); d.Entries.Set("S", pdf.PDFInteger(1)); return d }(), true},
-	} {
-		if got := deadAction(tc.v, a1bSpec); got != tc.want {
-			t.Errorf("%s: deadAction = %v, want %v", name, got, tc.want)
-		}
 	}
 }
 
@@ -449,7 +427,7 @@ func TestImageSampleDepthFixerLeavesWhatItCannotRewrite(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("XObject", xobjects)
 
-	changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil)
+	changed, err := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("Fix = %v, %v; want no change", changed, err)
 	}

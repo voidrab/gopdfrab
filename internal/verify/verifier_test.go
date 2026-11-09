@@ -142,7 +142,7 @@ func TestDocument_VerifyPDFAHeader(t *testing.T) {
 
 	defer doc.Close()
 
-	if err := verifyFileHeader(doc); err != nil {
+	if err := verifyFileHeader(doc, *a1bSpec); err != nil {
 		t.Errorf("Unexpected error while verifying header: %v", err)
 	}
 }
@@ -157,7 +157,7 @@ func TestDocument_VerifyPDFAHeader_InvalidHeader(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid header, got %v", errs)
@@ -178,7 +178,7 @@ func TestDocument_VerifyPDFAHeader_NoComment(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing comment, got %v", errs)
@@ -199,7 +199,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentLength(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid comment length, got %v", errs)
 	}
@@ -219,7 +219,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for non-binary characters in comment, got %v", errs)
 	}
@@ -246,7 +246,7 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 	doc := pdf.NewRawReader(f, trailer, info.Size(), 0)
 	defer doc.Close()
 
-	errs := verifyFileTrailer(doc)
+	errs := verifyFileTrailer(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing ID key, got %v", errs)
 	}
@@ -271,7 +271,7 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 	doc := pdf.NewRawReader(f, trailer, info.Size(), 0)
 	defer doc.Close()
 
-	errs := verifyFileTrailer(doc)
+	errs := verifyFileTrailer(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for forbidden Encrypt key, got %v", errs)
 	}
@@ -295,7 +295,7 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 	doc := pdf.NewRawReader(f, trailer, info.Size(), 0)
 	defer doc.Close()
 
-	errs := verifyFileTrailer(doc)
+	errs := verifyFileTrailer(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid EOF, got %v", errs)
 	}
@@ -317,7 +317,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXref(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyCrossReferenceTable(doc)
+	errs := verifyCrossReferenceTable(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing xref keyword, got %v", errs)
 	}
@@ -337,7 +337,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXrefHeader(t *testing.T) 
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyCrossReferenceTable(doc)
+	errs := verifyCrossReferenceTable(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing xref header, got %v", errs)
 	}
@@ -357,7 +357,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyCrossReferenceTable(doc)
+	errs := verifyCrossReferenceTable(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid EOL, got %v", errs)
 	}
@@ -400,7 +400,7 @@ func xrefSectionFile(t *testing.T, eol string, subsections ...[2]int) *pdf.Reade
 // in the middle of were reported as a malformed subsection header.
 func TestXRefSectionFormatLongTable(t *testing.T) {
 	doc := xrefSectionFile(t, "\n", [2]int{0, 500})
-	if errs := checkXRefSectionFormat(doc, 0); len(errs) != 0 {
+	if errs := checkXRefSectionFormat(doc, 0, *a1bSpec); len(errs) != 0 {
 		t.Errorf("long xref section reported %v, want no findings", errs)
 	}
 }
@@ -410,7 +410,7 @@ func TestXRefSectionFormatLongTable(t *testing.T) {
 // so its LF is only visible once the read has been widened.
 func TestXRefSectionFormatCRLFAcrossReads(t *testing.T) {
 	doc := xrefSectionFile(t, "\r\n", [2]int{0, 420})
-	if errs := checkXRefSectionFormat(doc, 0); len(errs) != 0 {
+	if errs := checkXRefSectionFormat(doc, 0, *a1bSpec); len(errs) != 0 {
 		t.Errorf("CRLF xref section reported %v, want no findings", errs)
 	}
 }
@@ -421,7 +421,7 @@ func TestXRefSectionFormatCRLFAcrossReads(t *testing.T) {
 func TestXRefSectionFormatMalformedHeaderPastFirstRead(t *testing.T) {
 	// A leading space is what the format rule forbids.
 	doc := xrefSectionFileWithHeader(t, 500, " 600 2")
-	errs := checkXRefSectionFormat(doc, 0)
+	errs := checkXRefSectionFormat(doc, 0, *a1bSpec)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeaderFormat {
 		t.Fatalf("malformed header past the first read reported %v, want XRefSubsectionHeaderFormat", errs)
 	}
@@ -1484,7 +1484,7 @@ func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if errs := verifyCrossReferenceTable(xrefChainDoc(t, tc.section)); len(errs) != 0 {
+			if errs := verifyCrossReferenceTable(xrefChainDoc(t, tc.section), *a1bSpec); len(errs) != 0 {
 				t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
 			}
 		})
@@ -1492,11 +1492,35 @@ func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
 
 	t.Run("Prev pointing back at the current section", func(t *testing.T) {
 		d := xrefChainDoc(t, func(int64) string { return "" })
-		d.Trailer().Entries.Set("Prev", pdf.PDFInteger(d.XRefOffset()))
-		if errs := verifyCrossReferenceTable(d); len(errs) != 0 {
+		d.Trailer().Entries.Set("Prev", pdf.PDFInteger(d.XRefSectionOffsets()[0]))
+		if errs := verifyCrossReferenceTable(d, *a1bSpec); len(errs) != 0 {
 			t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
 		}
 	})
+}
+
+// TestVerifyCrossReferenceTableKeepsNewerEntries verifies that walking an
+// earlier section leaves the reader resolving objects by the newer entries:
+// the earlier section points at an older revision of the catalog.
+func TestVerifyCrossReferenceTableKeepsNewerEntries(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	older := b.Len()
+	b.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Older true >>\nendobj\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
+	prev := b.Len()
+	b.WriteString(fmt.Sprintf("xref\n1 1\n%010d 00000 n \ntrailer\n<< /Size 2 >>\n", older))
+	d, err := pdf.OpenBytes(b.FinishClassic(fmt.Sprintf("<< /Size 3 /Root 1 0 R /Prev %d >>", prev)))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer d.Close()
+	if errs := verifyCrossReferenceTable(d, *a1bSpec); len(errs) != 0 {
+		t.Fatalf("verifyCrossReferenceTable = %v, want no findings", errs)
+	}
+	if v, err := d.ResolveGraphByPath([]string{"Root", "Older"}); err == nil {
+		t.Errorf("Root /Older = %v after the walk: the older catalog revision is read", v)
+	}
 }
 
 // TestVerifyCrossReferenceTablePrevSectionFindings checks that a defect in an
@@ -1506,7 +1530,7 @@ func TestVerifyCrossReferenceTablePrevSectionFindings(t *testing.T) {
 	d := xrefChainDoc(t, func(int64) string {
 		return "xref\n 0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\n"
 	})
-	errs := verifyCrossReferenceTable(d)
+	errs := verifyCrossReferenceTable(d, *a1bSpec)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeaderFormat {
 		t.Errorf("verifyCrossReferenceTable = %v, want XRefSubsectionHeaderFormat from the Prev section", errs)
 	}
@@ -1519,7 +1543,7 @@ func TestVerifyCrossReferenceTablePrevSectionFindings(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := xrefChainDoc(t, func(int64) string { return section })
-			if errs := verifyCrossReferenceTable(d); len(errs) != 0 {
+			if errs := verifyCrossReferenceTable(d, *a1bSpec); len(errs) != 0 {
 				t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
 			}
 		})
@@ -1577,7 +1601,7 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	page.Entries.Set("Contents", pdf.NewStreamDict(pdf.NewPDFDict().Entries, content))
 
 	ctx := &ValidationContext{Spec: a1bSpec}
-	reachable, invisibleOnly, usedCodes, usedCIDs, _ := ComputeContentUsage(page, ctx)
+	reachable, invisibleOnly, usedCodes, usedCIDs, _, _ := ComputeContentUsage(page, ctx)
 
 	xobjPtr := pdf.ValuePointer(xobj.Entries)
 	if !reachable[xobjPtr] {
@@ -1593,6 +1617,53 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	}
 	if len(usedCodes[simplePtr]) == 0 {
 		t.Error("expected a used char code recorded for the simple font")
+	}
+}
+
+// TestComputeContentUsageFollowsType3Glyphs verifies that a font used only by
+// the glyph procedures of a shown Type 3 font counts as shown, in the rendering
+// mode the glyphs are shown in, and that a Type 3 font never shown adds nothing.
+func TestComputeContentUsageFollowsType3Glyphs(t *testing.T) {
+	inner := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Helvetica"))
+	hidden := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Times-Roman"))
+	type3 := func(fonts pdf.PDFDict, res bool) pdf.PDFDict {
+		f := kv("Type", name("Font"), "Subtype", name("Type3"),
+			"CharProcs", kv("a", streamDict("BT /In 10 Tf (x) Tj ET")))
+		if res {
+			f.Entries.Set("Resources", kv("Font", fonts))
+		}
+		return f
+	}
+	own := type3(kv("In", inner), true)
+	unshown := type3(kv("In", hidden), true)
+	borrowed := type3(pdf.PDFDict{}, false)
+	shared := kv("Type", name("Font"), "Subtype", name("Type1"), "BaseFont", name("Courier"))
+	page := kv("Type", name("Page"),
+		"Resources", kv("Font", kv("T3", own, "U3", unshown, "B3", borrowed, "In", shared)),
+		"Contents", streamDict("BT /T3 10 Tf (a) Tj (a) Tj 3 Tr /B3 10 Tf (a) Tj ET"))
+
+	_, invisible, used, _, _, complete := ComputeContentUsage(page, NewContext(nil))
+	if !complete {
+		t.Error("usage incomplete")
+	}
+	if !used[pdf.ValuePointer(inner.Entries)]['x'] {
+		t.Error("a font used by a glyph procedure does not count as shown")
+	}
+	if _, ok := used[pdf.ValuePointer(hidden.Entries)]; ok {
+		t.Error("a font of a Type 3 font never shown counts as shown")
+	}
+	if !invisible[pdf.ValuePointer(shared.Entries)] {
+		t.Error("a glyph procedure of invisible text did not read the caller's resources in that mode")
+	}
+
+	// A glyph procedure that does not decode leaves the usage incomplete.
+	bad := streamDict("")
+	bad.Entries.Set("Filter", name("Unknown"))
+	broken := kv("Type", name("Font"), "Subtype", name("Type3"), "CharProcs", kv("a", bad))
+	page = kv("Type", name("Page"), "Resources", kv("Font", kv("T3", broken)),
+		"Contents", streamDict("BT /T3 10 Tf (a) Tj ET"))
+	if _, _, _, _, _, complete := ComputeContentUsage(page, NewContext(nil)); complete {
+		t.Error("usage complete despite a glyph procedure that does not decode")
 	}
 }
 
@@ -1628,7 +1699,7 @@ func TestComputeContentUsageThroughInheritedResources(t *testing.T) {
 	pages.Entries.Set("Kids", pdf.PDFArray{page})
 	page.Entries.Set("Parent", pages)
 
-	_, _, usedCodes, _, _ := ComputeContentUsage(pages, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, _, _, _ := ComputeContentUsage(pages, &ValidationContext{Spec: a1bSpec})
 	if len(usedCodes[pdf.ValuePointer(font.Entries)]) == 0 {
 		t.Error("no usage recorded for a font named only by inherited resources")
 	}
@@ -1668,7 +1739,7 @@ func TestComputeContentUsageAcrossASplitContents(t *testing.T) {
 	page.Entries.Set("Resources", resources)
 	page.Entries.Set("Contents", pdf.PDFArray{first, second})
 
-	_, _, usedCodes, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, _, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
 	if !usedCodes[pdf.ValuePointer(font.Entries)][int('A')] {
 		t.Errorf("code 'A' shown after a stream boundary not attributed: got %v", usedCodes[pdf.ValuePointer(font.Entries)])
 	}
@@ -1712,7 +1783,7 @@ func TestComputeContentUsageRestoresFontOnQ(t *testing.T) {
 	page.Entries.Set("Resources", resources)
 	page.Entries.Set("Contents", pdf.NewStreamDict(pdf.NewPDFDict().Entries, data))
 
-	_, _, usedCodes, usedCIDs, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, usedCIDs, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
 	codes := usedCodes[pdf.ValuePointer(simple.Entries)]
 	if !codes['D'] || !codes['O'] {
 		t.Errorf("text after Q not attributed to the restored simple font: codes %v", codes)
@@ -1767,7 +1838,7 @@ func TestComputeContentUsageFormInheritsFont(t *testing.T) {
 		{Op: "BT"}, tf("F2"), {Op: "ET"}, do,
 	})))
 
-	_, _, usedCodes, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
+	_, _, usedCodes, _, _, _ := ComputeContentUsage(page, &ValidationContext{Spec: a1bSpec})
 	for name, f := range map[string]pdf.PDFDict{"F1": f1, "F2": f2} {
 		if codes := usedCodes[pdf.ValuePointer(f.Entries)]; !codes['A'] || !codes['B'] {
 			t.Errorf("%s: form text not attributed to the inherited font: %v", name, codes)
@@ -2390,7 +2461,7 @@ func TestComputeContentUsageCompleteness(t *testing.T) {
 				page.Entries.Set("Annots", tc.annots)
 			}
 			ctx := &ValidationContext{Spec: a1bSpec}
-			_, _, usedCodes, _, complete := ComputeContentUsage(page, ctx)
+			_, _, usedCodes, _, _, complete := ComputeContentUsage(page, ctx)
 			if complete != tc.wantComplete {
 				t.Errorf("complete = %v, want %v (issues %v)", complete, tc.wantComplete, ctx.Issues())
 			}
@@ -2439,6 +2510,7 @@ func TestArchitecturalLimitsScalarsAndDicts(t *testing.T) {
 		{"real above 32767", pdf.PDFReal(32768.5), pdf.Checks.Structure.RealOutOfRange},
 		{"real below -32767", pdf.PDFReal(-40000), pdf.Checks.Structure.RealOutOfRange},
 		{"string over 65535 bytes", pdf.PDFString{Value: strings.Repeat("a", 65536)}, pdf.Checks.Structure.StringTooLong},
+		{"hex string over 65535 bytes", pdf.PDFHexString{Value: strings.Repeat("ab", 65536)}, pdf.Checks.Structure.StringTooLong},
 		{"dictionary over 4095 entries", big, pdf.Checks.Structure.DictTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2642,7 +2714,7 @@ func TestXRefSectionBlankLineBeforeFirstHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.Close() })
-	errs := checkXRefSectionFormat(pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0), 0)
+	errs := checkXRefSectionFormat(pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0), 0, *a1bSpec)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeader {
 		t.Errorf("blank line before the first header: %v, want one XRefSubsectionHeader", issueKeys(errs))
 	}

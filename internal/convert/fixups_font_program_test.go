@@ -10,6 +10,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -333,22 +334,44 @@ func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
 	}
 }
 
-// TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap covers the CID!=GID guard:
-// a stream (non-/Identity) CIDToGIDMap means CIDs don't correspond to GIDs
-// directly, so fixTrueTypeCIDSet must bail out without touching desc.
-func TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap(t *testing.T) {
-	ttf := loadLiberationSansForTest(t)
-	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"CIDToGIDMap": pdf.NewStreamDict(nil, []byte{0, 1, 0, 2}),
-	})}
-	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
+// TestFixTrueTypeCIDSetReadsStreamCIDToGIDMap verifies that the CIDSet of a font
+// with a stream CIDToGIDMap lists the CIDs mapped within the program, and that an
+// unusable map leaves the descriptor alone.
+func TestFixTrueTypeCIDSetReadsStreamCIDToGIDMap(t *testing.T) {
+	ttf := fontsubst.LiberationSansRegular
+	tables, ok := fontprog.ParseSfnt(ttf)
+	if !ok {
+		t.Fatal("ParseSfnt failed")
+	}
+	numGlyphs := fontprog.TTNumGlyphs(tables)
 	ff := pdf.NewStreamDict(nil, ttf)
 
-	if fixTrueTypeCIDSet(d, desc, ff) {
-		t.Error("fixTrueTypeCIDSet with a stream CIDToGIDMap = true, want false")
+	// CID 0 is skipped, 1 and 3 select glyphs, and 2 selects a glyph past the end.
+	over := numGlyphs + 1
+	c2g := pdf.NewStreamDict(nil, []byte{0, 0, 0, 36, byte(over >> 8), byte(over), 0, 37})
+	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDToGIDMap": c2g})}
+	desc := pdf.NewPDFDict()
+	if !fixTrueTypeCIDSet(d, desc, ff) {
+		t.Fatal("fixTrueTypeCIDSet = false, want true")
 	}
-	if desc.Entries.Get("CIDSet") != nil {
-		t.Error("desc/CIDSet was populated despite the non-Identity CIDToGIDMap guard")
+	set, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("no CIDSet written")
+	}
+	bitmap, err := pdf.DecodeStream(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bitmap) != 1 || bitmap[0] != 0b01010000 {
+		t.Errorf("CIDSet = %08b, want 01010000", bitmap)
+	}
+	if fixTrueTypeCIDSet(d, desc, ff) {
+		t.Error("second pass rewrote a complete CIDSet")
+	}
+
+	unusable := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDToGIDMap": pdf.PDFInteger(1)})}
+	if fixTrueTypeCIDSet(unusable, pdf.NewPDFDict(), ff) {
+		t.Error("fixTrueTypeCIDSet with an unusable map = true, want false")
 	}
 }
 
@@ -388,6 +411,28 @@ func TestFontSubsetMetaFixerSynthesizesType1CharSet(t *testing.T) {
 		t.Fatalf("CharSet = %v, want a non-empty pdf.PDFString", desc.Entries.Get("CharSet"))
 	}
 	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
+}
+
+// TestFontSubsetMetaFixerExactSubsetSets verifies that a CharSet naming a glyph
+// the program does not define is kept by default and rebuilt when the level
+// wants the exact set.
+func TestFontSubsetMetaFixerExactSubsetSets(t *testing.T) {
+	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t02-fail-a.pdf"
+	trailer, closeDoc := fixtureTrailer(t, path)
+	defer closeDoc()
+
+	desc := findFontBySubtype(t, trailer, "Type1").Entries.Get("FontDescriptor").(pdf.PDFDict)
+	runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
+	exact := desc.Entries.Get("CharSet").(pdf.PDFString).Value
+	desc.Entries.Set("CharSet", pdf.PDFString{Value: exact + "/zzzextra"})
+
+	if changed, err := (fontSubsetMetaFixer{}).Fix(&trailer, nil); err != nil || changed {
+		t.Errorf("Fix = (%v, %v), want an extra name kept: (false, nil)", changed, err)
+	}
+	runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{exact: true}, &trailer)
+	if got := desc.Entries.Get("CharSet").(pdf.PDFString).Value; got != exact {
+		t.Errorf("exact CharSet = %q, want %q", got, exact)
+	}
 }
 
 // TestFontSubsetMetaFixerSynthesizesCFFCharSet covers a Type1 font embedded
@@ -890,6 +935,41 @@ func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
 		normalizeCFFWidthDefaultsInFont(d)
 		if after := d.Entries.Get("FontFile3"); !reflect.DeepEqual(before, after) {
 			t.Errorf("%s: FontFile3 changed", name)
+		}
+	}
+}
+
+// TestFixType1CharSetRejectsNonStreamFontFile verifies that a font program
+// entry that is no stream leaves the descriptor alone.
+func TestFixType1CharSetRejectsNonStreamFontFile(t *testing.T) {
+	for _, key := range []string{"FontFile", "FontFile3"} {
+		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{key: pdf.PDFInteger(1)})}
+		if fixType1CharSet(desc, false) {
+			t.Errorf("%s: a non-stream program changed the descriptor", key)
+		}
+	}
+}
+
+// TestFixFontSubsetMetaDictRemovesCIDSetWhenExact verifies that a level with
+// exact subset sets drops a CIDSet, for both kinds of CID font, and reports a
+// change only when there was one to drop.
+func TestFixFontSubsetMetaDictRemovesCIDSetWhenExact(t *testing.T) {
+	for _, subtype := range []string{"CIDFontType0", "CIDFontType2"} {
+		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CIDSet": pdf.NewStreamDict(pdf.NewDict(), []byte{0xFF})})}
+		font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Type":           pdf.PDFName{Value: "Font"},
+			"Subtype":        pdf.PDFName{Value: subtype},
+			"BaseFont":       pdf.PDFName{Value: "ABCDEF+Test"},
+			"FontDescriptor": desc,
+		})}
+		if !fixFontSubsetMetaDict(font, true, true) {
+			t.Errorf("%s: first pass reported no change", subtype)
+		}
+		if desc.Entries.Get("CIDSet") != nil {
+			t.Errorf("%s: CIDSet still present", subtype)
+		}
+		if fixFontSubsetMetaDict(font, true, true) {
+			t.Errorf("%s: second pass reported a change", subtype)
 		}
 	}
 }

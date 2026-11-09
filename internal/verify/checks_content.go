@@ -67,7 +67,17 @@ func NamedColourModel(name pdf.PDFName, resources pdf.PDFDict) string {
 func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) func(string, []pdf.PDFValue) {
 	colourSet := false
 	qDepth := 0
+	inherit := ctx.inherit
+	part2 := ctx.part2()
+	var over *overprintTracker
+	if part2 {
+		over = &overprintTracker{}
+	}
 	return func(op string, operands []pdf.PDFValue) {
+		if part2 {
+			inherit.checkOperands(op, operands, obj, ctx)
+			over.step(op, operands, resources, obj, ctx)
+		}
 		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
 			checkOperandLimits(operand, obj, ctx)
@@ -101,6 +111,7 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 					if model := NamedColourModel(name, resources); model != "" {
 						reportContentColour(obj, model, resources, ctx)
 					}
+					checkBaseColour(namedColourSpace(name, resources), resources, obj, ctx)
 				}
 			}
 		case "sc", "scn", "SC", "SCN":
@@ -140,6 +151,9 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 		if realOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(v)))
 		}
+		if realTooCloseToZero(v, ctx.Spec.Limits) {
+			ctx.Report(pdf.Checks.Structure.RealTooCloseToZero, obj, fmt.Sprintf("real number in content stream too close to zero: %g", float64(v)))
+		}
 	case pdf.PDFString:
 		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("string in content stream exceeds maximum length of %d bytes", limit))
@@ -147,6 +161,9 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 	case pdf.PDFHexString:
 		// 6.1.6: hex string operands must be valid hex digits, even count.
 		validateHexString(v, obj, ctx)
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(hexStringBytes(v), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("string in content stream exceeds maximum length of %d bytes", limit))
+		}
 	case pdf.PDFArray:
 		for _, e := range v {
 			checkOperandLimits(e, obj, ctx)
@@ -155,7 +172,9 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 }
 
 // reportContentColour flags a device colour model not covered by an output
-// intent (6.2.3.3), unless a Default* colour space override applies.
+// intent (6.2.3.3), unless the stream's own resources define a Default* colour
+// space for it. A form XObject or Type 3 font without resources of its own has
+// none: the Default* spaces of the page do not reach it.
 func reportContentColour(obj pdf.PDFValue, model string, resources pdf.PDFDict, ctx *ValidationContext) {
 	if ctx.deviceColourAllowed(model) {
 		return
@@ -163,10 +182,7 @@ func reportContentColour(obj pdf.PDFValue, model string, resources pdf.PDFDict, 
 	if DefaultColorSpaceDefined(model, resources) {
 		return
 	}
-	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
-		return
-	}
-	ctx.Report(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
+	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
 }
 
 // checkInlineImageColour inspects inline image parameters for a device colour
@@ -190,6 +206,7 @@ func checkInlineImageColour(obj pdf.PDFValue, params []pdf.PDFValue, resources p
 			}
 		case pdf.PDFArray:
 			model = DeviceColourModel(val)
+			checkBaseColour(val, resources, obj, ctx)
 		}
 		if model != "" && !ctx.deviceColourAllowed(model) {
 			reportContentColour(obj, model, resources, ctx)
@@ -197,7 +214,8 @@ func checkInlineImageColour(obj pdf.PDFValue, params []pdf.PDFValue, resources p
 	}
 }
 
-// checkInlineImageFilter flags an inline image using the LZW filter (6.1.10).
+// checkInlineImageFilter flags an inline image using the LZW filter, or a
+// filter the level does not allow (6.1.10).
 func checkInlineImageFilter(obj pdf.PDFValue, params []pdf.PDFValue, ctx *ValidationContext) {
 	for i := 0; i+1 < len(params); i += 2 {
 		key, ok := params[i].(pdf.PDFName)
@@ -205,8 +223,11 @@ func checkInlineImageFilter(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Valida
 			continue
 		}
 		for _, f := range pdf.FilterNames(params[i+1]) {
-			if f == "LZW" || f == "LZWDecode" {
+			switch allowed := ctx.Spec.InlineImageFilters; {
+			case f == "LZW" || f == "LZWDecode":
 				ctx.Report(pdf.Checks.Structure.InlineImageLZWFilter, obj, "inline image uses forbidden LZW filter")
+			case allowed.Len() > 0 && !allowed.Has(f):
+				ctx.Report(pdf.Checks.Structure.InlineImageFilterNotAllowed, obj, fmt.Sprintf("inline image uses filter /%s, which is not allowed", f))
 			}
 		}
 	}
@@ -228,7 +249,13 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 			}
 		case "Intent":
 			if name, ok := val.(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
-				ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
+				// Part 1 reports it as a content stream rendering intent
+				// (6.2.9), and Part 2 as an image rendering intent (6.2.6).
+				c := pdf.Checks.Colour.RenderingIntent
+				if ctx.part2() {
+					c = pdf.Checks.Image.ImageRenderingIntent
+				}
+				ctx.Report(c, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
 			}
 		}
 	}
@@ -243,7 +270,10 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 		if r.Kind == pdf.ContentForm && !ctx.isReachableXObject(v) {
 			return
 		}
+		saved := ctx.inherit
+		ctx.inherit = inheritanceOf(r, v, ctx)
 		scanContentDict(r.Stream, r.Resources, ctx)
+		ctx.inherit = saved
 	})
 	if kind == pdf.ContentPage {
 		scanAnnotAppearances(v, ctx)
@@ -278,19 +308,8 @@ func scanAnnotAppearances(page pdf.PDFDict, ctx *ValidationContext) {
 // scanAPEntry scans one /AP entry: either a single stream or a subdictionary
 // of appearance states (Btn widget).
 func scanAPEntry(n pdf.PDFValue, ctx *ValidationContext) {
-	switch v := n.(type) {
-	case pdf.PDFDict:
-		if v.IsStream() {
-			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
-			scanContentDict(v, apRes, ctx)
-		} else {
-			// Subdictionary of appearance states.
-			for _, sv := range v.Entries.All() {
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
-					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
-					scanContentDict(sd, apRes, ctx)
-				}
-			}
-		}
+	for _, s := range pdf.AppearanceStreams(n) {
+		apRes, _ := s.Entries.Get("Resources").(pdf.PDFDict)
+		scanContentDict(s, apRes, ctx)
 	}
 }

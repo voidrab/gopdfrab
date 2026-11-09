@@ -1,7 +1,7 @@
-// Command gopdfrab verifies and converts PDFs for PDF/A-1b conformance from
-// the command line. It is a thin wrapper over the public API: the verify
-// subcommand and the shared reporting use gopdfrab/verify, and only convert
-// uses gopdfrab.
+// Command gopdfrab verifies and converts PDFs for PDF/A-1b and PDF/A-2b
+// conformance from the command line. It is a thin wrapper over the public
+// API: the verify subcommand and the shared reporting use gopdfrab/verify,
+// and only convert uses gopdfrab.
 //
 // Exit codes: 0 conformant, 1 non-conformant, 2 error.
 package main
@@ -60,7 +60,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `gopdfrab -- verify and convert PDFs for PDF/A-1b conformance
+	fmt.Fprint(w, `gopdfrab -- verify and convert PDFs for PDF/A-1b and PDF/A-2b conformance
 
 usage:
   gopdfrab verify  [flags] <path-or-dir>...   verify conformance (dirs walked recursively)
@@ -92,7 +92,7 @@ func versionOf(bi *debug.BuildInfo, ok bool) string {
 }
 
 // profileNames lists the ready-made profiles' names for flag help and errors,
-// as in "pdfa1b, legacy1b, or pdf".
+// as in "pdfa1b, legacy1b, pdfa2b, or pdf".
 func profileNames() string {
 	var names []string
 	for _, p := range verify.Profiles() {

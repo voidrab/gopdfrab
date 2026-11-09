@@ -30,9 +30,10 @@ func WritePDF(r *pdf.Reader, w io.Writer) error {
 	return WriteDocument(w, graph.(pdf.PDFDict), r.Footprint().Objects)
 }
 
-// WriteDocumentIndexed serializes a fully-resolved PDF object graph to w and
-// returns the ordered slice of indirect objects as written.
-func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pdf.PDFDict, err error) {
+// WriteDocumentIndexed serializes a fully-resolved PDF object graph to w under
+// a %PDF-version header, such as "1.7", and returns the ordered slice of
+// indirect objects as written.
+func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int, version string) (objs []pdf.PDFDict, err error) {
 	wr := newPDFWriter(hint)
 	wr.discover(trailer.Entries.Get("Root"))
 	wr.discover(trailer.Entries.Get("Info"))
@@ -50,7 +51,7 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 	// four bytes, each > 127) on its own line.
 	// The buffer is empty, so this small write cannot fail; any destination
 	// error surfaces from a later write or the final Flush.
-	_, _ = io.WriteString(cw, "%PDF-1.4\n%\xc2\xb5\xc2\xb6\xc2\xb7\xc2\xb8\n")
+	_, _ = io.WriteString(cw, "%PDF-"+version+"\n%\xc2\xb5\xc2\xb6\xc2\xb7\xc2\xb8\n")
 
 	offsets := make([]int64, len(wr.order)+1) // index 0 (the free-list head) is unused
 	for i, obj := range wr.order {
@@ -79,13 +80,14 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 	if info, ok := trailer.Entries.Lookup("Info"); ok {
 		newTrailer.Set("Info", info)
 	}
-	if id, ok := trailer.Entries.Lookup("ID"); ok {
+	if id, ok := trailer.Entries.Lookup("ID"); ok && pdf.HasFileIdentifier(id) {
 		newTrailer.Set("ID", id)
 	} else {
-		// 6.1.3: the trailer shall contain an ID. Synthesize one deterministically
-		// from content already fixed at this point (object count and xref offset)
-		// rather than wall-clock time, so re-running WriteDocument on the same
-		// input is reproducible; PDF/A permits ID[0] == ID[1].
+		// 6.1.3: the trailer shall contain an ID holding file identifier
+		// bytes. Synthesize one deterministically from content already fixed
+		// at this point (object count and xref offset) rather than wall-clock
+		// time, so re-running WriteDocument on the same input is reproducible;
+		// PDF/A permits ID[0] == ID[1].
 		sum := md5.Sum(fmt.Appendf(nil, "gopdfrab:%d:%d", len(wr.order), xrefOffset))
 		id := pdf.PDFHexString{Value: hex.EncodeToString(sum[:])}
 		newTrailer.Set("ID", pdf.PDFArray{id, id})
@@ -149,9 +151,9 @@ func writeXRefEntry(cw *countingWriter, offset int64) error {
 }
 
 // WriteDocument serializes a fully-resolved PDF object graph to w as a fresh,
-// self-contained PDF with a cross-reference table.
+// self-contained PDF 1.4 file with a cross-reference table.
 func WriteDocument(w io.Writer, trailer pdf.PDFDict, hint int) error {
-	_, err := WriteDocumentIndexed(w, trailer, hint)
+	_, err := WriteDocumentIndexed(w, trailer, hint, "1.4")
 	return err
 }
 

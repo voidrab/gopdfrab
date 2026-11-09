@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/voidrab/gopdfrab/internal/arlington"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
@@ -39,6 +40,15 @@ type ValidationContext struct {
 	rgbCovered      bool
 	cmykCovered     bool
 	grayCovered     bool
+	// uncoveredDeviceColour is set once a device colour space no output
+	// intent covers has been reported.
+	uncoveredDeviceColour bool
+	// transparency is the 6.2.10 transparency analysis, kept for the whole
+	// document so content that several pages draw is scanned once.
+	transparency *transparencyScan
+	// overprintScans records the forms the overprint rule has read in an
+	// inherited state.
+	overprintScans map[overprintScan]bool
 
 	// ReachableXObjectPtrs is the set of Entries-map pointers of Form XObjects
 	// that are actually invoked (via Do) from page or other reachable content
@@ -75,6 +85,13 @@ type ValidationContext struct {
 	// fall back to checking every W entry.
 	UsedCIDs map[uintptr]map[int]bool
 
+	// partialCodeFonts holds the descendant CIDFont pointers of the composite
+	// fonts whose shown strings end with one byte of a two-byte code, which
+	// selects no glyph, as ComputeContentUsage finds them. Unlike the usage
+	// sets, it drives reports rather than suppressions, so it is kept when
+	// usage is incomplete.
+	partialCodeFonts map[uintptr]bool
+
 	// schemaOnly restricts verifyDocument's walk to the generic object-model
 	// schema checks, skipping every PDF/A-specific family whose findings the
 	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
@@ -90,6 +107,16 @@ type ValidationContext struct {
 	// its own /Resources is not excused by the page's Default*, while a form
 	// without any inherits the enclosing one.
 	resourceScope pdf.PDFDict
+	// parentResourceScope is the scope that was in force above the nearest
+	// dict that has its own Resources entry: what a form XObject, tiling
+	// pattern or Type 3 font with its own resources would inherit from.
+	parentResourceScope pdf.PDFDict
+	// inherit is the inheritance of the content stream being checked
+	// (ISO 19005-2 6.2.2).
+	inherit inheritance
+	// separations holds, by colorant name, the first Separation colour space
+	// the walk met (ISO 19005-2 6.2.4.4).
+	separations map[string]*separation
 
 	// undecodable is the set of streams already reported as
 	// Structure.StreamUndecodable, so a stream several checks read is flagged
@@ -97,10 +124,17 @@ type ValidationContext struct {
 	// on the Reader because throwaway contexts have no reader at all.
 	undecodable map[pdf.StreamKey]bool
 
+	// embeddedFiles judges the run's embedded files; nil until the first.
+	embeddedFiles *EmbeddedFileJudge
+
 	// Spec is the conformance level's rules the checks apply. A check that
 	// reads it on a context without one panics: a nil Spec has no rules to
 	// fall back on, and guessing PDF/A-1b's would hide a missing one.
 	Spec *pdfa.Spec
+
+	// model caches the Arlington model Spec.ModelVersion names; see
+	// objectModel.
+	model *arlington.Model
 
 	// stream collects the reports of the content stream being checked, or is
 	// nil outside one. See collapsingStreamReports.
@@ -112,6 +146,40 @@ type ValidationContext struct {
 	// throwaway contexts built outside a real verify pass, which then decode
 	// uncached.
 	reader *pdf.Reader
+
+	// docXMP caches documentXMP once it is read.
+	docXMP *documentXMP
+
+	// docMDP caches hasDocMDP once it is known.
+	docMDP *bool
+}
+
+// hasDocMDP reports whether the catalog's permissions dictionary holds DocMDP,
+// which restricts the keys of signature references (ISO 19005-2 6.1.12). A
+// context without a reader has no catalog to hold it.
+func (ctx *ValidationContext) hasDocMDP() bool {
+	if ctx.docMDP == nil {
+		has := false
+		if ctx.reader != nil {
+			_, err := ctx.reader.ResolveGraphByPath([]string{"Root", "Perms", "DocMDP"})
+			has = err == nil
+		}
+		ctx.docMDP = &has
+	}
+	return *ctx.docMDP
+}
+
+// objectModel returns the Arlington object model of the context's level: the
+// one for Spec.ModelVersion. It panics, like any read of Spec, on a context
+// without a Spec, and on a version no model is vendored for.
+func (c *ValidationContext) objectModel() *arlington.Model {
+	if c.model == nil || c.model.Version() != c.Spec.ModelVersion {
+		c.model = arlington.ModelFor(c.Spec.ModelVersion)
+		if c.model == nil {
+			panic("verify: no Arlington model for PDF " + c.Spec.ModelVersion)
+		}
+	}
+	return c.model
 }
 
 // stopped reports whether the run has been cancelled. It is called once per
@@ -184,19 +252,25 @@ func (ctx *ValidationContext) reportUndecodable(dict pdf.PDFDict, err error) {
 //
 // Operands are valid only for the duration of the call; see ScanStreamFunc.
 func (ctx *ValidationContext) scanStream(dict pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
-	if ctx.reader == nil {
-		data, err := pdf.DecodeStream(dict)
-		if err != nil {
-			ctx.reportUndecodable(dict, err)
-			return err
-		}
-		pdf.NewContentScanner(data).Scan(fn)
-		return nil
-	}
-	if err := ctx.reader.ScanStreamFunc(dict, fn); err != nil {
+	err := scanContent(ctx.reader, dict, fn)
+	if err != nil {
 		ctx.reportUndecodable(dict, err)
+	}
+	return err
+}
+
+// scanContent calls fn with the operators of dict's content stream, through
+// d's cache when d is not nil. It returns the error from reading the stream,
+// if any.
+func scanContent(d *pdf.Reader, dict pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
+	if d != nil {
+		return d.ScanStreamFunc(dict, fn)
+	}
+	data, err := pdf.DecodeStream(dict)
+	if err != nil {
 		return err
 	}
+	pdf.NewContentScanner(data).Scan(fn)
 	return nil
 }
 
@@ -245,6 +319,45 @@ func (ctx *ValidationContext) usedCIDsFor(v pdf.PDFDict) (cids map[int]bool, kno
 	return cids, known
 }
 
+// showsPartialCode reports whether a shown string ends in mid-code for the
+// composite font whose descendant CIDFont is v.
+func (ctx *ValidationContext) showsPartialCode(v pdf.PDFDict) bool {
+	return ctx.partialCodeFonts[pdf.ValuePointer(v.Entries)]
+}
+
+// subsetSetsOptional reports whether a subset font's descriptor may omit its
+// CharSet or CIDSet. A context with no spec requires them.
+func (ctx *ValidationContext) subsetSetsOptional() bool {
+	return ctx.Spec != nil && ctx.Spec.SubsetSetsOptional
+}
+
+// exactSubsetSets reports whether a subset's CharSet or CIDSet must list
+// exactly the glyphs of its embedded program.
+func (ctx *ValidationContext) exactSubsetSets() bool {
+	return ctx.Spec != nil && ctx.Spec.ExactSubsetSets
+}
+
+// symbolCmapAmongOthers reports whether a symbolic TrueType font may have
+// several cmap subtables when one is the Microsoft Symbol (3,0) one.
+func (ctx *ValidationContext) symbolCmapAmongOthers() bool {
+	return ctx.Spec != nil && ctx.Spec.SymbolCmapAmongOthers
+}
+
+// predefinedCMap reports whether a composite font may name the CMap name
+// without embedding it. A context with no spec allows the Identity CMaps.
+func (ctx *ValidationContext) predefinedCMap(name string) bool {
+	if ctx.Spec == nil {
+		return name == "Identity-H" || name == "Identity-V"
+	}
+	return ctx.Spec.PredefinedCMaps.Has(name)
+}
+
+// part2 reports whether the context verifies a level of ISO 19005-2, whose
+// graphics rules need state the Part 1 checks do not.
+func (ctx *ValidationContext) part2() bool {
+	return ctx.Spec != nil && ctx.Spec.Part >= 2
+}
+
 // deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",
 // "gray") may be used given the document's OutputIntent coverage (6.2.3.3).
 func (ctx *ValidationContext) deviceColourAllowed(model string) bool {
@@ -269,6 +382,14 @@ func (ctx *ValidationContext) Issues() []pdf.PDFError {
 
 func (ctx *ValidationContext) report(err pdf.PDFError) {
 	ctx.errs = append(ctx.errs, err)
+}
+
+// reportUncovered reports c against obj and records that a device colour
+// space without a matching output intent was found, for
+// deviceColourWithoutPDFAIntentRule to read.
+func (ctx *ValidationContext) reportUncovered(c pdf.Check, obj pdf.PDFValue, msg string) {
+	ctx.uncoveredDeviceColour = true
+	ctx.Report(c, obj, msg)
 }
 
 // Report records a single violation of c against obj.

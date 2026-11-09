@@ -32,8 +32,9 @@ func (r Result) Count() int {
 	return len(r.Issues)
 }
 
-// Checks returns the distinct Checks violated in r.Issues, sorted by clause
-// in numeric (dotted-segment) order, e.g. "6.2.9" before "6.2.10", then by
+// Checks returns the distinct Checks violated in r.Issues, sorted by their
+// clause under r.Type in numeric (dotted-segment) order, e.g. "6.2.9" before
+// "6.2.10", then by subclause and by name, as checks may share a clause and
 // subclause.
 func (r Result) Checks() []Check {
 	seen := make(map[Check]bool)
@@ -46,10 +47,15 @@ func (r Result) Checks() []Check {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Clause() != out[j].Clause() {
-			return ClauseLess(out[i].Clause(), out[j].Clause())
+		ci, si := out[i].numberIn(r.Type)
+		cj, sj := out[j].numberIn(r.Type)
+		if ci != cj {
+			return ClauseLess(ci, cj)
 		}
-		return out[i].Subclause() < out[j].Subclause()
+		if si != sj {
+			return si < sj
+		}
+		return out[i].name < out[j].name
 	})
 	return out
 }
@@ -109,7 +115,7 @@ func (r Result) IssuesForCheck(c Check) []PDFError {
 
 // Summary returns a human-readable multi-line report: a validity line
 // followed by one line per violated Check with its issue count, in clause
-// order.
+// order, each clause numbered as r.Type numbers it.
 func (r Result) Summary() string {
 	var b strings.Builder
 	if r.Valid {
@@ -125,7 +131,7 @@ func (r Result) Summary() string {
 
 	byCheck := r.IssuesByCheck()
 	for _, c := range r.Checks() {
-		fmt.Fprintf(&b, "\n  %s/%d %s: %d", c.Clause(), c.Subclause(), c.Name(), len(byCheck[c]))
+		fmt.Fprintf(&b, "\n  %s %s: %d", formatClause(c.numberIn(r.Type)), c.Name(), len(byCheck[c]))
 	}
 	return b.String()
 }

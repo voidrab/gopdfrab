@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // TestAppearanceFixerAppliesExclusively checks the Fixer/Applies contract
@@ -104,8 +105,8 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 		t.Fatalf("AP/N Resources has no /Font /F0")
 	}
 
-	if annotationNeedsAppearanceFix(widget) {
-		t.Fatalf("annotationNeedsAppearanceFix still true after Fix")
+	if len(verify.AppearanceFaults(widget, a1bSpec)) != 0 {
+		t.Fatalf("AppearanceFaults not empty after Fix")
 	}
 	changed, err = fixer.Fix(&trailer, nil)
 	if err != nil {
@@ -543,8 +544,10 @@ func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 // entry is bad.
 func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	annot := widgetWith("Btn", nil)
+	on := pdf.NewPDFDict()
+	on.SetStream([]byte("q Q"))
 	states := pdf.NewPDFDict()
-	states.Entries.Set("On", pdf.NewPDFDict())
+	states.Entries.Set("On", on)
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", states)
 	ap.Entries.Set("D", pdf.NewPDFDict())
