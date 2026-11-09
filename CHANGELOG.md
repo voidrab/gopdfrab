@@ -22,7 +22,7 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
-## [Unreleased]
+## [1.4.0] - 2026-11-09
 
 ### Added
 
@@ -166,7 +166,6 @@ Everything under `internal/` may change in any release without notice.
 - Verify no longer checks the node that a name tree entry holds, such as the
   EmbeddedFiles entry of the name dictionary, against the type of the tree's
   leaves. It reported such a node as a file specification missing its F key.
-
 - Convert replaces a trailer ID that holds no file identifier bytes, such as
   `[<> <>]`, with a synthesized one, as it does a missing ID, instead of
   copying it to the output.
