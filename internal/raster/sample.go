@@ -5,13 +5,12 @@ import (
 	"math"
 )
 
-// sampler reads an image at arbitrary positions with filtering: bilinear
-// interpolation when the image is enlarged, and, when it is shrunk, a
-// bilinear read from a box-filtered half-size pyramid level, so that a scan
-// shown at a fraction of its resolution averages its pixels instead of
-// picking one of them. Colours are straight (not premultiplied) in and out;
-// filtering happens on premultiplied values so transparent pixels do not
-// darken or tint their neighbours.
+// sampler reads an image at arbitrary positions. A smoothed read is bilinear.
+// When the image is shrunk, levelFor selects a box-filtered, half-size pyramid
+// level instead, so that a scan shown at a fraction of its resolution averages
+// its pixels rather than picking one. Colours are straight (not premultiplied)
+// in and out; filtering weights each pixel by its alpha, so transparent pixels
+// do not darken or tint their neighbours.
 type sampler struct {
 	levels []*image.RGBA // levels[0] is the source; each next one is half-size
 }
@@ -19,8 +18,10 @@ type sampler struct {
 // newSampler returns a sampler over img, which it does not modify.
 func newSampler(img *image.RGBA) *sampler { return &sampler{levels: []*image.RGBA{img}} }
 
-// levelFor returns the pyramid level whose pixels are closest in size to a
-// device pixel, given how many source pixels one device pixel spans.
+// levelFor returns the largest pyramid level whose pixels are no larger than
+// a device pixel. footprint is the side, in source pixels, of the square one
+// device pixel covers. It returns 0 when footprint is at most 1 or NaN, and
+// it never builds a level smaller than 1x1.
 func (s *sampler) levelFor(footprint float64) int {
 	if !(footprint > 1) { // also catches NaN
 		return 0
@@ -36,8 +37,9 @@ func (s *sampler) levelFor(footprint float64) int {
 	return level
 }
 
-// halve returns img shrunk by two in each direction by averaging 2x2 blocks,
-// premultiplied, rounding odd sizes up and clamping at the edges.
+// halve returns img shrunk by half in each direction. Each colour channel is
+// the alpha-weighted average of a 2x2 block, and alpha is the plain average.
+// Odd sizes round up, and edge pixels are repeated to fill the last block.
 func halve(img *image.RGBA) *image.RGBA {
 	w, h := img.Rect.Dx(), img.Rect.Dy()
 	nw, nh := (w+1)/2, (h+1)/2
@@ -70,9 +72,9 @@ func halve(img *image.RGBA) *image.RGBA {
 
 // at returns the straight RGB colour, each 0..1, and the alpha, 0..1, at the
 // unit-square position (u, v), v measured down from the top, read from the
-// given level. With smooth false the nearest pixel is returned as it is, so
-// an enlarged image keeps its hard pixel edges. Positions outside the square
-// clamp to its edge.
+// given level. With smooth false, the nearest pixel is returned unfiltered,
+// which keeps the hard edges of an enlarged image. Positions outside the
+// square clamp to its edge.
 func (s *sampler) at(level int, u, v float64, smooth bool) (rgb [3]float64, alpha float64) {
 	img := s.levels[level]
 	w, h := img.Rect.Dx(), img.Rect.Dy()

@@ -56,7 +56,7 @@ func TestShrunkStencilMasksGiveCoverage(t *testing.T) {
 	// unpainted samples: black ink at about half coverage.
 	var rows strings.Builder
 	for range 8 {
-		rows.WriteByte(0xAA) // 1010 1010: sample 0 paints
+		rows.WriteByte(0xAA) // Alternating bits: half the samples paint.
 	}
 	content := "0 0 0 rg q 2 0 0 2 0 0 cm BI /IM true /W 8 /H 8 /BPC 1 ID " + rows.String() + " EI Q"
 	img := render20(t, content, pdf.PDFDict{})
@@ -68,7 +68,7 @@ func TestShrunkStencilMasksGiveCoverage(t *testing.T) {
 }
 
 func TestShrunkSoftMasksAreFiltered(t *testing.T) {
-	// A 1x1 white image under an 8x8 alternating soft mask, shown at 2x2: the
+	// A 1x1 black image under an 8x8 alternating soft mask, shown at 2x2: the
 	// mask averages to half opacity instead of picking opaque or clear.
 	mask := imageDict(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(8), "Height": pdf.PDFInteger(8),

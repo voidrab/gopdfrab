@@ -928,9 +928,10 @@ func isImageMask(dict pdf.PDFDict) bool {
 
 // compositeImage maps an image's unit square through the CTM, sampling the
 // decoded RGBA (and, if present, a soft mask's luminosity as a per-pixel alpha
-// multiplier) into the canvas with nearest-neighbour resampling. A stencil
-// mask paints gs.Fill.RGB through its alpha, since its samples carry only
-// coverage (DecodeImageRGBA renders those as opaque black).
+// multiplier) into the canvas. An image shown smaller than its pixels, and one
+// that sets interpolate, is filtered; an enlarged one keeps hard pixel edges.
+// A stencil mask paints gs.Fill.RGB through its alpha, since its samples
+// carry only coverage (DecodeImageRGBA renders those as opaque black).
 func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate bool, gs *renderState) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	if w == 0 || h == 0 {
@@ -946,9 +947,10 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 	if !ok {
 		return
 	}
-	// How many source pixels one device pixel spans, per direction on
-	// average: shrunk images average their pixels, enlarged ones keep them
-	// sharp unless the image asks to be interpolated.
+	// The footprint is the side, in source pixels, of the square one device
+	// pixel covers. A footprint above 1 means the image is shrunk and is
+	// averaged through the pyramid; otherwise hard pixel edges are kept
+	// unless the image sets /Interpolate.
 	area := math.Abs(inv.A*inv.D - inv.B*inv.C)
 	srcFoot := math.Sqrt(area * float64(w) * float64(h))
 	src := newSampler(img)

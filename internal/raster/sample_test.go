@@ -97,8 +97,8 @@ func TestHalveHandlesOddSizesAndAlpha(t *testing.T) {
 		t.Errorf("odd block = %v", got)
 	}
 
-	// A red pixel beside a transparent one stays red at half the alpha; the
-	// transparent pixel's colour must not tint it.
+	// A red opaque pixel among three transparent blue ones keeps its colour at
+	// a quarter of the alpha: transparent colours do not tint the average.
 	img = image.NewRGBA(image.Rect(0, 0, 2, 2))
 	img.SetRGBA(0, 0, color.RGBA{255, 0, 0, 255})
 	img.SetRGBA(1, 0, color.RGBA{0, 0, 255, 0})
@@ -108,7 +108,7 @@ func TestHalveHandlesOddSizesAndAlpha(t *testing.T) {
 	if got.R != 255 || got.B != 0 || got.A != 64 {
 		t.Errorf("alpha-weighted block = %v, want opaque-red at quarter alpha", got)
 	}
-	// An all-transparent block has no colour to speak of.
+	// An all-transparent block yields a zero pixel.
 	if got := halve(solid(2, 2, color.RGBA{7, 7, 7, 0})).RGBAAt(0, 0); got != (color.RGBA{}) {
 		t.Errorf("transparent block = %v", got)
 	}
