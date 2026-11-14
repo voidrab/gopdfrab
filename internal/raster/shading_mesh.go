@@ -130,7 +130,9 @@ func (mp *meshPainter) flat(a, b, c meshVertex, u, v, d float64, flipped bool) {
 			rgb[k] += (wa*a.rgb[k] + wb*b.rgb[k] + wc*c.rgb[k]) / 3
 		}
 	}
-	FillPath(mp.canvas, [][]content.Point{pts}, rgb, mp.alpha, false)
+	if mp.alpha > 0 {
+		fillPathAliased(mp.canvas, [][]content.Point{pts}, false, func(int, int) ([3]float64, float64) { return rgb, mp.alpha })
+	}
 }
 
 // quad paints one grid cell of a patch as two triangles.

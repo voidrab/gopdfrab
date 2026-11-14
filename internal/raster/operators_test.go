@@ -232,12 +232,12 @@ func TestFormXObjectBehaviour(t *testing.T) {
 		form := formXObject("1 0 0 1 1 0 cm 0 0 1 1 re f /Fm Do", nil)
 		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
 		img := render20(t, "0 0 0 rg /Fm Do", resources)
-		// The unit square of level k covers pixels k and k+1 (the fill takes
-		// both pixels its edges touch), so level 13 ends at pixel 14.
-		if !isBlack(t, img, 14, 19) {
+		// The unit square of level k covers exactly pixel k, so level 13 is
+		// the last one painted, at pixel 13.
+		if !isBlack(t, img, 13, 19) {
 			t.Error("the 13th nested level did not paint")
 		}
-		if !isWhite(t, img, 15, 19) {
+		if !isWhite(t, img, 14, 19) {
 			t.Error("a 14th nested level painted past the limit")
 		}
 	})
