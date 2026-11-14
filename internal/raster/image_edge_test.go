@@ -3,9 +3,12 @@ package raster
 import (
 	"bytes"
 	"errors"
+	"image"
+	"math/rand"
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -173,6 +176,82 @@ func TestDecodeImageRGBAIndexed8BitRepeatsEntries(t *testing.T) {
 	for x, w := range want {
 		if r, g, b := pixelAt(t, img, x, 0); [3]uint8{uint8(r), uint8(g), uint8(b)} != w {
 			t.Errorf("pixel %d = (%d,%d,%d), want %v", x, r, g, b, w)
+		}
+	}
+}
+
+// TestAlignedImageMatchesGeneralLoop draws random images, scales and offsets
+// through the aligned fast path and through the general loop (forced by a
+// clip mask that lets everything through) and compares the canvases.
+func TestAlignedImageMatchesGeneralLoop(t *testing.T) {
+	rng := rand.New(rand.NewSource(11))
+	for iter := 0; iter < 150; iter++ {
+		w, h := 1+rng.Intn(12), 1+rng.Intn(12)
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		for i := 0; i < len(img.Pix); i += 4 {
+			img.Pix[i], img.Pix[i+1], img.Pix[i+2] = uint8(rng.Intn(256)), uint8(rng.Intn(256)), uint8(rng.Intn(256))
+			img.Pix[i+3] = []uint8{255, 255, 255, 0, uint8(rng.Intn(256))}[rng.Intn(5)]
+		}
+		sx, sy := 3+rng.Float64()*50, 3+rng.Float64()*50
+		if rng.Intn(3) == 0 {
+			sy = -sy // upside down
+		}
+		ctm := content.Matrix{A: sx, D: sy, E: rng.Float64()*20 - 10, F: rng.Float64()*20 - 10}
+		draw := func(mask *clipMask) *image.RGBA {
+			canvas := image.NewRGBA(image.Rect(0, 0, 40, 40))
+			for i := range canvas.Pix {
+				canvas.Pix[i] = 200
+			}
+			gs := newRenderState(ctm, [4]float64{0, 0, 40, 40})
+			gs.mask = mask
+			r := &renderer{canvas: canvas}
+			r.compositeImage(img, nil, false, false, &gs)
+			return canvas
+		}
+		all := newClipMask(image.Rect(0, 0, 40, 40), [][]content.Point{{{X: -1, Y: -1}, {X: 41, Y: -1}, {X: 41, Y: 41}, {X: -1, Y: 41}}}, false, nil)
+		if got, want := draw(nil), draw(all); !bytes.Equal(got.Pix, want.Pix) {
+			t.Fatalf("iteration %d: aligned image differs from the general loop (ctm %+v, %dx%d)", iter, ctm, w, h)
+		}
+	}
+}
+
+// TestSmoothAlignedImageMatchesGeneralLoop is the same comparison for images
+// that are smoothed, either enlarged with /Interpolate or shrunk, within one
+// level per channel. An image with transparent pixels takes the general loop.
+func TestSmoothAlignedImageMatchesGeneralLoop(t *testing.T) {
+	rng := rand.New(rand.NewSource(13))
+	for iter := 0; iter < 150; iter++ {
+		w, h := 1+rng.Intn(40), 1+rng.Intn(40)
+		translucent := iter%5 == 0
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		for i := 0; i < len(img.Pix); i += 4 {
+			img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = uint8(rng.Intn(256)), uint8(rng.Intn(256)), uint8(rng.Intn(256)), 255
+			if translucent {
+				img.Pix[i+3] = uint8(rng.Intn(256))
+			}
+		}
+		sx, sy := 2+rng.Float64()*45, 2+rng.Float64()*45
+		if rng.Intn(3) == 0 {
+			sy = -sy
+		}
+		ctm := content.Matrix{A: sx, D: sy, E: rng.Float64()*20 - 10, F: rng.Float64()*20 - 10}
+		draw := func(mask *clipMask) *image.RGBA {
+			canvas := image.NewRGBA(image.Rect(0, 0, 40, 40))
+			for i := range canvas.Pix {
+				canvas.Pix[i] = 200
+			}
+			gs := newRenderState(ctm, [4]float64{0, 0, 40, 40})
+			gs.mask = mask
+			r := &renderer{canvas: canvas}
+			r.compositeImage(img, nil, false, true, &gs)
+			return canvas
+		}
+		all := newClipMask(image.Rect(0, 0, 40, 40), [][]content.Point{{{X: -1, Y: -1}, {X: 41, Y: -1}, {X: 41, Y: 41}, {X: -1, Y: 41}}}, false, nil)
+		got, want := draw(nil), draw(all)
+		for i := range got.Pix {
+			if d := int(got.Pix[i]) - int(want.Pix[i]); d < -1 || d > 1 {
+				t.Fatalf("iteration %d: byte %d is %d, the general loop has %d (ctm %+v, %dx%d)", iter, i, got.Pix[i], want.Pix[i], ctm, w, h)
+			}
 		}
 	}
 }

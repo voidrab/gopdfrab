@@ -14,12 +14,52 @@ import (
 // fill, with nonzero or even-odd winding per the f/f* operator, blending
 // rgb at alpha over the existing pixels.
 func FillPath(canvas *image.RGBA, contours [][]content.Point, rgb [3]float64, alpha float64, evenOdd bool) {
+	fillSolid(canvas, contours, evenOdd, rgb, alpha, nil)
+}
+
+// fillSolid is FillPath within a clip mask, which may be nil. It works a run
+// of equally covered pixels at a time: the interior of a shape is a few long
+// runs, written as bytes when opaque, and only edge pixels and translucent
+// ones are blended one by one.
+func fillSolid(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, rgb [3]float64, alpha float64, mask *clipMask) {
 	if alpha <= 0 {
 		return
 	}
-	fillPathFunc(canvas, contours, evenOdd, func(x, y int) ([3]float64, float64) {
-		return rgb, alpha
+	var opaque [4]byte
+	storeRGBA64(opaque[:], 0, rgb[0], rgb[1], rgb[2], 1)
+	// Runs and mask spans are never empty and their coverage is positive, so a
+	// is too.
+	paint := func(y, x0, x1 int, a float64) {
+		if a < 1 {
+			for x := x0; x < x1; x++ {
+				blendPixel(canvas, x, y, rgb, a)
+			}
+			return
+		}
+		fillBytes(canvas.Pix[canvas.PixOffset(x0, y):canvas.PixOffset(x1, y)], opaque)
+	}
+	scanRuns(canvas.Bounds(), contours, evenOdd, true, func(y, x0, x1 int, cov float32) {
+		if mask == nil {
+			paint(y, x0, x1, alpha*float64(cov))
+			return
+		}
+		mask.eachSpan(y, x0, x1, func(sx0, sx1 int, mc float64) {
+			if a := alpha * mc; a > 0 {
+				paint(y, sx0, sx1, a*float64(cov))
+			}
+		})
 	})
+}
+
+// fillBytes sets every pixel of row, a non-empty whole number of four-byte
+// pixels, to px.
+func fillBytes(row []byte, px [4]byte) {
+	copy(row, px[:])
+	// Doubling copies move the bytes written so far, rather than one pixel at
+	// a time.
+	for filled := 4; filled < len(row); filled *= 2 {
+		copy(row[filled:], row[:filled])
+	}
 }
 
 // FillPathShaded fills contours the same way as FillPath, but asks colorAt

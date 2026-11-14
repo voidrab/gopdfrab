@@ -13,10 +13,30 @@ import (
 // do not darken or tint their neighbours.
 type sampler struct {
 	levels []*image.RGBA // levels[0] is the source; each next one is half-size
+	opaque []int8        // per level: 0 not yet known, 1 every pixel opaque, -1 not
 }
 
 // newSampler returns a sampler over img, which it does not modify.
 func newSampler(img *image.RGBA) *sampler { return &sampler{levels: []*image.RGBA{img}} }
+
+// isOpaque reports whether every pixel of the given level has full alpha. The
+// answer is worked out once per level.
+func (s *sampler) isOpaque(level int) bool {
+	for len(s.opaque) < len(s.levels) {
+		s.opaque = append(s.opaque, 0)
+	}
+	if s.opaque[level] == 0 {
+		s.opaque[level] = 1
+		pix := s.levels[level].Pix
+		for i := 3; i < len(pix); i += 4 {
+			if pix[i] != 255 {
+				s.opaque[level] = -1
+				break
+			}
+		}
+	}
+	return s.opaque[level] > 0
+}
 
 // levelFor returns the largest pyramid level whose pixels are no larger than
 // a device pixel. footprint is the side, in source pixels, of the square one

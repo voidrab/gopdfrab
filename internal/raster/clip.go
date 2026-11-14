@@ -57,6 +57,31 @@ func (m *clipMask) at(x, y int) float64 {
 	return 0
 }
 
+// eachSpan calls fn for each stretch [x0, x1) of row y, within [from, to),
+// that the mask lets through, with the fraction it lets through.
+func (m *clipMask) eachSpan(y, from, to int, fn func(x0, x1 int, cov float64)) {
+	if y < m.rect.Min.Y || y >= m.rect.Max.Y {
+		return
+	}
+	row := m.rows[y-m.rect.Min.Y]
+	// Skip the spans that end at or before from.
+	lo, hi := 0, len(row)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if int(row[mid].x1) <= from {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	for _, sp := range row[lo:] {
+		if int(sp.x0) >= to {
+			break
+		}
+		fn(max(int(sp.x0), from), min(int(sp.x1), to), float64(sp.cov)/255)
+	}
+}
+
 // wrap returns colorAt with its alpha scaled by the mask coverage at each
 // pixel. A nil mask returns colorAt unchanged.
 func (m *clipMask) wrap(colorAt func(x, y int) ([3]float64, float64)) func(x, y int) ([3]float64, float64) {

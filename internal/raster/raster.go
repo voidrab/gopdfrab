@@ -618,10 +618,8 @@ func (r *renderer) fillContours(contours [][]content.Point, gs *renderState, eve
 	switch {
 	case gs.Fill.IsPattern():
 		r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
-	case gs.mask == nil:
-		FillPath(target, contours, gs.Fill.RGB, gs.fillAlpha, evenOdd)
 	default:
-		FillPathShaded(target, contours, evenOdd, gs.mask.wrap(constant(gs.Fill.RGB, gs.fillAlpha)))
+		fillSolid(target, contours, evenOdd, gs.Fill.RGB, gs.fillAlpha, gs.mask)
 	}
 }
 
@@ -1042,6 +1040,16 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 	x0, y0 := int(math.Max(math.Floor(clip[0]), float64(bounds.Min.X))), int(math.Max(math.Floor(clip[1]), float64(bounds.Min.Y)))
 	x1, y1 := int(math.Min(math.Ceil(clip[2]), float64(bounds.Max.X))), int(math.Min(math.Ceil(clip[3]), float64(bounds.Max.Y)))
 
+	if inv.B == 0 && inv.C == 0 && msk == nil && !stencil && gs.fillAlpha >= 1 && gs.mask == nil {
+		if !src.smooth {
+			r.compositeAligned(src, inv, x0, y0, x1, y1)
+			return
+		}
+		if src.s.isOpaque(src.level) {
+			r.compositeSmoothAligned(src, inv, x0, y0, x1, y1)
+			return
+		}
+	}
 	for y := y0; y < y1; y++ {
 		for x := x0; x < x1; x++ {
 			p := inv.Apply(content.Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
@@ -1065,6 +1073,122 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 				rgb = gs.Fill.RGB
 			}
 			blendPixel(r.canvas, x, y, rgb, alpha)
+		}
+	}
+}
+
+// compositeAligned draws an unrotated, unsheared image whose pixels keep hard
+// edges, with no soft mask, stencil, transparency or non-rectangular clip, over
+// the device rectangle [x0, x1) x [y0, y1). The source pixel of each column and
+// row is found once, not per pixel, and opaque pixels are copied as bytes. The
+// result is that of the general loop in compositeImage.
+func (r *renderer) compositeAligned(src imageSource, inv content.Matrix, x0, y0, x1, y1 int) {
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+	img := src.s.levels[src.level]
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	// sourceIndex returns the source column or row under device pixel d, or -1
+	// where the image does not reach. With inv.B and inv.C zero the unit-square
+	// position depends on one device coordinate alone.
+	cols := make([]int, x1-x0)
+	for x := x0; x < x1; x++ {
+		u := inv.Apply(content.Point{X: float64(x) + 0.5}).X
+		cols[x-x0] = -1
+		if u >= 0 && u < 1 {
+			cols[x-x0] = clampPix(int(math.Floor(u*float64(w))), w)
+		}
+	}
+	canvas := r.canvas
+	for y := y0; y < y1; y++ {
+		v := inv.Apply(content.Point{Y: float64(y) + 0.5}).Y
+		if v < 0 || v >= 1 {
+			continue
+		}
+		sy := clampPix(int(math.Floor((1-v)*float64(h))), h)
+		srow := img.Pix[img.PixOffset(img.Rect.Min.X, img.Rect.Min.Y+sy):]
+		for x := x0; x < x1; x++ {
+			sx := cols[x-x0]
+			if sx < 0 {
+				continue
+			}
+			px := srow[4*sx : 4*sx+4 : 4*sx+4]
+			switch px[3] {
+			case 0:
+			case 255:
+				d := canvas.Pix[canvas.PixOffset(x, y):]
+				d[0], d[1], d[2], d[3] = px[0], px[1], px[2], 255
+			default:
+				blendPixel(canvas, x, y, [3]float64{float64(px[0]) / 255, float64(px[1]) / 255, float64(px[2]) / 255}, float64(px[3])/255)
+			}
+		}
+	}
+}
+
+// tapScale is the fixed-point one of a tap weight.
+const tapScale = 4096
+
+// taps is where one device column or row reads a smoothed image: the two
+// neighbouring source pixels, as byte offsets, and the weight of the second in
+// 1/tapScale ths. A column the image does not reach has first < 0.
+type taps struct {
+	first, second int
+	weight        int
+}
+
+// tapsFor returns the taps of n device pixels from d0, where unit(d) is the
+// unit-square position under device pixel d and size is the source size across.
+func tapsFor(d0, n, size, stride int, unit func(d int) float64) []taps {
+	out := make([]taps, n)
+	for i := range out {
+		u := unit(d0 + i)
+		if u < 0 || u >= 1 {
+			out[i].first = -1
+			continue
+		}
+		pos := u*float64(size) - 0.5
+		base := math.Floor(pos)
+		out[i] = taps{
+			first:  clampPix(int(base), size) * stride,
+			second: clampPix(int(base)+1, size) * stride,
+			weight: int((pos-base)*tapScale + 0.5),
+		}
+	}
+	return out
+}
+
+// compositeSmoothAligned is compositeAligned for an image read with bilinear
+// smoothing, whose pixels are all opaque. The taps of each column and row are
+// found once, and the blend is done in integers, so a pixel can differ from the
+// general loop's by one level of one channel.
+func (r *renderer) compositeSmoothAligned(src imageSource, inv content.Matrix, x0, y0, x1, y1 int) {
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+	img := src.s.levels[src.level]
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	cols := tapsFor(x0, x1-x0, w, 4, func(x int) float64 { return inv.Apply(content.Point{X: float64(x) + 0.5}).X })
+	rows := tapsFor(y0, y1-y0, h, img.Stride, func(y int) float64 { return 1 - inv.Apply(content.Point{Y: float64(y) + 0.5}).Y })
+	base := img.PixOffset(img.Rect.Min.X, img.Rect.Min.Y)
+	canvas := r.canvas
+	for y := y0; y < y1; y++ {
+		row := rows[y-y0]
+		if row.first < 0 {
+			continue
+		}
+		top, bottom := img.Pix[base+row.first:], img.Pix[base+row.second:]
+		d := canvas.Pix[canvas.PixOffset(x0, y):]
+		for x := x0; x < x1; x, d = x+1, d[4:] {
+			col := cols[x-x0]
+			if col.first < 0 {
+				continue
+			}
+			for c := 0; c < 3; c++ {
+				a := int64(top[col.first+c])*(tapScale-int64(col.weight)) + int64(top[col.second+c])*int64(col.weight)
+				b := int64(bottom[col.first+c])*(tapScale-int64(col.weight)) + int64(bottom[col.second+c])*int64(col.weight)
+				d[c] = uint8((a*(tapScale-int64(row.weight)) + b*int64(row.weight) + tapScale*tapScale/2) / (tapScale * tapScale))
+			}
+			d[3] = 255
 		}
 	}
 }

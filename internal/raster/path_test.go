@@ -1,10 +1,12 @@
 package raster
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
 	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/content"
@@ -256,5 +258,42 @@ func TestStrokePathJoinsDoNotDarkenTranslucentStrokes(t *testing.T) {
 	// (14,4) lies in both segments' quads near the corner.
 	if got := alphaAt(canvas, 14, 4); math.Abs(got-0.5) > 0.01 {
 		t.Errorf("corner alpha = %.3f, want 0.5 (painted once)", got)
+	}
+}
+
+// TestFillSolidMatchesPerPixelFill checks the run-based solid fill against the
+// per-pixel one it replaced, over random shapes, colours, alphas and masks.
+func TestFillSolidMatchesPerPixelFill(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+	randPoly := func(n int, w, h float64) []content.Point {
+		poly := make([]content.Point, n)
+		for i := range poly {
+			poly[i] = content.Point{X: rng.Float64()*w*1.2 - 4, Y: rng.Float64()*h*1.2 - 4}
+		}
+		return poly
+	}
+	for iter := 0; iter < 200; iter++ {
+		w, h := 40+rng.Intn(40), 30+rng.Intn(30)
+		rgb := [3]float64{rng.Float64(), rng.Float64(), rng.Float64()}
+		alpha := []float64{1, 1, 0.5, 0.2 + rng.Float64()*0.8}[rng.Intn(4)]
+		contours := [][]content.Point{randPoly(3+rng.Intn(5), float64(w), float64(h)), randPoly(3, float64(w), float64(h))}
+		evenOdd := rng.Intn(2) == 0
+		var mask *clipMask
+		if rng.Intn(2) == 0 {
+			mask = newClipMask(image.Rect(0, 0, w, h), [][]content.Point{randPoly(5, float64(w), float64(h))}, false, nil)
+		}
+		backdrop := image.NewRGBA(image.Rect(0, 0, w, h))
+		for i := range backdrop.Pix {
+			backdrop.Pix[i] = uint8(rng.Intn(256))
+		}
+		want := image.NewRGBA(backdrop.Rect)
+		copy(want.Pix, backdrop.Pix)
+		fillPathFunc(want, contours, evenOdd, mask.wrap(constant(rgb, alpha)))
+		got := image.NewRGBA(backdrop.Rect)
+		copy(got.Pix, backdrop.Pix)
+		fillSolid(got, contours, evenOdd, rgb, alpha, mask)
+		if !bytes.Equal(got.Pix, want.Pix) {
+			t.Fatalf("iteration %d: run-based fill differs from the per-pixel fill (alpha %v, mask %v)", iter, alpha, mask != nil)
+		}
 	}
 }
