@@ -121,17 +121,16 @@ type TextGlyph struct {
 }
 
 // ExtractText returns the glyphs a page shows, in the order its content shows
-// them, each with the box of its em square from the descender to the ascender
-// that the font's metrics suggest. It runs the page's content without painting
-// or decoding images.
+// them, each with the box of its em square from the descender to the ascender.
+// It runs the page's content without painting or decoding images.
 func ExtractText(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, oc *content.OptionalContent, cache *Cache) ([]TextGlyph, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, err
 	}
 	var glyphs []TextGlyph
-	// One pixel of canvas at one device pixel per point: painting is out of
-	// reach of everything but the corner, and device space is page space.
+	// The canvas is one pixel at 72 dpi, so painting has no visible effect.
+	// At 72 dpi one device unit is one point, which the glyph boxes rely on.
 	_, _, err = renderArea(ctx, src, resources, mediaBox, 72, image.Rect(0, 0, 1, 1), InheritedPaint{}, paperBackdrop, oc, cache, &glyphs)
 	if err != nil {
 		return nil, err
@@ -300,8 +299,8 @@ type renderer struct {
 	ctx context.Context
 	// cache, when set, keeps decoded images and fonts for the next render.
 	cache *Cache
-	// glyphs, when set, receives every glyph shown, and the render skips
-	// images: it is run only to learn where the text is.
+	// glyphs, when set, receives every glyph shown. The render then skips
+	// images.
 	glyphs    *[]TextGlyph
 	fontCache map[uintptr]*fontInfo
 	// shadingCache holds parsed shadings keyed by pattern dict identity; a nil
@@ -1524,7 +1523,7 @@ func buildFontInfoBase(font pdf.PDFDict) *fontInfo {
 
 // unicodeMapFor returns how the codes of font stand for characters: by its
 // /ToUnicode CMap if it has one, else, for a simple font, by its encoding. A
-// composite font with no /ToUnicode has no way to tell, and maps to zero.
+// composite font without /ToUnicode maps every code to zero.
 func unicodeMapFor(font pdf.PDFDict) func(int) rune {
 	if tu, ok := font.Entries.Get("ToUnicode").(pdf.PDFDict); ok {
 		if data, err := pdf.DecodeStream(tu); err == nil {

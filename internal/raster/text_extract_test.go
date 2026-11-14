@@ -74,8 +74,8 @@ func TestExtractTextFollowsPositioningAndState(t *testing.T) {
 }
 
 func TestExtractTextSkipsImagesAndReadsFormText(t *testing.T) {
-	// Text inside a Form XObject is found; an image is not even decoded, so a
-	// broken one does no harm.
+	// Text inside a Form XObject is extracted. An image is not decoded, so a
+	// broken image does not cause an error.
 	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "Form"}, "BBox": numArray(0, 0, 100, 50),
 	}), []byte("BT /F1 10 Tf 0 0 Td (x) Tj ET"))

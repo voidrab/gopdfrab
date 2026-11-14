@@ -88,8 +88,9 @@ func TestNamedDestinationsInTheCatalogAndTheNameTree(t *testing.T) {
 }
 
 func TestLinksThatCannotBeUnderstoodAreLeftOut(t *testing.T) {
-	// Another action, a note, a short /Rect, an empty or unresolvable
-	// destination, an empty URI, and a number as a destination.
+	// The annotations here are a non-GoTo action, a note, a /Rect with too few
+	// values, an empty or unresolvable destination, an empty URI, a number as a
+	// destination, and a reference to a missing object. None is reported.
 	doc := linkDoc(t, "12 0 R 13 0 R 14 0 R 15 0 R 16 0 R 18 0 R 19 0 R 99 0 R", "")
 	p, _ := doc.Page(0)
 	if got, err := p.Links(context.Background()); err != nil || len(got) != 0 {
@@ -144,7 +145,8 @@ func TestDestinationEdgeCases(t *testing.T) {
 		t.Error("an integer was taken for a string")
 	}
 
-	// A name tree is searched no deeper than it can sensibly be.
+	// nameTreeLookup does not descend past 32 levels, so the tree built here,
+	// 40 levels deep, is not searched to its leaf.
 	leaf := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Names": pdf.PDFArray{pdf.PDFString{Value: "k"}, pdf.PDFInteger(1)}})}
 	node := leaf
 	for range 40 {

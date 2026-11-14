@@ -307,7 +307,7 @@ func TestPageGlyphsErrors(t *testing.T) {
 	if _, err := p.Glyphs(ctx); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled before = %v", err)
 	}
-	// A page whose contents cannot be decoded has no text to give.
+	// A page whose contents cannot be decoded makes Glyphs return an error.
 	b := pdfgen.NewBuilder("%PDF-1.4\\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
 	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
