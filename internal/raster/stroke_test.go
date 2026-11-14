@@ -119,7 +119,8 @@ func TestStrokeClosedSubpath(t *testing.T) {
 	c := strokeOn(24, 24, sq, StrokeStyle{Width: 2})
 	// Every corner, including where the path closes, is mitered.
 	wantAlpha(t, c, "closed", [][3]float64{{5, 5, 1}, {14, 5, 1}, {14, 14, 1}, {5, 14, 1}, {10, 10, 0}, {10, 5, 1}})
-	// A closed path has no caps: butt-capped, its start corner is still whole.
+	// A closed subpath has no caps, so its start corner is joined like the
+	// others.
 	// A two-point closed contour joins back on itself.
 	two := [][]content.Point{line(6, 10, 14, 10, 6, 10)}
 	wantAlpha(t, strokeOn(24, 20, two, StrokeStyle{Width: 4, Join: JoinRound}), "two-point", [][3]float64{{10, 10, 1}})
@@ -288,7 +289,7 @@ func TestStrokeStateOperators(t *testing.T) {
 		return true
 	}
 
-	// d: dash [4 4] gives on at 0..3, off at 4..7.
+	// The d operator with dash [4 4] gives on at 0..3, off at 4..7.
 	img := strokeContent(t, "0 0 0 RG 2 w [4 4] 0 d 0 10 m 20 10 l S", pdf.PDFDict{})
 	if got := rowOn(img, 10, 1, 2); !all(got, true) {
 		t.Errorf("dash on part: %v", got)
@@ -296,15 +297,16 @@ func TestStrokeStateOperators(t *testing.T) {
 	if got := rowOn(img, 10, 5, 6); !all(got, false) {
 		t.Errorf("dash off part: %v", got)
 	}
-	// J: a round or projecting cap extends past the endpoint, butt does not.
+	// The line cap operator (J): a round or square cap extends past the
+	// endpoint, butt does not.
 	for op, wantReach := range map[string]bool{"0": false, "1": true, "2": true} {
 		img := strokeContent(t, "0 0 0 RG 6 w "+op+" J 6 10 m 14 10 l S", pdf.PDFDict{})
 		if got := rowOn(img, 10, 4)[0]; got != wantReach {
 			t.Errorf("cap %s: pixel past the end painted = %v, want %v", op, got, wantReach)
 		}
 	}
-	// j and M: the outer corner of a right angle (device pixel 16,18) is filled
-	// by a miter, not a bevel.
+	// The line join (j) and miter limit (M): the outer corner of a right
+	// angle (device pixel 16,18) is filled by a miter, not a bevel.
 	miter := strokeContent(t, "0 0 0 RG 6 w 0 j 4 4 m 14 4 l 14 14 l S", pdf.PDFDict{})
 	bevel := strokeContent(t, "0 0 0 RG 6 w 2 j 4 4 m 14 4 l 14 14 l S", pdf.PDFDict{})
 	if isWhite(t, miter, 16, 18) || !isWhite(t, bevel, 16, 18) {
@@ -314,7 +316,8 @@ func TestStrokeStateOperators(t *testing.T) {
 	if !isWhite(t, limited, 16, 18) {
 		t.Error("a miter limit of 1 should bevel every corner")
 	}
-	// d with a missing operand is ignored; q/Q restores the dash.
+	// A dash operator (d) with a missing operand is ignored. Restoring a saved
+	// graphics state also restores its dash.
 	if got := rowOn(strokeContent(t, "0 0 0 RG 2 w [4 4] d 0 10 m 20 10 l S", pdf.PDFDict{}), 10, 5, 6); !all(got, true) {
 		t.Errorf("malformed d changed the stroke: %v", got)
 	}
@@ -322,7 +325,7 @@ func TestStrokeStateOperators(t *testing.T) {
 	if got := rowOn(img, 10, 5, 6); !all(got, true) {
 		t.Errorf("Q did not restore the solid line: %v", got)
 	}
-	// d with a non-array first operand strokes solid.
+	// A dash operator (d) whose first operand is not an array strokes solid.
 	if got := rowOn(strokeContent(t, "0 0 0 RG 2 w 3 0 d 0 10 m 20 10 l S", pdf.PDFDict{}), 10, 5, 6); !all(got, true) {
 		t.Errorf("non-array dash: %v", got)
 	}
@@ -353,7 +356,7 @@ func TestStrokeExtGState(t *testing.T) {
 	if !isWhite(t, joined, 16, 18) {
 		t.Error("ExtGState /LJ bevel join was not applied")
 	}
-	// A malformed /D (wrong length) is ignored.
+	// An ExtGState D entry of the wrong length is ignored.
 	ignored := render20(t, "0 0 0 RG 2 w /G gs 0 10 m 20 10 l S", egs(map[string]pdf.PDFValue{
 		"D": pdf.PDFArray{numArray(4, 4)},
 	}))

@@ -9,7 +9,7 @@ import (
 // LineCap is how an open subpath's ends are finished.
 type LineCap int
 
-// The line caps of ISO 32000-1 8.4.3.3.
+// CapButt, CapRound and CapSquare are the line caps of ISO 32000-1 8.4.3.3.
 const (
 	CapButt LineCap = iota
 	CapRound
@@ -19,7 +19,8 @@ const (
 // LineJoin is how two segments of a subpath are joined.
 type LineJoin int
 
-// The line joins of ISO 32000-1 8.4.3.4.
+// JoinMiter, JoinRound and JoinBevel are the line joins of ISO 32000-1
+// 8.4.3.4.
 const (
 	JoinMiter LineJoin = iota
 	JoinRound
@@ -43,8 +44,8 @@ type StrokeStyle struct {
 	DashPhase float64
 }
 
-// maxDashes bounds the dashes of one subpath, past which it is stroked solid:
-// at that density the dashes are finer than a pixel anyway.
+// maxDashes bounds the number of dashes one subpath may produce. A subpath
+// that would need more is stroked solid.
 const maxDashes = 20000
 
 // strokeOutline returns polygons whose nonzero union is the stroke of
@@ -301,8 +302,9 @@ func appendJoin(pieces [][]content.Point, p, d1, d2 vec, st StrokeStyle) [][]con
 }
 
 // arcFan returns the polygon of a circular sector around centre, from the
-// direction start through sweep radians. With fan false the sector is the
-// whole disc's outline.
+// direction start through sweep radians. With fan true the polygon starts at
+// centre, closing the sector; with fan false only the arc is returned, so a
+// full sweep gives the outline of a disc.
 func arcFan(centre, start vec, sweep, radius float64, fan bool) []content.Point {
 	// Steps are fine enough that the chord stays within 0.1 pixel of the arc.
 	step := math.Pi / 4

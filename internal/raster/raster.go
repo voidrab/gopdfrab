@@ -571,7 +571,8 @@ func clipToBounds(bounds image.Rectangle, rect [4]float64) image.Rectangle {
 	return bounds.Intersect(r)
 }
 
-// lineCapOf converts a J or LC operand; unknown values mean a butt cap.
+// lineCapOf converts a line cap value from the line cap operator (J) or the
+// LC entry of an ExtGState. Unknown values mean a butt cap.
 func lineCapOf(v float64) LineCap {
 	switch int(v) {
 	case 1:
@@ -582,7 +583,8 @@ func lineCapOf(v float64) LineCap {
 	return CapButt
 }
 
-// lineJoinOf converts a j or LJ operand; unknown values mean a miter join.
+// lineJoinOf converts a line join value from the line join operator (j) or
+// the LJ entry of an ExtGState. Unknown values mean a miter join.
 func lineJoinOf(v float64) LineJoin {
 	switch int(v) {
 	case 1:
@@ -593,8 +595,9 @@ func lineJoinOf(v float64) LineJoin {
 	return JoinMiter
 }
 
-// dashArray reads the dash array operand of d or /D: its numbers, or nil when
-// it is not an array.
+// dashArray reads the dash array of the dash operator (d) or of the D entry
+// of an ExtGState. Non-numeric entries read as zero; the result is nil when
+// the value is not an array.
 func dashArray(v pdf.PDFValue) []float64 {
 	arr, ok := v.(pdf.PDFArray)
 	if !ok {
@@ -621,9 +624,10 @@ func (gs *renderState) strokeStyle() StrokeStyle {
 	return st
 }
 
-// strokeReach is how far a stroke can extend beyond its path, in pixels: half
-// the width, times the miter limit for a mitered join, which reaches further
-// than any cap.
+// strokeReach returns how far a stroke can reach beyond its path, in pixels:
+// half the line width, taking the width as at least one pixel, times the miter
+// limit (at least sqrt 2) for a mitered join, or times sqrt 2 otherwise. The
+// latter is the distance of a square cap's corners.
 func (gs *renderState) strokeReach() float64 {
 	half := math.Max(gs.lineWidth*ctmScale(gs.CTM), 1) / 2
 	if gs.lineJoin == JoinMiter {

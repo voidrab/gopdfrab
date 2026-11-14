@@ -268,9 +268,9 @@ func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
 	storeRGBA64(pix, off, blend(rgb[0], er), blend(rgb[1], eg), blend(rgb[2], eb), outA)
 }
 
-// StrokePath strokes contours, flattened subpaths in device space, with a
-// solid line lineWidth pixels wide, butt caps and mitered joins, the PDF
-// defaults. See StrokePathStyled for the other styles.
+// StrokePath strokes contours, which are flattened subpaths in device space,
+// with a solid line lineWidth pixels wide (at least one pixel), butt caps and
+// mitered joins, the PDF defaults. See StrokePathStyled for the other styles.
 func StrokePath(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, rgb [3]float64, alpha float64) {
 	StrokePathStyled(canvas, contours, StrokeStyle{Width: lineWidth}, rgb, alpha)
 }
