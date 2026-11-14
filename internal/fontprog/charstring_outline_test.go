@@ -695,3 +695,107 @@ func TestCharstringNumbers(t *testing.T) {
 		})
 	}
 }
+
+// TestCFFOutlineHonoursTheFontMatrix verifies that a program declaring a
+// glyph space other than 1/1000 em, such as a 2000-unit font, is drawn scaled
+// into it.
+func TestCFFOutlineHonoursTheFontMatrix(t *testing.T) {
+	notdef := cs([]byte{14})
+	line := cs(nums(40, 60), []byte{21}, nums(50, 20), []byte{5}, []byte{14})
+	curve := cs(nums(0, 0), []byte{21}, nums(10, 20, 30, 40, 50, 60), []byte{8}, []byte{14})
+	outline := func(glyph int, matrix []string) [][]Point {
+		t.Helper()
+		spec := cffSpec{charstrings: [][]byte{notdef, line, curve}, matrix: matrix}
+		p, ok := ParseCFFCharstrings(spec.assemble())
+		if !ok {
+			t.Fatal("the synthetic program did not parse")
+		}
+		var s recSink
+		if !p.Outline(glyph, &s) {
+			t.Fatalf("no glyph %d", glyph)
+		}
+		return s.result()
+	}
+	last := func(c [][]Point) Point { return c[0][len(c[0])-1] }
+
+	// No FontMatrix: the coordinates stand as they are.
+	if got := last(outline(1, nil)); got != (Point{90, 80}) {
+		t.Errorf("unscaled end point = %v", got)
+	}
+	// Two thousand units to the em halve everything, lines and curves alike.
+	half := []string{"0.0005", "0", "0", "0.0005", "0", "0"}
+	if got := last(outline(1, half)); got != (Point{45, 40}) {
+		t.Errorf("end point under a 0.0005 FontMatrix = %v, want (45, 40)", got)
+	}
+	if got := last(outline(2, half)); got != (Point{45, 60}) {
+		t.Errorf("curve end point under a 0.0005 FontMatrix = %v, want (45, 60)", got)
+	}
+	// The axes scale independently.
+	if got := last(outline(1, []string{"0.0005", "0", "0", "0.001", "0", "0"})); got != (Point{45, 80}) {
+		t.Errorf("end point under an anisotropic FontMatrix = %v, want (45, 80)", got)
+	}
+	// A matrix with shear, or a degenerate one, is not a plain scale and is
+	// left unapplied rather than guessed at.
+	for _, m := range [][]string{
+		{"0.001", "0.001", "0", "0.001", "0", "0"},
+		{"0", "0", "0", "0", "0", "0"},
+	} {
+		if got := last(outline(1, m)); got != (Point{90, 80}) {
+			t.Errorf("end point under %v = %v, want it unscaled", m, got)
+		}
+	}
+}
+
+func TestParseCFFCharstringsRejectsGarbage(t *testing.T) {
+	if p, ok := ParseCFFCharstrings([]byte("not a CFF program")); ok || p != nil {
+		t.Errorf("ParseCFFCharstrings(garbage) = %v, %v", p, ok)
+	}
+}
+
+func TestType1OutlineHonoursItsScale(t *testing.T) {
+	glyph := cs(nums(0, 50), []byte{t1Hsbw}, nums(10, 20), []byte{t1Rmoveto}, nums(60, 40), []byte{t1Rlineto}, []byte{t1Endchar})
+	p := t1(map[string][]byte{"g": glyph})
+	if got := lastPoint(t, t1outline(t, p, "g")); got != (Point{70, 60}) {
+		t.Fatalf("unscaled end point = %v", got)
+	}
+	p.sx, p.sy = 0.5, 0.5
+	if got := lastPoint(t, t1outline(t, p, "g")); got != (Point{35, 30}) {
+		t.Errorf("end point scaled by one half = %v, want (35, 30)", got)
+	}
+	p.sx, p.sy = 0.5, 0
+	if got := lastPoint(t, t1outline(t, p, "g")); got != (Point{35, 60}) {
+		t.Errorf("end point with only x scaled = %v, want (35, 60)", got)
+	}
+}
+
+// TestParseType1CharstringsReadsTheFontMatrix verifies that a program declaring
+// a glyph space other than 1/1000 em, such as a 2000-unit font, is drawn scaled
+// into it, and that a matrix that is not a plain scale is left unapplied.
+func TestParseType1CharstringsReadsTheFontMatrix(t *testing.T) {
+	glyph := cs(nums(0, 50), []byte{t1Hsbw}, nums(10, 20), []byte{t1Rmoveto}, nums(60, 40), []byte{t1Rlineto}, []byte{t1Endchar})
+	end := func(matrix string) Point {
+		t.Helper()
+		s := newType1()
+		s.header = "%!PS-AdobeFont-1.0: Test\n/FontMatrix " + matrix + " readonly def\ncurrentfile eexec\n"
+		s.glyphs = []type1Entry{{"g", glyph}}
+		p, ok := ParseType1Charstrings(s.build())
+		if !ok {
+			t.Fatal("the program did not parse")
+		}
+		return lastPoint(t, t1outline(t, p, "g"))
+	}
+	for _, tc := range []struct {
+		matrix string
+		want   Point
+	}{
+		{"[0.001 0 0 0.001 0 0]", Point{70, 60}},
+		{"[0.0005 0 0 0.0005 0 0 ]", Point{35, 30}},
+		{"[0.002 0 0 0.002 0 0]", Point{140, 120}},
+		{"[0.001 0.001 0 0.001 0 0]", Point{70, 60}}, // sheared: left as it is
+		{"[0 0 0 0 0 0]", Point{70, 60}},
+	} {
+		if got := end(tc.matrix); got != tc.want {
+			t.Errorf("end point under %s = %v, want %v", tc.matrix, got, tc.want)
+		}
+	}
+}
