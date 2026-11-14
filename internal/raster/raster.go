@@ -874,7 +874,7 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 			}
 		}
 	}
-	r.compositeImage(img, smask, isImageMask(xobj), gs)
+	r.compositeImage(img, smask, isImageMask(xobj), interpolates(xobj), gs)
 }
 
 // dropPlaceholder reports, as a drop, an image DecodeImageRGBA could only
@@ -931,7 +931,7 @@ func isImageMask(dict pdf.PDFDict) bool {
 // multiplier) into the canvas with nearest-neighbour resampling. A stencil
 // mask paints gs.Fill.RGB through its alpha, since its samples carry only
 // coverage (DecodeImageRGBA renders those as opaque black).
-func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *renderState) {
+func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate bool, gs *renderState) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	if w == 0 || h == 0 {
 		return
@@ -946,6 +946,22 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 	if !ok {
 		return
 	}
+	// How many source pixels one device pixel spans, per direction on
+	// average: shrunk images average their pixels, enlarged ones keep them
+	// sharp unless the image asks to be interpolated.
+	area := math.Abs(inv.A*inv.D - inv.B*inv.C)
+	srcFoot := math.Sqrt(area * float64(w) * float64(h))
+	src := newSampler(img)
+	srcLevel, srcSmooth := src.levelFor(srcFoot), interpolate || srcFoot > 1
+	var msk *sampler
+	var mskLevel int
+	var mskSmooth bool
+	if smask != nil {
+		mskFoot := math.Sqrt(area * float64(smW) * float64(smH))
+		msk = newSampler(smask)
+		mskLevel, mskSmooth = msk.levelFor(mskFoot), interpolate || mskFoot > 1
+	}
+
 	corners := []content.Point{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}}
 	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	for _, c := range corners {
@@ -964,29 +980,32 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 			if p.X < 0 || p.X >= 1 || p.Y < 0 || p.Y >= 1 {
 				continue
 			}
-			col := pdf.ClampInt(int(p.X*float64(w)), 0, w-1)
-			row := pdf.ClampInt(int((1-p.Y)*float64(h)), 0, h-1)
-			po := img.PixOffset(col, row)
-			alpha := float64(img.Pix[po+3]) / 255 * gs.fillAlpha
-			if smask != nil {
-				// Sampled from p directly, not from the base image's col/row: a
+			rgb, a := src.at(srcLevel, p.X, 1-p.Y, srcSmooth)
+			alpha := a * gs.fillAlpha
+			if msk != nil {
+				// Sampled from p directly, not from the base image's pixel: a
 				// low-res base under a higher-res mask would otherwise collapse
 				// the mask's shape down to the base's resolution.
-				scol := pdf.ClampInt(int(p.X*float64(smW)), 0, smW-1)
-				srow := pdf.ClampInt(int((1-p.Y)*float64(smH)), 0, smH-1)
-				alpha *= float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
+				m, _ := msk.at(mskLevel, p.X, 1-p.Y, mskSmooth)
+				alpha *= m[0]
 			}
 			alpha *= gs.mask.at(x, y)
 			if alpha <= 0 {
 				continue
 			}
-			rgb := [3]float64{float64(img.Pix[po]) / 255, float64(img.Pix[po+1]) / 255, float64(img.Pix[po+2]) / 255}
 			if stencil {
 				rgb = gs.Fill.RGB
 			}
 			blendPixel(r.canvas, x, y, rgb, alpha)
 		}
 	}
+}
+
+// interpolates reports whether an image dictionary asks for its pixels to be
+// smoothed when it is enlarged.
+func interpolates(dict pdf.PDFDict) bool {
+	b, _ := dict.Entries.Get("Interpolate").(pdf.PDFBoolean)
+	return bool(b)
 }
 
 // applyTf resolves a Tf operator's named font resource into gs, building (and
@@ -1339,7 +1358,7 @@ func (r *renderer) paintInlineImage(operands []pdf.PDFValue, resources pdf.PDFDi
 		r.drop(dropInlineImage)
 		return
 	}
-	r.compositeImage(img, nil, isImageMask(dict), gs)
+	r.compositeImage(img, nil, isImageMask(dict), interpolates(dict), gs)
 }
 
 // patternShading resolves a shading pattern's /Shading, caching the parsed
