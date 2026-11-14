@@ -101,8 +101,8 @@ func TestPageRenderScaleAndErrors(t *testing.T) {
 	}
 }
 
-// TestPageRenderCanceledAfter checks the cancellation noticed once the
-// rasterizer returns.
+// TestPageRenderCanceledAfter verifies that Render returns context.Canceled
+// when the context is canceled during the render, after rasterization.
 func TestPageRenderCanceledAfter(t *testing.T) {
 	doc := pageDoc(t, "")
 	p, _ := doc.Page(0)
@@ -143,7 +143,8 @@ func TestPageRenderError(t *testing.T) {
 	}
 }
 
-// TestPageConcurrent renders from several goroutines; run with -race.
+// TestPageConcurrent verifies that pages of one document can be rendered from
+// several goroutines at once. It is meant to be run with -race.
 func TestPageConcurrent(t *testing.T) {
 	doc := pageDoc(t, "")
 	var wg sync.WaitGroup

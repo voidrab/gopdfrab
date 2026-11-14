@@ -104,8 +104,8 @@ func (p *Page) Size() (width, height float64) {
 // RenderOptions controls Page.Render.
 type RenderOptions struct {
 	// Scale is device pixels per point: 1 is 72 dpi. Zero means 1. The
-	// renderer works at whole dpi, so the scale is rounded to 1/72, and it
-	// lowers the resolution of very large pages to bound memory.
+	// resolution is rounded to whole dpi, and very large pages are rendered
+	// at a lower resolution to bound memory.
 	Scale float64
 }
 
