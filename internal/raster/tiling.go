@@ -51,7 +51,7 @@ func parseTiling(pattern pdf.PDFDict) (*tiling, bool) {
 	ys, oky := pdf.PDFNumberToFloat(pattern.Entries.Get("YStep"))
 	t.xstep, t.ystep = math.Abs(xs), math.Abs(ys)
 	if !okx || !oky || t.xstep < 1e-6 || t.ystep < 1e-6 || t.bbox[2] <= t.bbox[0] || t.bbox[3] <= t.bbox[1] ||
-		math.IsNaN(t.xstep+t.ystep+t.bbox[0]+t.bbox[1]+t.bbox[2]+t.bbox[3]) || math.IsInf(t.xstep+t.ystep, 0) {
+		!finite(t.xstep, t.ystep, t.bbox[0], t.bbox[1], t.bbox[2], t.bbox[3]) {
 		return nil, false
 	}
 	return t, true
@@ -165,4 +165,14 @@ func (r *renderer) tileImage(pattern pdf.PDFDict, t *tiling, tw, th int, under [
 	r.tiles[key] = tile
 	r.tileBytes += len(tile.Pix)
 	return tile
+}
+
+// finite reports whether none of vs is NaN or infinite.
+func finite(vs ...float64) bool {
+	for _, v := range vs {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return false
+		}
+	}
+	return true
 }

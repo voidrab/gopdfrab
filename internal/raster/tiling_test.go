@@ -238,6 +238,7 @@ func TestUnusableTilingPatternsReportADrop(t *testing.T) {
 		"huge step":      tilingPattern(1, numArray(0, 0, 4, 4), math.Inf(1), "0 0 1 1 re f", nil),
 		"bad paint type": tilingPattern(3, numArray(0, 0, 4, 4), 4, "0 0 1 1 re f", nil),
 		"empty box":      tilingPattern(1, numArray(0, 0, 0, 4), 4, "0 0 1 1 re f", nil),
+		"infinite box":   tilingPattern(1, numArray(0, 0, math.Inf(1), 4), 4, "0 0 1 1 re f", nil),
 		"short box":      tilingPattern(1, numArray(0, 0, 4), 4, "0 0 1 1 re f", nil),
 		"no box":         tilingPattern(1, nil, 4, "0 0 1 1 re f", map[string]pdf.PDFValue{"BBox": pdf.PDFInteger(1)}),
 		"missing step":   tilingPattern(1, numArray(0, 0, 4, 4), 4, "0 0 1 1 re f", map[string]pdf.PDFValue{"XStep": pdf.PDFName{Value: "x"}}),
