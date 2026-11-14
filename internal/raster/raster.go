@@ -162,7 +162,14 @@ type renderState struct {
 	// black a bare Pattern cs leaves in its RGB. See selectPattern.
 	fillPattern, strokePattern pdf.PDFDict
 	lineWidth                  float64
-	clip                       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
+	// lineCap, lineJoin, miterLimit and dash are the stroke style in user
+	// space (J, j, M, d); strokeStyle converts them to device space.
+	lineCap    LineCap
+	lineJoin   LineJoin
+	miterLimit float64
+	dash       []float64
+	dashPhase  float64
+	clip       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
 
 	font       pdf.PDFDict
 	fontSize   float64
@@ -178,7 +185,7 @@ type renderState struct {
 // newRenderState is the graphics state a drawing starts in.
 func newRenderState(ctm content.Matrix, clip [4]float64) renderState {
 	gs := renderState{
-		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1, clip: clip,
+		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, miterLimit: 10, hScale: 1, clip: clip,
 	}
 	gs.CTM = ctm
 	return gs
@@ -366,6 +373,17 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "w":
 			a := nums(1)
 			gs.lineWidth = a[0]
+		case "J":
+			gs.lineCap = lineCapOf(nums(1)[0])
+		case "j":
+			gs.lineJoin = lineJoinOf(nums(1)[0])
+		case "M":
+			gs.miterLimit = nums(1)[0]
+		case "d":
+			if len(operands) >= 2 {
+				phase, _ := pdf.PDFNumberToFloat(operands[len(operands)-1])
+				gs.dash, gs.dashPhase = dashArray(operands[len(operands)-2]), phase
+			}
 		case "m":
 			a := nums(2)
 			path.moveTo(content.Point{X: a[0], Y: a[1]})
@@ -516,7 +534,7 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 			r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
 			return
 		}
-		StrokePath(target, contours, gs.lineWidth*ctmScale(gs.CTM), gs.Stroke.RGB, gs.strokeAlpha)
+		StrokePathStyled(target, contours, gs.strokeStyle(), gs.Stroke.RGB, gs.strokeAlpha)
 	}
 
 	switch op {
@@ -553,6 +571,67 @@ func clipToBounds(bounds image.Rectangle, rect [4]float64) image.Rectangle {
 	return bounds.Intersect(r)
 }
 
+// lineCapOf converts a J or LC operand; unknown values mean a butt cap.
+func lineCapOf(v float64) LineCap {
+	switch int(v) {
+	case 1:
+		return CapRound
+	case 2:
+		return CapSquare
+	}
+	return CapButt
+}
+
+// lineJoinOf converts a j or LJ operand; unknown values mean a miter join.
+func lineJoinOf(v float64) LineJoin {
+	switch int(v) {
+	case 1:
+		return JoinRound
+	case 2:
+		return JoinBevel
+	}
+	return JoinMiter
+}
+
+// dashArray reads the dash array operand of d or /D: its numbers, or nil when
+// it is not an array.
+func dashArray(v pdf.PDFValue) []float64 {
+	arr, ok := v.(pdf.PDFArray)
+	if !ok {
+		return nil
+	}
+	out := make([]float64, 0, len(arr))
+	for _, e := range arr {
+		f, _ := pdf.PDFNumberToFloat(e)
+		out = append(out, f)
+	}
+	return out
+}
+
+// strokeStyle is the graphics state's stroke style in device pixels.
+func (gs *renderState) strokeStyle() StrokeStyle {
+	k := ctmScale(gs.CTM)
+	st := StrokeStyle{
+		Width: gs.lineWidth * k, Cap: gs.lineCap, Join: gs.lineJoin,
+		MiterLimit: gs.miterLimit, DashPhase: gs.dashPhase * k,
+	}
+	for _, d := range gs.dash {
+		st.Dash = append(st.Dash, d*k)
+	}
+	return st
+}
+
+// strokeReach is how far a stroke can extend beyond its path, in pixels: half
+// the width, times the miter limit for a mitered join, which reaches further
+// than any cap.
+func (gs *renderState) strokeReach() float64 {
+	half := math.Max(gs.lineWidth*ctmScale(gs.CTM), 1) / 2
+	if gs.lineJoin == JoinMiter {
+		return half * math.Max(gs.miterLimit, math.Sqrt2)
+	}
+	return half * math.Sqrt2
+}
+
 // ctmScale approximates a uniform scale factor from ctm, used to convert a
 // PDF line width (in user-space units) to device-space pixels.
 func ctmScale(ctm content.Matrix) float64 {
@@ -582,6 +661,22 @@ func (r *renderer) applyExtGState(operands []pdf.PDFValue, resources pdf.PDFDict
 	if CA, ok := pdf.PDFNumberToFloat(egs.Entries.Get("CA")); ok {
 		gs.strokeAlpha = CA
 	}
+	if lw, ok := pdf.PDFNumberToFloat(egs.Entries.Get("LW")); ok {
+		gs.lineWidth = lw
+	}
+	if lc, ok := pdf.PDFNumberToFloat(egs.Entries.Get("LC")); ok {
+		gs.lineCap = lineCapOf(lc)
+	}
+	if lj, ok := pdf.PDFNumberToFloat(egs.Entries.Get("LJ")); ok {
+		gs.lineJoin = lineJoinOf(lj)
+	}
+	if ml, ok := pdf.PDFNumberToFloat(egs.Entries.Get("ML")); ok {
+		gs.miterLimit = ml
+	}
+	if d, ok := egs.Entries.Get("D").(pdf.PDFArray); ok && len(d) == 2 {
+		phase, _ := pdf.PDFNumberToFloat(d[1])
+		gs.dash, gs.dashPhase = dashArray(d[0]), phase
+	}
 	if bm, ok := egs.Entries.Lookup("BM"); ok {
 		gs.blendMode = blendModeOf(bm)
 	}
@@ -600,7 +695,7 @@ func pathReach(path *pathBuilder, gs *renderState) image.Rectangle {
 		return image.Rectangle{}
 	}
 	minX, minY, maxX, maxY := boundsOfContours(contours)
-	grow := gs.lineWidth*ctmScale(gs.CTM) + 2
+	grow := gs.strokeReach() + 2
 	return clipToBounds(noHint, [4]float64{minX - grow, minY - grow, maxX + grow, maxY + grow})
 }
 
@@ -1335,7 +1430,7 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 	}
 	if sample, ok := r.patternSampler(pattern, alpha); ok {
 		if stroke {
-			StrokePathShaded(target, contours, gs.lineWidth*ctmScale(gs.CTM), sample)
+			StrokePathStyledShaded(target, contours, gs.strokeStyle(), sample)
 		} else {
 			FillPathShaded(target, contours, evenOdd, sample)
 		}

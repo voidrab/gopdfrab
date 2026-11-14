@@ -268,49 +268,28 @@ func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
 	storeRGBA64(pix, off, blend(rgb[0], er), blend(rgb[1], eg), blend(rgb[2], eb), outA)
 }
 
-// StrokePath flattens contours as open polylines and fills the quad swept
-// by each segment at lineWidth/2 half-width (device space), with bevelled
-// joins rather than mitered or rounded joins. This is an approximation: the
-// rasterizer only produces flattened pages.
+// StrokePath strokes contours, flattened subpaths in device space, with a
+// solid line lineWidth pixels wide, butt caps and mitered joins, the PDF
+// defaults. See StrokePathStyled for the other styles.
 func StrokePath(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, rgb [3]float64, alpha float64) {
+	StrokePathStyled(canvas, contours, StrokeStyle{Width: lineWidth}, rgb, alpha)
+}
+
+// StrokePathStyled strokes contours as st describes, blending rgb at alpha.
+func StrokePathStyled(canvas *image.RGBA, contours [][]content.Point, st StrokeStyle, rgb [3]float64, alpha float64) {
 	if alpha <= 0 {
 		return
 	}
-	StrokePathShaded(canvas, contours, lineWidth, func(x, y int) ([3]float64, float64) {
+	StrokePathStyledShaded(canvas, contours, st, func(x, y int) ([3]float64, float64) {
 		return rgb, alpha
 	})
 }
 
-// StrokePathShaded strokes as StrokePath does, taking each pixel's colour
-// from colorAt so a shading pattern can stroke as well as fill.
-func StrokePathShaded(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, colorAt func(x, y int) ([3]float64, float64)) {
-	half := max(lineWidth/2, 0.5)
-	// All segment quads are filled in one call, so each pixel is blended once
-	// for the whole stroke and a translucent stroke does not darken where two
-	// segments overlap.
-	var quads [][]content.Point
-	for _, contour := range contours {
-		for i := 0; i+1 < len(contour); i++ {
-			quads = append(quads, segmentQuad(contour[i], contour[i+1], half))
-		}
-	}
-	fillPathFunc(canvas, quads, false, colorAt)
-}
-
-// segmentQuad returns the four corners of the rectangle covering segment
-// p0-p1 at the given half-width, perpendicular to the segment direction.
-func segmentQuad(p0, p1 content.Point, half float64) []content.Point {
-	dx, dy := p1.X-p0.X, p1.Y-p0.Y
-	length := math.Hypot(dx, dy)
-	if length == 0 {
-		return []content.Point{
-			{X: p0.X - half, Y: p0.Y - half}, {X: p0.X + half, Y: p0.Y - half},
-			{X: p0.X + half, Y: p0.Y + half}, {X: p0.X - half, Y: p0.Y + half},
-		}
-	}
-	nx, ny := -dy/length*half, dx/length*half
-	return []content.Point{
-		{X: p0.X + nx, Y: p0.Y + ny}, {X: p1.X + nx, Y: p1.Y + ny},
-		{X: p1.X - nx, Y: p1.Y - ny}, {X: p0.X - nx, Y: p0.Y - ny},
-	}
+// StrokePathStyledShaded strokes as StrokePathStyled does, taking each
+// pixel's colour from colorAt.
+func StrokePathStyledShaded(canvas *image.RGBA, contours [][]content.Point, st StrokeStyle, colorAt func(x, y int) ([3]float64, float64)) {
+	// The pieces of the stroke are filled in one call, so each pixel is
+	// blended once and a translucent stroke does not darken where they
+	// overlap.
+	fillPathFunc(canvas, strokeOutline(contours, st), false, colorAt)
 }
