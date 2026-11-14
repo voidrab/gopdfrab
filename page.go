@@ -111,7 +111,7 @@ type RenderOptions struct {
 
 // Render rasterizes the page, rotated for display, onto an opaque white
 // background. It returns ctx.Err() if ctx is done before or after the render;
-// a render in progress is not interrupted.
+// a render in progress stops soon after ctx is done.
 func (p *Page) Render(ctx context.Context, opt RenderOptions) (*image.RGBA, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (p *Page) Render(ctx context.Context, opt RenderOptions) (*image.RGBA, erro
 	dpi := max(1, int(math.Round(72*scale*p.geom.UserUnit)))
 
 	p.doc.mu.Lock()
-	img, _, err := raster.RenderPage(p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, p.doc.oc)
+	img, _, err := raster.RenderPageContext(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, p.doc.oc)
 	p.doc.mu.Unlock()
 	if err != nil {
 		return nil, err

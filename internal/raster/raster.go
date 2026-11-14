@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -25,11 +26,17 @@ import (
 // coverage.
 // Content that oc hides is not drawn; a nil oc hides nothing.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+	return RenderPageContext(context.Background(), page, resources, mediaBox, dpi, oc)
+}
+
+// RenderPageContext is RenderPage that stops painting, and returns ctx.Err(),
+// soon after ctx is done.
+func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(src, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop, oc)
+	return renderContent(ctx, src, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop, oc)
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -51,7 +58,7 @@ func RenderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherit
 	// A form is drawn onto whatever the page already has, so it renders on
 	// nothing: what its content does not paint stays unpainted, and the caller
 	// keeps that as the mask of what it may cover.
-	canvas, drops, err := renderContent(src, resources, box, dpi, inherited, clearBackdrop, nil)
+	canvas, drops, err := renderContent(context.Background(), src, resources, box, dpi, inherited, clearBackdrop, nil)
 	return canvas, box, drops, err
 }
 
@@ -76,7 +83,7 @@ const (
 // renderContent is the shared core behind RenderPage and RenderFormContent:
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+func renderContent(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
 	dpi = dpiWithin(bounds, dpi)
 	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
 	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
@@ -103,8 +110,11 @@ func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
-	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc}
+	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc, ctx: ctx}
 	r.execContent(src, resources, gs)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	return canvas, sortedDrops(r.dropped), nil
 }
 
@@ -200,7 +210,9 @@ func newRenderState(ctm content.Matrix, clip [4]float64) renderState {
 // output canvas, a font-info cache keyed by font dict identity, and a
 // recursion-depth guard against pathological/cyclic Form XObject graphs.
 type renderer struct {
-	canvas    *image.RGBA
+	canvas *image.RGBA
+	// ctx, when set, ends the render: once it is done, operators paint nothing.
+	ctx       context.Context
 	fontCache map[uintptr]*fontInfo
 	// shadingCache holds parsed shadings keyed by pattern dict identity; a nil
 	// value records a pattern already found unusable.
@@ -359,6 +371,9 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 
 		// Hidden content still changes the graphics state, sets the clip and
 		// moves the text position; it only marks nothing.
+		if r.ctx != nil && r.ctx.Err() != nil {
+			return
+		}
 		marked.Step(op, operands, resources)
 		if marked.Hidden() {
 			switch op {
