@@ -35,8 +35,8 @@ func FillPathShaded(canvas *image.RGBA, contours [][]content.Point, evenOdd bool
 const aaSamples = 8
 
 // fillPathFunc rasterizes contours with anti-aliasing. A pixel's coverage
-// scales the alpha that colorAt returns for it, so fully covered pixels are
-// painted exactly as before and only edge pixels are blended.
+// scales the alpha that colorAt returns for it, so a fully covered pixel keeps
+// colorAt's alpha and only edge pixels are blended at reduced alpha.
 func fillPathFunc(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
 	fillPathMode(canvas, contours, evenOdd, true, colorAt)
 }
@@ -60,8 +60,9 @@ func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bo
 	}
 	slices.SortFunc(edges, func(a, b pathEdge) int { return cmp.Compare(a.y0, b.y0) })
 
-	// Clamp the scan loop to the edges' y-extent: showText issues one fill per
-	// glyph, so without the clamp every glyph would scan the full page height.
+	// The scan loop is limited to the edges' y-extent. showText issues one fill
+	// per glyph, so without this limit every glyph would scan the full page
+	// height.
 	edgeMinY, edgeMaxY := edges[0].y0, edges[0].y1
 	for _, e := range edges[1:] {
 		edgeMaxY = math.Max(edgeMaxY, e.y1)
@@ -88,13 +89,13 @@ func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bo
 	}
 }
 
-// coverage accumulates one pixel row's anti-aliased coverage. A span adds its
+// coverage accumulates the coverage of one pixel row. A span adds its
 // partially covered end pixels to partial and its fully covered interior as a
 // +1/-1 pair in runs, so the cost of a span does not grow with its width.
 type coverage struct {
 	edges   []pathEdge // sorted by y0
 	evenOdd bool
-	aa      bool // sample aaSamples sub-scanlines and keep fractional x
+	aa      bool // whether to sample aaSamples sub-scanlines and keep fractional x
 	samples int  // sub-scanlines per row: aaSamples, or 1 when aliased
 	w       int
 	minX    float64
@@ -197,8 +198,8 @@ func (f *coverage) flush(canvas *image.RGBA, y int, colorAt func(x, y int) ([3]f
 	}
 }
 
-// sortCrossings orders crossings by x. There are few per sub-scanline, so an
-// insertion sort beats the general one.
+// sortCrossings sorts c by x in place. A sub-scanline has few crossings, so an
+// insertion sort is cheaper than the general-purpose sort.
 func sortCrossings(c []crossing) {
 	for i := 1; i < len(c); i++ {
 		for j := i; j > 0 && c[j].x < c[j-1].x; j-- {
@@ -284,9 +285,9 @@ func StrokePath(canvas *image.RGBA, contours [][]content.Point, lineWidth float6
 // from colorAt so a shading pattern can stroke as well as fill.
 func StrokePathShaded(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, colorAt func(x, y int) ([3]float64, float64)) {
 	half := max(lineWidth/2, 0.5)
-	// The segments' quads are all wound the same way, so filling them together
-	// with the nonzero rule paints their union: joins have no gaps and a
-	// translucent stroke does not darken where two segments overlap.
+	// All segment quads are filled in one call, so each pixel is blended once
+	// for the whole stroke and a translucent stroke does not darken where two
+	// segments overlap.
 	var quads [][]content.Point
 	for _, contour := range contours {
 		for i := 0; i+1 < len(contour); i++ {

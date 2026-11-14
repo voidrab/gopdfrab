@@ -189,8 +189,8 @@ func TestFillPathCoversPixelsFractionally(t *testing.T) {
 	}
 }
 
-// TestFillPathAreaIsPreserved verifies that the summed coverage of an
-// arbitrary polygon matches its geometric area.
+// TestFillPathAreaIsPreserved verifies that the summed coverage of a polygon
+// matches its geometric area.
 func TestFillPathAreaIsPreserved(t *testing.T) {
 	// A regular 40-gon of radius 12.3 centred off-grid.
 	const n, r, cx, cy = 40, 12.3, 16.37, 15.81
