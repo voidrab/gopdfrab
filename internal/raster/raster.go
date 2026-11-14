@@ -222,6 +222,9 @@ type renderer struct {
 	// effectPixels counts what blend modes and soft masks have composited, for
 	// effectPixelBudget.
 	effectPixels int64
+	// textClip collects the glyph outlines, in device space, that text render
+	// modes 4 to 7 add to the clipping path; ET applies them.
+	textClip [][]content.Point
 }
 
 // maxFormDepth bounds the nesting of forms and soft-mask groups, against
@@ -317,6 +320,12 @@ func (p *pathBuilder) reset() {
 // execContent interprets one content stream's operators against gs (passed
 // by value, so callee-local q/Q changes never leak to the caller).
 func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderState) {
+	// A text object's clip belongs to its own stream: a Type 3 glyph procedure
+	// or a form must not apply, or lose, the clip of the text that invoked it.
+	outerTextClip := r.textClip
+	r.textClip = nil
+	defer func() { r.textClip = outerTextClip }()
+
 	var gsStack []renderState
 	var path pathBuilder
 	pendingClip := false
@@ -328,17 +337,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			return
 		}
 		pendingClip = false
-		contours := path.deviceContours(gs.CTM)
-		if len(contours) == 0 {
-			return
-		}
-		if rect, ok := axisAlignedRect(contours); ok {
-			gs.clip = intersectRect(gs.clip, rect)
-			return
-		}
-		minX, minY, maxX, maxY := boundsOfContours(contours)
-		gs.clip = intersectRect(gs.clip, [4]float64{minX, minY, maxX, maxY})
-		gs.mask = newClipMask(r.canvas.Bounds(), contours, pendingClipEvenOdd, gs.mask)
+		r.intersectClip(&gs, path.deviceContours(gs.CTM), pendingClipEvenOdd)
 	}
 
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
@@ -438,6 +437,11 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			r.paintDo(operands, resources, &gs)
 		case "BT":
 			gs.tm, gs.tlm = content.IdentityMatrix, content.IdentityMatrix
+		case "ET":
+			// Text render modes 4 to 7 clip to the outlines of the glyphs shown
+			// in the text object.
+			r.intersectClip(&gs, r.textClip, false)
+			r.textClip = nil
 		case "Tf":
 			r.applyTf(operands, resources, &gs)
 		case "Tc":
@@ -485,7 +489,11 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "Ts":
 			gs.rise = nums(1)[0]
 		case "Tr":
-			gs.renderMode = int(nums(1)[0])
+			// Only modes 0 to 7 exist; anything else is read as plain fill.
+			gs.renderMode = 0
+			if m := int(nums(1)[0]); m >= 0 && m <= 7 {
+				gs.renderMode = m
+			}
 		case "sh":
 			r.withEffects(&gs, nil, func() { r.paintShadingOp(operands, resources, &gs) })
 		case "INLINEIMAGE":
@@ -517,6 +525,23 @@ func intersectRect(a, b [4]float64) [4]float64 {
 	}
 }
 
+// intersectClip narrows gs's clip to the area contours enclose, by the
+// even-odd rule or else the nonzero rule. An axis-aligned rectangle narrows
+// the clip rectangle exactly; any other shape also narrows the clip mask.
+// Without contours the clip is left as it is.
+func (r *renderer) intersectClip(gs *renderState, contours [][]content.Point, evenOdd bool) {
+	if len(contours) == 0 {
+		return
+	}
+	if rect, ok := axisAlignedRect(contours); ok {
+		gs.clip = intersectRect(gs.clip, rect)
+		return
+	}
+	minX, minY, maxX, maxY := boundsOfContours(contours)
+	gs.clip = intersectRect(gs.clip, [4]float64{minX, minY, maxX, maxY})
+	gs.mask = newClipMask(r.canvas.Bounds(), contours, evenOdd, gs.mask)
+}
+
 // paintPath fills and/or strokes path, as selected by the paint operator op,
 // within the clip in gs. The clip rectangle limits drawing to a sub-image of
 // the canvas, and a non-rectangular clip scales the alpha of each pixel.
@@ -525,39 +550,68 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	if len(contours) == 0 {
 		return
 	}
-	target := r.clipTarget(gs)
-
-	evenOdd := op == "f*" || op == "B*" || op == "b*"
-	// Under a Pattern colour space there is no numeric fill colour, so an
-	// unusable pattern paints nothing rather than the black Fill.RGB holds.
-	fill := func() {
-		if gs.Fill.IsPattern() {
-			r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
-			return
-		}
-		if gs.mask == nil {
-			FillPath(target, contours, gs.Fill.RGB, gs.fillAlpha, evenOdd)
-			return
-		}
-		FillPathShaded(target, contours, evenOdd, gs.mask.wrap(constant(gs.Fill.RGB, gs.fillAlpha)))
-	}
-	stroke := func() {
-		if gs.Stroke.IsPattern() {
-			r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
-			return
-		}
-		StrokePathStyledShaded(target, contours, gs.strokeStyle(), gs.mask.wrap(constant(gs.Stroke.RGB, gs.strokeAlpha)))
-	}
-
 	switch op {
 	case "f", "F", "f*":
-		fill()
+		r.fillContours(contours, gs, op == "f*")
 	case "S", "s":
-		stroke()
+		r.strokeContours(contours, gs)
 	case "B", "B*", "b", "b*":
-		fill()
-		stroke()
+		r.fillContours(contours, gs, op == "B*" || op == "b*")
+		r.strokeContours(contours, gs)
 	}
+}
+
+// paintGlyph paints one glyph outline, in device space, as gs's text render
+// mode says: fill (modes 0, 2, 4, 6), stroke (1, 2, 5, 6), and, for modes 4 to
+// 7, add it to the text clip that ET applies. Mode 3 paints nothing.
+func (r *renderer) paintGlyph(contours [][]content.Point, gs *renderState) {
+	mode := gs.renderMode
+	if mode == 0 || mode == 2 || mode == 4 || mode == 6 {
+		r.fillContours(contours, gs, false)
+	}
+	if mode == 1 || mode == 2 || mode == 5 || mode == 6 {
+		r.strokeContours(closedContours(contours), gs)
+	}
+	if mode >= 4 && mode <= 7 {
+		r.textClip = append(r.textClip, contours...)
+	}
+}
+
+// closedContours returns contours with each one's first point repeated at the
+// end, which is how the stroker tells a closed subpath from an open one.
+func closedContours(contours [][]content.Point) [][]content.Point {
+	out := make([][]content.Point, len(contours))
+	for i, c := range contours {
+		out[i] = append(append(make([]content.Point, 0, len(c)+1), c...), c[0])
+	}
+	return out
+}
+
+// fillContours fills contours, in device space, with gs's fill colour or
+// pattern, within its clip. Under a Pattern colour space there is no numeric
+// fill colour, so an unusable pattern paints nothing rather than the black
+// that Fill.RGB holds.
+func (r *renderer) fillContours(contours [][]content.Point, gs *renderState, evenOdd bool) {
+	target := r.clipTarget(gs)
+	switch {
+	case gs.Fill.IsPattern():
+		r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
+	case gs.mask == nil:
+		FillPath(target, contours, gs.Fill.RGB, gs.fillAlpha, evenOdd)
+	default:
+		FillPathShaded(target, contours, evenOdd, gs.mask.wrap(constant(gs.Fill.RGB, gs.fillAlpha)))
+	}
+}
+
+// strokeContours strokes contours, in device space, with gs's stroke colour or
+// pattern and line style, within its clip.
+func (r *renderer) strokeContours(contours [][]content.Point, gs *renderState) {
+	target := r.clipTarget(gs)
+	if gs.Stroke.IsPattern() {
+		r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
+		return
+	}
+	StrokePathStyledShaded(target, contours, gs.strokeStyle(), gs.mask.wrap(constant(gs.Stroke.RGB, gs.strokeAlpha)))
 }
 
 // clipTarget is the canvas restricted to gs's clip: a sub-image sharing its
@@ -1063,10 +1117,11 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 	if gs.font.Entries == nil || len(raw) == 0 {
 		return
 	}
-	// Render modes 3 (invisible) and 7 (clip-only) paint no marks -- most often
+	// Render modes 3 (invisible) and 7 (clip only) paint no marks -- most often
 	// the invisible OCR text layer over a scanned image, which must stay
 	// invisible.
-	invisible := gs.renderMode == 3 || gs.renderMode == 7
+	mode := gs.renderMode
+	invisible := mode == 3 || mode == 7
 	fi := r.fontInfoFor(gs.font)
 	i := 0
 	for i < len(raw) {
@@ -1098,7 +1153,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 			continue
 		}
 
-		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && !invisible {
+		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && mode != 3 {
 			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
 			// rise) -> user space (tm) -> device (CTM).
 			glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
@@ -1111,7 +1166,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 				}
 				contours[ci] = dc
 			}
-			FillPathShaded(r.clipTarget(gs), contours, false, gs.mask.wrap(constant(gs.Fill.RGB, gs.fillAlpha)))
+			r.paintGlyph(contours, gs)
 		}
 
 		ws := 0.0
