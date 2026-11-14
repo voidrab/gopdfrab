@@ -734,8 +734,7 @@ func TestCFFOutlineHonoursTheFontMatrix(t *testing.T) {
 	if got := last(outline(1, []string{"0.0005", "0", "0", "0.001", "0", "0"})); got != (Point{45, 80}) {
 		t.Errorf("end point under an anisotropic FontMatrix = %v, want (45, 80)", got)
 	}
-	// A matrix with shear, or a degenerate one, is not a plain scale and is
-	// left unapplied rather than guessed at.
+	// The sheared matrix and the zero matrix below leave the outline unscaled.
 	for _, m := range [][]string{
 		{"0.001", "0.001", "0", "0.001", "0", "0"},
 		{"0", "0", "0", "0", "0", "0"},
@@ -768,9 +767,10 @@ func TestType1OutlineHonoursItsScale(t *testing.T) {
 	}
 }
 
-// TestParseType1CharstringsReadsTheFontMatrix verifies that a program declaring
-// a glyph space other than 1/1000 em, such as a 2000-unit font, is drawn scaled
-// into it, and that a matrix that is not a plain scale is left unapplied.
+// TestParseType1CharstringsReadsTheFontMatrix verifies that a program whose
+// FontMatrix sets a glyph space other than 1/1000 em, such as 2000 units to the
+// em, draws its outline scaled, and that sheared or zero matrices leave the
+// outline unscaled.
 func TestParseType1CharstringsReadsTheFontMatrix(t *testing.T) {
 	glyph := cs(nums(0, 50), []byte{t1Hsbw}, nums(10, 20), []byte{t1Rmoveto}, nums(60, 40), []byte{t1Rlineto}, []byte{t1Endchar})
 	end := func(matrix string) Point {

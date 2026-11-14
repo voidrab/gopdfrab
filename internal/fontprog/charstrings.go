@@ -78,8 +78,8 @@ func ParseType1Charstrings(fontData []byte) (*Type1Charstrings, bool) {
 		glyphs[string(cs[m[2]:m[3]])] = DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
 	}
 	p := &Type1Charstrings{glyphs: glyphs, subrs: subrs}
-	// A program in a glyph space other than 1/1000 em, such as the 2000 units
-	// of Lato, says so in its FontMatrix. Only a plain scale is honoured.
+	// A program in a glyph space other than 1/1000 em, such as one with 2000
+	// units to the em, declares it in its FontMatrix.
 	if scale, ok := Type1WidthScale(fontData); ok && scale != 1 {
 		p.sx, p.sy = scale, scale
 	}
@@ -121,8 +121,8 @@ func ParseCFFCharstrings(cff []byte) (*CFFCharstrings, bool) {
 	}
 	entries, _ := ParseCFFIndex(cff, td.CSOffset)
 	p := &CFFCharstrings{charStrings: entries, subrs: ParseCFFSubrs(cff, td, len(entries))}
-	// A program in a glyph space other than 1/1000 em, such as the 2000 units
-	// of Lato, says so in its FontMatrix. Only a plain scale is honoured.
+	// A program in a glyph space other than 1/1000 em, such as one with 2000
+	// units to the em, declares it in its FontMatrix.
 	if td.HasFontMatrix {
 		if sx, ok := fontMatrixWidthScale(td.FontMatrix[0], td.FontMatrix[1]); ok {
 			p.sx = sx

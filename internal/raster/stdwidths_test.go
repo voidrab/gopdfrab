@@ -65,8 +65,8 @@ func TestSubstitutedSerifAndMonoUseTheirOwnMetrics(t *testing.T) {
 	if aMaxX-aMinX < 8 || bMaxX-bMinX < 8 || aMaxX-bMaxX > 2 || bMaxX-aMaxX > 2 {
 		t.Errorf("Courier extents differ: %d..%d vs %d..%d", aMinX, aMaxX, bMinX, bMaxX)
 	}
-	// Times' narrow i against Helvetica's wider letters: serif text is
-	// laid out with the serif face's own advances.
+	// Times' a is narrower than Helvetica's a (444 units against 556), so
+	// serif text is laid out with the serif face's own advances.
 	times := func() pdf.PDFDict {
 		f := noWidths()
 		f.Entries.Set("BaseFont", pdf.PDFName{Value: "Times-Roman"})
@@ -82,7 +82,7 @@ func TestSubstitutedSerifAndMonoUseTheirOwnMetrics(t *testing.T) {
 }
 
 func TestMissingWidthWinsOverTheFace(t *testing.T) {
-	// With a descriptor MissingWidth, codes outside /Widths use it, as before.
+	// With a descriptor MissingWidth, codes outside /Widths use it.
 	f := helvetica(map[string]pdf.PDFValue{
 		"FirstChar": pdf.PDFInteger(65), "LastChar": pdf.PDFInteger(65),
 		"Widths": pdf.PDFArray{pdf.PDFInteger(600)},

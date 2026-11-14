@@ -1413,9 +1413,9 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 			}
 			return glyphOutlineFromTrueType(f.tables, gid)
 		}
-		// The standard 14 fonts may omit /Widths, since a reader is expected
-		// to know their metrics; the bundled faces are metric-compatible
-		// with them.
+		// A font without /Widths takes its advances from the substitute face.
+		// The standard 14 fonts may omit /Widths because their metrics are
+		// known, and the bundled faces are metric-compatible with them.
 		if len(fi.widths) == 0 {
 			fi.advanceFor = func(code int) (float64, bool) {
 				f, gid, ok := lookup(code)
