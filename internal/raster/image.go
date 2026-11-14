@@ -123,6 +123,14 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	comps := make([]float64, ncomp)
+	// With one component of at most 8 bits there are at most 256 distinct
+	// colours (a palette, a tint, a gray ramp), so each is resolved once:
+	// resolving an Indexed lookup table decodes its stream every time.
+	type colour struct {
+		r, g, b float64
+		known   bool
+	}
+	var memo [256]colour
 	for y := 0; y < height; y++ {
 		rowOffset := y * rowBytes * 8
 		off := img.PixOffset(0, y)
@@ -141,8 +149,18 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 					img.Pix[off], img.Pix[off+1], img.Pix[off+2], img.Pix[off+3] = 0, 0, 0, 255
 				}
 			} else {
-				r, g, b := pdf.ResolveColor(cs, comps, resources)
-				storeRGBA64(img.Pix, off, r, g, b, 1)
+				if ncomp == 1 && bpc <= 8 {
+					raw := pdf.ReadBits(data, rowOffset+x*bpc, bpc)
+					m := &memo[raw]
+					if !m.known {
+						m.r, m.g, m.b = pdf.ResolveColor(cs, comps, resources)
+						m.known = true
+					}
+					storeRGBA64(img.Pix, off, m.r, m.g, m.b, 1)
+				} else {
+					r, g, b := pdf.ResolveColor(cs, comps, resources)
+					storeRGBA64(img.Pix, off, r, g, b, 1)
+				}
 			}
 			off += 4
 		}

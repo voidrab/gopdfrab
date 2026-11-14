@@ -153,3 +153,26 @@ func TestInlineImageDictSkipsNonNameKeys(t *testing.T) {
 		t.Errorf("size = %dx%d, want 2x3", w, h)
 	}
 }
+
+// TestDecodeImageRGBAIndexed8BitRepeatsEntries checks that pixels sharing a
+// palette index get that entry's colour however often the index recurs.
+func TestDecodeImageRGBAIndexed8BitRepeatsEntries(t *testing.T) {
+	dict := imageDict(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(4), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFArray{
+			pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(2),
+			pdf.PDFString{Value: "\xff\x00\x00\x00\xff\x00\x00\x00\xff"},
+		},
+	}, []byte{1, 2, 1, 0})
+	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("DecodeImageRGBA: %v", err)
+	}
+	want := [][3]uint8{{0, 255, 0}, {0, 0, 255}, {0, 255, 0}, {255, 0, 0}}
+	for x, w := range want {
+		if r, g, b := pixelAt(t, img, x, 0); [3]uint8{uint8(r), uint8(g), uint8(b)} != w {
+			t.Errorf("pixel %d = (%d,%d,%d), want %v", x, r, g, b, w)
+		}
+	}
+}
