@@ -1146,6 +1146,10 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 		width := fi.defaultWidth
 		if w, ok := fi.widths[code]; ok {
 			width = w
+		} else if fi.advanceFor != nil {
+			if w, ok := fi.advanceFor(code); ok {
+				width = w
+			}
 		}
 
 		// A Type 3 glyph is a content stream in glyph space, not an outline,
@@ -1192,7 +1196,11 @@ type fontInfo struct {
 	bytesPerCode int
 	defaultWidth float64
 	widths       map[int]float64
-	glyphFor     func(code int) (GlyphPath, bool)
+	// advanceFor gives the advance of a code a font without /Widths does not
+	// list, from the face that stands in for it; nil when the font lists its
+	// widths or has no substitute.
+	advanceFor func(code int) (float64, bool)
+	glyphFor   func(code int) (GlyphPath, bool)
 
 	charProcs   map[int]pdf.PDFDict
 	fontMatrix  content.Matrix
@@ -1386,16 +1394,37 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 				}
 			}
 		}
-		fi.glyphFor = func(code int) (GlyphPath, bool) {
+		// The face's glyph for a code, if it has one.
+		lookup := func(code int) (parsedFace, int, bool) {
 			if code < 0 || code > 255 || origTable[code] == 0 {
-				return GlyphPath{}, false
+				return parsedFace{}, 0, false
 			}
 			for _, f := range faces {
 				if gid, ok := f.cmap[origTable[code]]; ok && gid != 0 {
-					return glyphOutlineFromTrueType(f.tables, int(gid))
+					return f, int(gid), true
 				}
 			}
-			return GlyphPath{}, false
+			return parsedFace{}, 0, false
+		}
+		fi.glyphFor = func(code int) (GlyphPath, bool) {
+			f, gid, ok := lookup(code)
+			if !ok {
+				return GlyphPath{}, false
+			}
+			return glyphOutlineFromTrueType(f.tables, gid)
+		}
+		// The standard 14 fonts may omit /Widths, since a reader is expected
+		// to know their metrics; the bundled faces are metric-compatible
+		// with them.
+		if len(fi.widths) == 0 {
+			fi.advanceFor = func(code int) (float64, bool) {
+				f, gid, ok := lookup(code)
+				if !ok {
+					return 0, false
+				}
+				w := fontprog.TTAdvanceWidth(f.tables, gid)
+				return w, w >= 0
+			}
 		}
 		return fi
 	}
