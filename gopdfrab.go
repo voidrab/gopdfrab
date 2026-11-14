@@ -8,6 +8,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/convert"
 	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
@@ -409,6 +410,7 @@ type Document struct {
 	mu    sync.Mutex
 	pages []pageEntry
 	oc    *content.OptionalContent
+	cache *raster.Cache // fonts and images kept between renders
 	index bool
 	// resolveGraph replaces r.ResolveGraph; tests use it to force failures.
 	resolveGraph func() (pdf.PDFValue, error)
@@ -446,7 +448,12 @@ func OpenBytesWithPassword(data, password []byte) (*Document, error) {
 
 // Close releases the file handle and any memory mapping. Calls after the
 // first return nil.
-func (d *Document) Close() error { return d.r.Close() }
+func (d *Document) Close() error {
+	d.mu.Lock()
+	d.cache = nil
+	d.mu.Unlock()
+	return d.r.Close()
+}
 
 // Verify verifies d against the checks enabled in profile p.
 func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r, p) }

@@ -752,7 +752,7 @@ func TestRenderPageRegion(t *testing.T) {
 		"Contents": pdf.NewStreamDict(pdf.DictOf(nil), []byte("1 0 0 rg 10 10 30 20 re f 0 0 1 rg 25.5 2.5 40 40 re f")),
 	})}
 	box := [4]float64{0, 0, 80, 60}
-	whole, _, err := RenderPageContext(context.Background(), page, dictOf(nil), box, 144, nil)
+	whole, _, err := RenderPageContext(context.Background(), page, dictOf(nil), box, 144, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +760,7 @@ func TestRenderPageRegion(t *testing.T) {
 		t.Fatalf("PixelSize = %dx%d, render is %v", w, h, whole.Rect)
 	}
 	region := image.Rect(37, 11, 140, 90)
-	got, _, err := RenderPageRegion(context.Background(), page, dictOf(nil), box, 144, region, nil)
+	got, _, err := RenderPageRegion(context.Background(), page, dictOf(nil), box, 144, region, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -771,13 +771,13 @@ func TestRenderPageRegion(t *testing.T) {
 			}
 		}
 	}
-	if _, _, err := RenderPageRegion(context.Background(), page, dictOf(nil), box, 144, image.Rect(500, 0, 510, 10), nil); err == nil {
+	if _, _, err := RenderPageRegion(context.Background(), page, dictOf(nil), box, 144, image.Rect(500, 0, 510, 10), nil, nil); err == nil {
 		t.Error("a region beside the page was accepted")
 	}
 	bad := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF}),
 	})}
-	if _, _, err := RenderPageRegion(context.Background(), bad, dictOf(nil), box, 144, region, nil); err == nil {
+	if _, _, err := RenderPageRegion(context.Background(), bad, dictOf(nil), box, 144, region, nil, nil); err == nil {
 		t.Error("undecodable contents were accepted")
 	}
 }

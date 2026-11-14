@@ -26,17 +26,17 @@ import (
 // coverage.
 // Content that oc hides is not drawn; a nil oc hides nothing.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	return RenderPageContext(context.Background(), page, resources, mediaBox, dpi, oc)
+	return RenderPageContext(context.Background(), page, resources, mediaBox, dpi, oc, nil)
 }
 
 // RenderPageContext is RenderPage that stops painting, and returns ctx.Err(),
 // soon after ctx is done.
-func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(ctx, src, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop, oc)
+	return renderArea(ctx, src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, cache)
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -84,7 +84,7 @@ const (
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
 func renderContent(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc)
+	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc, nil)
 }
 
 // PixelSize returns the size in pixels of a page whose crop box is bounds
@@ -99,7 +99,7 @@ func PixelSize(bounds [4]float64, dpi int) (width, height int) {
 // is as large as the region and equals that part of the whole page at dpi,
 // which is not lowered to fit a pixel budget as a whole page's is. An empty
 // region, or one that misses the page, is an error.
-func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, region image.Rectangle, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, region image.Rectangle, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
@@ -109,12 +109,12 @@ func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDi
 	if region.Empty() {
 		return nil, nil, fmt.Errorf("raster: empty render region")
 	}
-	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc)
+	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache)
 }
 
 // renderArea renders the content within bounds at dpi. A non-empty region,
 // within the whole size, limits the canvas to that part and leaves dpi as asked.
-func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	if region.Empty() {
 		dpi = dpiWithin(bounds, dpi)
 	}
@@ -146,7 +146,10 @@ func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
-	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc, ctx: ctx}
+	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc, ctx: ctx, cache: cache}
+	if cache != nil {
+		r.fontCache = cache.fonts
+	}
 	r.execContent(src, resources, gs)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -248,7 +251,9 @@ func newRenderState(ctm content.Matrix, clip [4]float64) renderState {
 type renderer struct {
 	canvas *image.RGBA
 	// ctx, when set, ends the render: once it is done, operators paint nothing.
-	ctx       context.Context
+	ctx context.Context
+	// cache, when set, keeps decoded images and fonts for the next render.
+	cache     *Cache
 	fontCache map[uintptr]*fontInfo
 	// shadingCache holds parsed shadings keyed by pattern dict identity; a nil
 	// value records a pattern already found unusable.
@@ -958,7 +963,7 @@ func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState
 // paintImage decodes an Image XObject (and its /SMask, if present) and
 // composites it through the CTM.
 func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *renderState) {
-	img, err := DecodeImageRGBA(xobj, resources)
+	img, err := r.decodeImage(xobj, resources)
 	if err != nil && !r.dropPlaceholder(err) {
 		return
 	}
@@ -966,7 +971,7 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 	// opacity would fade the whole picture, where no mask at least shows it.
 	var smask *image.RGBA
 	if sm, ok := xobj.Entries.Get("SMask").(pdf.PDFDict); ok {
-		if decoded, err := DecodeImageRGBA(sm, resources); err == nil {
+		if decoded, err := r.decodeImage(sm, resources); err == nil {
 			smask = decoded
 		} else {
 			r.dropPlaceholder(err)
@@ -977,7 +982,7 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 	// mask, which takes precedence (ISO 32000-1 8.9.6.4).
 	if smask == nil {
 		if m, ok := xobj.Entries.Get("Mask").(pdf.PDFDict); ok {
-			if decoded, err := DecodeImageRGBA(m, resources); err == nil {
+			if decoded, err := r.decodeImage(m, resources); err == nil {
 				smask = stencilAlpha(decoded)
 			} else {
 				r.dropPlaceholder(err)
@@ -985,6 +990,23 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 		}
 	}
 	r.compositeImage(img, smask, isImageMask(xobj), interpolates(xobj), gs)
+}
+
+// imageSource prepares img for drawing, reusing the pyramid the cache keeps for
+// it when there is one.
+func (r *renderer) imageSource(img *image.RGBA, area float64, interpolate bool) imageSource {
+	if r.cache == nil {
+		return newImageSource(img, area, interpolate)
+	}
+	return imageSourceOn(r.cache.sampler(img), img, area, interpolate)
+}
+
+// decodeImage decodes an image dictionary, through the cache when there is one.
+func (r *renderer) decodeImage(dict, resources pdf.PDFDict) (*image.RGBA, error) {
+	if r.cache == nil {
+		return DecodeImageRGBA(dict, resources)
+	}
+	return r.cache.decode(dict, resources)
 }
 
 // dropPlaceholder reports, as a drop, an image DecodeImageRGBA could only
@@ -1057,10 +1079,10 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 	// averaged through the pyramid; otherwise hard pixel edges are kept
 	// unless the image sets /Interpolate.
 	area := math.Abs(inv.A*inv.D - inv.B*inv.C)
-	src := newImageSource(img, area, interpolate)
+	src := r.imageSource(img, area, interpolate)
 	var msk *imageSource
 	if smask != nil {
-		m := newImageSource(smask, area, interpolate)
+		m := r.imageSource(smask, area, interpolate)
 		msk = &m
 	}
 
@@ -1243,8 +1265,12 @@ type imageSource struct {
 // averaged through the pyramid; otherwise hard pixel edges are kept unless
 // interpolate is set.
 func newImageSource(img *image.RGBA, area float64, interpolate bool) imageSource {
+	return imageSourceOn(newSampler(img), img, area, interpolate)
+}
+
+// imageSourceOn is newImageSource reading img through s, a sampler over it.
+func imageSourceOn(s *sampler, img *image.RGBA, area float64, interpolate bool) imageSource {
 	foot := math.Sqrt(area * float64(img.Rect.Dx()) * float64(img.Rect.Dy()))
-	s := newSampler(img)
 	return imageSource{s: s, level: s.levelFor(foot), smooth: interpolate || foot > 1}
 }
 
@@ -1348,7 +1374,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 			continue
 		}
 
-		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && mode != 3 {
+		if gp, ok := fi.outline(code); ok && len(gp.Contours) > 0 && mode != 3 {
 			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
 			// rise) -> user space (tm) -> device (CTM).
 			glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
@@ -1382,10 +1408,33 @@ type fontInfo struct {
 	defaultWidth float64
 	widths       map[int]float64
 	glyphFor     func(code int) (GlyphPath, bool)
+	// outlines remembers what glyphFor returned for each code, since reading
+	// an outline from a font program is the dearer part of drawing a glyph.
+	outlines map[int]outline
 
 	charProcs   map[int]pdf.PDFDict
 	fontMatrix  content.Matrix
 	t3Resources pdf.PDFDict
+}
+
+// outline is a glyph outline as glyphFor returned it.
+type outline struct {
+	path GlyphPath
+	ok   bool
+}
+
+// outline returns the outline of the glyph for code. The path is shared, so
+// callers must not change it.
+func (fi *fontInfo) outline(code int) (GlyphPath, bool) {
+	if o, ok := fi.outlines[code]; ok {
+		return o.path, o.ok
+	}
+	if fi.outlines == nil {
+		fi.outlines = map[int]outline{}
+	}
+	path, ok := fi.glyphFor(code)
+	fi.outlines[code] = outline{path, ok}
+	return path, ok
 }
 
 func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {

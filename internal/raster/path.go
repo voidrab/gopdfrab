@@ -122,6 +122,15 @@ func scanRuns(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bo
 		return
 	}
 	edges := buildEdges(contours)
+	// An edge wholly above or below the rows scanned changes none of them. A
+	// glyph far outside a tile or a clip then costs nothing but this pass.
+	keep := edges[:0]
+	for _, e := range edges {
+		if e.y1 > float64(bounds.Min.Y) && e.y0 < float64(bounds.Max.Y) {
+			keep = append(keep, e)
+		}
+	}
+	edges = keep
 	if len(edges) == 0 {
 		return
 	}

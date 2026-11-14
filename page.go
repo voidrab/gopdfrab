@@ -136,10 +136,10 @@ func (p *Page) Render(ctx context.Context, opt RenderOptions) (*image.RGBA, erro
 	var img *image.RGBA
 	var err error
 	if opt.Region.Empty() {
-		img, _, err = raster.RenderPageContext(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, p.doc.oc)
+		img, _, err = raster.RenderPageContext(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, p.doc.oc, p.doc.renderCache())
 	} else {
 		w, h := raster.PixelSize(p.geom.CropBox, dpi)
-		img, _, err = raster.RenderPageRegion(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, unrotateRegion(opt.Region, w, h, p.geom.Rotate), p.doc.oc)
+		img, _, err = raster.RenderPageRegion(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, unrotateRegion(opt.Region, w, h, p.geom.Rotate), p.doc.oc, p.doc.renderCache())
 	}
 	p.doc.mu.Unlock()
 	if err != nil {
@@ -196,4 +196,16 @@ func rotateClockwise(img *image.RGBA, deg int) *image.RGBA {
 		}
 	}
 	return out
+}
+
+// renderCacheBytes bounds the decoded images a document keeps between renders.
+const renderCacheBytes = 96 << 20
+
+// renderCache returns the document's cache for renders, made on first use. The
+// caller holds d.mu.
+func (d *Document) renderCache() *raster.Cache {
+	if d.cache == nil {
+		d.cache = raster.NewCache(renderCacheBytes)
+	}
+	return d.cache
 }
