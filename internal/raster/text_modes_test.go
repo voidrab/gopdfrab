@@ -154,4 +154,8 @@ func TestClosedContoursRepeatTheFirstPoint(t *testing.T) {
 	if len(in[0]) != 2 {
 		t.Error("the input was modified")
 	}
+	// An empty contour has no first point to repeat and is dropped.
+	if got := closedContours([][]content.Point{nil, {{X: 1, Y: 1}}}); len(got) != 1 || len(got[0]) != 2 {
+		t.Errorf("closedContours with an empty contour = %v", got)
+	}
 }

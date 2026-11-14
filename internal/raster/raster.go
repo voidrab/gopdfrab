@@ -225,6 +225,10 @@ type renderer struct {
 	// textClip collects the glyph outlines, in device space, that text render
 	// modes 4 to 7 add to the clipping path. The ET operator applies them.
 	textClip [][]content.Point
+	// tiles caches rendered tiling-pattern cells, and tileBytes is their
+	// size, for maxTileCacheBytes.
+	tiles     map[tileKey]*image.RGBA
+	tileBytes int
 }
 
 // maxFormDepth bounds the nesting of forms and soft-mask groups, against
@@ -581,9 +585,11 @@ func (r *renderer) paintGlyph(contours [][]content.Point, gs *renderState) {
 // closedContours returns contours with each one's first point repeated at the
 // end, which is how the stroker tells a closed subpath from an open one.
 func closedContours(contours [][]content.Point) [][]content.Point {
-	out := make([][]content.Point, len(contours))
-	for i, c := range contours {
-		out[i] = append(append(make([]content.Point, 0, len(c)+1), c...), c[0])
+	out := make([][]content.Point, 0, len(contours))
+	for _, c := range contours {
+		if len(c) > 0 {
+			out = append(out, append(append(make([]content.Point, 0, len(c)+1), c...), c[0]))
+		}
 	}
 	return out
 }
@@ -1448,9 +1454,9 @@ func (r *renderer) patternToDevice(pattern pdf.PDFDict) content.Matrix {
 	return m.Mul(r.patternBase)
 }
 
-// selectPattern resolves a scn/SCN pattern-name operand. A tiling pattern is
-// reported as a drop and yields no pattern, so the caller paints nothing
-// rather than a misleading flat colour.
+// selectPattern resolves a scn/SCN pattern-name operand. A pattern the
+// rasterizer cannot use is reported as a drop and yields no pattern, so the
+// caller paints nothing rather than a misleading flat colour.
 func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDict, bool) {
 	patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
 	pattern, ok := patterns.Entries.Get(name).(pdf.PDFDict)
@@ -1466,7 +1472,11 @@ func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDic
 		}
 		return pattern, true
 	case 1:
-		r.drop(dropTilingPattern)
+		if _, ok := parseTiling(pattern); !ok {
+			r.drop(dropTilingPattern)
+			return pdf.PDFDict{}, false
+		}
+		return pattern, true
 	default:
 		r.drop(DropShading)
 	}
@@ -1487,10 +1497,14 @@ func (r *renderer) trackPattern(cur pdf.PDFDict, was, name string, resources pdf
 	return pattern
 }
 
-// patternSampler returns a per-pixel colour source for a shading pattern, or
-// false when the shading is a mesh (which is geometry, not a field, and so is
-// painted separately).
-func (r *renderer) patternSampler(pattern pdf.PDFDict, alpha float64) (func(x, y int) ([3]float64, float64), bool) {
+// patternSampler returns a per-pixel colour source for a pattern: a tiling
+// pattern, painted in under if it is uncoloured, or a shading pattern. It
+// reports false when the shading is a mesh (which is geometry, not a field,
+// and so is painted separately) or the pattern cannot be drawn.
+func (r *renderer) patternSampler(pattern pdf.PDFDict, under [3]float64, alpha float64) (func(x, y int) ([3]float64, float64), bool) {
+	if pdf.DictInt(pattern, "PatternType", 0) == 1 {
+		return r.tilingSampler(pattern, under, alpha)
+	}
 	sh, ok := r.patternShading(pattern)
 	if !ok || sh.isMesh() {
 		return nil, false
@@ -1520,7 +1534,11 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 	if stroke {
 		alpha = gs.strokeAlpha
 	}
-	if sample, ok := r.patternSampler(pattern, alpha); ok {
+	under := gs.Fill.RGB
+	if stroke {
+		under = gs.Stroke.RGB
+	}
+	if sample, ok := r.patternSampler(pattern, under, alpha); ok {
 		sample = gs.mask.wrap(sample)
 		if stroke {
 			StrokePathStyledShaded(target, contours, gs.strokeStyle(), sample)
