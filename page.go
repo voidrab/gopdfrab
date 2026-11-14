@@ -208,3 +208,58 @@ func (d *Document) renderCache() *raster.Cache {
 	}
 	return d.cache
 }
+
+// Rect is a rectangle on a displayed page, in points from its top-left corner,
+// with X0 <= X1 and Y0 <= Y1.
+type Rect struct{ X0, Y0, X1, Y1 float64 }
+
+// Glyph is one character of text on a page.
+type Glyph struct {
+	// Rune is the character, or zero when the page's font does not say what
+	// it is.
+	Rune rune
+	// Box is the glyph's cell on the displayed page: as wide as its advance
+	// and as tall as the em square from descender to ascender.
+	Box Rect
+}
+
+// Glyphs returns the text of the page, one Glyph for each character shown, in
+// the order the page's content shows them, which is usually reading order but
+// is not promised to be. Where the page has no text, or only text in a font
+// that does not map to characters, the runes are zero. The boxes are in the
+// page's displayed orientation, like Size.
+func (p *Page) Glyphs(ctx context.Context) ([]Glyph, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	p.doc.mu.Lock()
+	raw, err := raster.ExtractText(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, p.doc.oc, p.doc.renderCache())
+	p.doc.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	w, h := p.geom.CropBox[2]-p.geom.CropBox[0], p.geom.CropBox[3]-p.geom.CropBox[1]
+	out := make([]Glyph, len(raw))
+	for i, g := range raw {
+		out[i] = Glyph{Rune: g.R, Box: displayRect(g.Box, w, h, p.geom.Rotate, p.geom.UserUnit)}
+	}
+	return out, nil
+}
+
+// displayRect maps box, in points of the unrotated crop box of size w by h, to
+// the page displayed rotated by deg clockwise and scaled by unit.
+func displayRect(box [4]float64, w, h float64, deg int, unit float64) Rect {
+	x0, y0, x1, y1 := box[0], box[1], box[2], box[3]
+	var r Rect
+	switch deg {
+	case 90:
+		r = Rect{h - y1, x0, h - y0, x1}
+	case 180:
+		r = Rect{w - x1, h - y1, w - x0, h - y0}
+	case 270:
+		r = Rect{y0, w - x1, y1, w - x0}
+	default:
+		r = Rect{x0, y0, x1, y1}
+	}
+	return Rect{r.X0 * unit, r.Y0 * unit, r.X1 * unit, r.Y1 * unit}
+}

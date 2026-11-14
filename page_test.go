@@ -239,3 +239,87 @@ func TestPageRenderRegionIsAPartOfTheWholePage(t *testing.T) {
 		})
 	}
 }
+
+// textDoc is a 100x50 page showing "Hi" in 20 pt Helvetica with a baseline at
+// (10, 30) from the lower left, with attrs added to the page dict.
+func textDoc(t *testing.T, attrs string) *Document {
+	t.Helper()
+	b := pdfgen.NewBuilder("%PDF-1.4\\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R "+attrs+" >>")
+	b.StreamObj(4, "<<", []byte("BT /F1 20 Tf 10 30 Td (Hi) Tj ET"))
+	b.Obj(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 72 /LastChar 105 /Widths ["+widths(72, 105, 500)+"] >>")
+	doc, err := OpenBytes(b.FinishClassic("<< /Size 6 /Root 1 0 R >>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { doc.Close() })
+	return doc
+}
+
+func widths(first, last, w int) string {
+	var s string
+	for i := first; i <= last; i++ {
+		s += fmt.Sprintf("%d ", w)
+	}
+	return s
+}
+
+func TestPageGlyphsFollowTheDisplayedOrientation(t *testing.T) {
+	// Unrotated, the glyph cells are 10 wide, from y 4 to 24 from the top. A
+	// quarter turn clockwise puts the top of the page on the right.
+	for _, tc := range []struct {
+		attrs string
+		h     Rect
+		i     Rect
+	}{
+		{"", Rect{10, 4, 20, 24}, Rect{20, 4, 30, 24}},
+		{"/Rotate 90", Rect{26, 10, 46, 20}, Rect{26, 20, 46, 30}},
+		{"/Rotate 180", Rect{80, 26, 90, 46}, Rect{70, 26, 80, 46}},
+		{"/Rotate 270", Rect{4, 80, 24, 90}, Rect{4, 70, 24, 80}},
+		{"/UserUnit 2", Rect{20, 8, 40, 48}, Rect{40, 8, 60, 48}},
+	} {
+		t.Run(tc.attrs, func(t *testing.T) {
+			p, _ := textDoc(t, tc.attrs).Page(0)
+			got, err := p.Glyphs(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 2 || got[0].Rune != 'H' || got[1].Rune != 'i' {
+				t.Fatalf("glyphs = %+v", got)
+			}
+			near := func(a, b Rect) bool {
+				d := func(x, y float64) bool { return x-y < 0.01 && y-x < 0.01 }
+				return d(a.X0, b.X0) && d(a.Y0, b.Y0) && d(a.X1, b.X1) && d(a.Y1, b.Y1)
+			}
+			if !near(got[0].Box, tc.h) || !near(got[1].Box, tc.i) {
+				t.Errorf("boxes %+v and %+v, want %+v and %+v", got[0].Box, got[1].Box, tc.h, tc.i)
+			}
+		})
+	}
+}
+
+func TestPageGlyphsErrors(t *testing.T) {
+	p, _ := textDoc(t, "").Page(0)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.Glyphs(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled before = %v", err)
+	}
+	// A page whose contents cannot be decoded has no text to give.
+	b := pdfgen.NewBuilder("%PDF-1.4\\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >>")
+	b.StreamObj(4, "<< /Filter /LZWDecode ", []byte{0xFF, 0xFF, 0xFF})
+	doc, err := OpenBytes(b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer doc.Close()
+	bp, _ := doc.Page(0)
+	if _, err := bp.Glyphs(context.Background()); err == nil {
+		t.Error("undecodable contents gave glyphs")
+	}
+}

@@ -36,7 +36,7 @@ func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFD
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderArea(ctx, src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, cache)
+	return renderArea(ctx, src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, cache, nil)
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -84,7 +84,7 @@ const (
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
 func renderContent(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc, nil)
+	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc, nil, nil)
 }
 
 // PixelSize returns the size in pixels of a page whose crop box is bounds
@@ -109,12 +109,58 @@ func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDi
 	if region.Empty() {
 		return nil, nil, fmt.Errorf("raster: empty render region")
 	}
-	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache)
+	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache, nil)
+}
+
+// TextGlyph is one character shown on a page: its Unicode value, zero if the
+// font does not say, and the box it occupies, in points from the top-left
+// corner of the unrotated crop box.
+type TextGlyph struct {
+	R   rune
+	Box [4]float64 // x0, y0, x1, y1
+}
+
+// ExtractText returns the glyphs a page shows, in the order its content shows
+// them, each with the box of its em square from the descender to the ascender
+// that the font's metrics suggest. It runs the page's content without painting
+// or decoding images.
+func ExtractText(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, oc *content.OptionalContent, cache *Cache) ([]TextGlyph, error) {
+	src, err := PageContentBytes(page)
+	if err != nil {
+		return nil, err
+	}
+	var glyphs []TextGlyph
+	// One pixel of canvas at one device pixel per point: painting is out of
+	// reach of everything but the corner, and device space is page space.
+	_, _, err = renderArea(ctx, src, resources, mediaBox, 72, image.Rect(0, 0, 1, 1), InheritedPaint{}, paperBackdrop, oc, cache, &glyphs)
+	if err != nil {
+		return nil, err
+	}
+	return glyphs, nil
+}
+
+// recordGlyph notes a glyph being shown, whose advance is w1000 thousandths of
+// an em, if text is being collected.
+func (r *renderer) recordGlyph(fi *fontInfo, code int, w1000 float64, gs *renderState) {
+	if r.glyphs == nil {
+		return
+	}
+	// The em square from the descender to the ascender, in glyph space.
+	const descent, ascent = -200, 800
+	glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
+	m := glyphToText.Mul(gs.tm).Mul(gs.CTM)
+	box := [4]float64{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
+	for _, c := range []content.Point{{X: 0, Y: descent}, {X: w1000, Y: descent}, {X: w1000, Y: ascent}, {X: 0, Y: ascent}} {
+		p := m.Apply(c)
+		box[0], box[1] = math.Min(box[0], p.X), math.Min(box[1], p.Y)
+		box[2], box[3] = math.Max(box[2], p.X), math.Max(box[3], p.Y)
+	}
+	*r.glyphs = append(*r.glyphs, TextGlyph{R: fi.unicode(code), Box: box})
 }
 
 // renderArea renders the content within bounds at dpi. A non-empty region, in
 // pixels of the whole page, limits the canvas to that part and keeps dpi as given.
-func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
+func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache, glyphs *[]TextGlyph) (*image.RGBA, []string, error) {
 	if region.Empty() {
 		dpi = dpiWithin(bounds, dpi)
 	}
@@ -146,7 +192,7 @@ func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
-	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc, ctx: ctx, cache: cache}
+	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc, ctx: ctx, cache: cache, glyphs: glyphs}
 	if cache != nil {
 		r.fontCache = cache.fonts
 	}
@@ -253,7 +299,10 @@ type renderer struct {
 	// ctx, when set, ends the render: once it is done, operators paint nothing.
 	ctx context.Context
 	// cache, when set, keeps decoded images and fonts for the next render.
-	cache     *Cache
+	cache *Cache
+	// glyphs, when set, receives every glyph shown, and the render skips
+	// images: it is run only to learn where the text is.
+	glyphs    *[]TextGlyph
 	fontCache map[uintptr]*fontInfo
 	// shadingCache holds parsed shadings keyed by pattern dict identity; a nil
 	// value records a pattern already found unusable.
@@ -963,6 +1012,9 @@ func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState
 // paintImage decodes an Image XObject (and its /SMask, if present) and
 // composites it through the CTM.
 func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *renderState) {
+	if r.glyphs != nil {
+		return // only the text is wanted
+	}
 	img, err := r.decodeImage(xobj, resources)
 	if err != nil && !r.dropPlaceholder(err) {
 		return
@@ -1366,6 +1418,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 		// A Type 3 glyph is a content stream in glyph space, not an outline,
 		// and its /FontMatrix stands in for the 1000-unit em below.
 		if fi.charProcs != nil {
+			r.recordGlyph(fi, code, width*fi.fontMatrix.A*1000, gs)
 			if !invisible {
 				r.drawType3Glyph(fi, code, resources, gs)
 			}
@@ -1374,6 +1427,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 			continue
 		}
 
+		r.recordGlyph(fi, code, width, gs)
 		if gp, ok := fi.outline(code); ok && len(gp.Contours) > 0 && mode != 3 {
 			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
 			// rise) -> user space (tm) -> device (CTM).
@@ -1411,6 +1465,9 @@ type fontInfo struct {
 	// outlines remembers what glyphFor returned for each code, since reading
 	// an outline from a font program is the dearer part of drawing a glyph.
 	outlines map[int]outline
+	// unicode returns the character a code stands for, or zero when it is not
+	// known.
+	unicode func(code int) rune
 
 	charProcs   map[int]pdf.PDFDict
 	fontMatrix  content.Matrix
@@ -1448,6 +1505,12 @@ func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {
 }
 
 func buildFontInfo(font pdf.PDFDict) *fontInfo {
+	fi := buildFontInfoBase(font)
+	fi.unicode = unicodeMapFor(font)
+	return fi
+}
+
+func buildFontInfoBase(font pdf.PDFDict) *fontInfo {
 	if st, _ := font.Entries.Get("Subtype").(pdf.PDFName); st.Value == "Type3" {
 		return buildType3FontInfo(font)
 	}
@@ -1457,6 +1520,25 @@ func buildFontInfo(font pdf.PDFDict) *fontInfo {
 		}
 	}
 	return buildSimpleFontInfo(font)
+}
+
+// unicodeMapFor returns how the codes of font stand for characters: by its
+// /ToUnicode CMap if it has one, else, for a simple font, by its encoding. A
+// composite font with no /ToUnicode has no way to tell, and maps to zero.
+func unicodeMapFor(font pdf.PDFDict) func(int) rune {
+	if tu, ok := font.Entries.Get("ToUnicode").(pdf.PDFDict); ok {
+		if data, err := pdf.DecodeStream(tu); err == nil {
+			if m := fontprog.ParseToUnicodeCMap(data); len(m) > 0 {
+				return func(code int) rune { return rune(m[code]) }
+			}
+		}
+	}
+	if st, _ := font.Entries.Get("Subtype").(pdf.PDFName); st.Value == "Type0" {
+		return func(int) rune { return 0 }
+	}
+	// Codes of a simple font are single bytes.
+	table := fontprog.SimpleFontCodeToUnicode(font.Entries.Get("Encoding"))
+	return func(code int) rune { return rune(table[code&0xFF]) }
 }
 
 // buildCompositeFontInfo handles Type0/Identity-H fonts: 2-byte codes are
