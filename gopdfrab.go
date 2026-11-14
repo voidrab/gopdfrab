@@ -409,6 +409,7 @@ type Document struct {
 	// mu serializes page access and rendering, which share r's caches.
 	mu    sync.Mutex
 	pages []pageEntry
+	root  pdf.PDFDict // the catalog, once the pages are loaded
 	oc    *content.OptionalContent
 	cache *raster.Cache // fonts and images kept between renders
 	index bool

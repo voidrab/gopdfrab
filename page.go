@@ -41,6 +41,7 @@ func (d *Document) loadPages() error {
 			d.pages = append(d.pages, pageEntry{dict: page, resources: res})
 		})
 	}
+	d.root = root
 	d.oc = content.NewOptionalContent(root)
 	d.index = true
 	return nil
