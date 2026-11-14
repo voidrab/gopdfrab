@@ -244,3 +244,27 @@ func cffFontDictPrivates(cff []byte, fds [][]byte) []cffPrivate {
 	}
 	return out
 }
+
+// CFFCIDToGID returns the glyph ID of each CID in a CID-keyed CFF program,
+// read from its charset, which lists the CID of every glyph. A subset keeps
+// the CIDs of the glyphs it holds, so they are not glyph IDs. ok is false for
+// a program that is not CID-keyed, whose glyph IDs are its CIDs, or whose
+// charset cannot be read.
+func CFFCIDToGID(cff []byte) (gids map[int]int, ok bool) {
+	td, ok := ParseCFFTopDict(cff)
+	if !ok || !td.IsCIDKeyed || td.CSOffset < 0 {
+		return nil, false
+	}
+	entries, _ := ParseCFFIndex(cff, td.CSOffset)
+	cids := ParseCFFCharsetCIDs(cff, td.CharsetOffset, len(entries))
+	if cids == nil {
+		return nil, false
+	}
+	gids = make(map[int]int, len(cids))
+	for gid, cid := range cids {
+		if _, dup := gids[cid]; !dup {
+			gids[cid] = gid
+		}
+	}
+	return gids, true
+}

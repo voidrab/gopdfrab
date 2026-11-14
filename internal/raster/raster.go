@@ -1272,9 +1272,21 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 	if ff3, ok := desc2.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
-			if prog, ok := fontprog.ParseCFFCharstrings(fontprog.ExtractCFFBytes(data)); ok {
+			cff := fontprog.ExtractCFFBytes(data)
+			if prog, ok := fontprog.ParseCFFCharstrings(cff); ok {
+				// In a CID-keyed program the glyph of a CID is found through
+				// the charset; in a name-keyed one the CID is the glyph ID.
+				gidFor := cidToGID
+				if gids, ok := fontprog.CFFCIDToGID(cff); ok {
+					gidFor = func(cid int) int {
+						if gid, found := gids[cid]; found {
+							return gid
+						}
+						return -1
+					}
+				}
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
-					return cffOutline(prog, cidToGID(code))
+					return cffOutline(prog, gidFor(code))
 				}
 				return fi
 			}

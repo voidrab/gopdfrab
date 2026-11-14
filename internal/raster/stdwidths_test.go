@@ -96,3 +96,14 @@ func TestMissingWidthWinsOverTheFace(t *testing.T) {
 		t.Errorf("B with a 1000-unit MissingWidth ends at %d, expected further right", maxX)
 	}
 }
+
+func TestAdvanceForOnlyKnowsCodesTheFaceDraws(t *testing.T) {
+	fi := buildSimpleFontInfo(noWidths())
+	if w, ok := fi.advanceFor('H'); !ok || w < 715 || w > 730 {
+		t.Errorf("advance of H = %v, %v; want Helvetica's 722", w, ok)
+	}
+	// A control code has no glyph, so there is no advance to take from the face.
+	if w, ok := fi.advanceFor(1); ok {
+		t.Errorf("advance of code 1 = %v, want none", w)
+	}
+}

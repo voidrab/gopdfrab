@@ -804,3 +804,32 @@ func TestParseType1CharstringsReadsTheFontMatrix(t *testing.T) {
 		}
 	}
 }
+
+func TestCFFCIDToGID(t *testing.T) {
+	glyph := cs([]byte{14})
+	// A subset: glyph 1 is CID 500, glyph 2 is CID 7.
+	spec := cffSpec{cid: true, cids: []int{500, 7}, charstrings: [][]byte{glyph, glyph, glyph}}
+	got, ok := CFFCIDToGID(spec.assemble())
+	if !ok || len(got) != 3 || got[0] != 0 || got[500] != 1 || got[7] != 2 {
+		t.Errorf("CFFCIDToGID = %v, %v; want CID 0 -> 0, 500 -> 1, 7 -> 2", got, ok)
+	}
+	if _, found := got[1]; found {
+		t.Error("CID 1 is not in the charset but was mapped")
+	}
+	// A repeated CID keeps its first glyph.
+	dup := cffSpec{cid: true, cids: []int{9, 9}, charstrings: [][]byte{glyph, glyph, glyph}}
+	if got, _ := CFFCIDToGID(dup.assemble()); got[9] != 1 {
+		t.Errorf("duplicate CID 9 -> glyph %d, want the first, 1", got[9])
+	}
+	// A name-keyed program, garbage, and a missing charset have no CID map.
+	for name, cff := range map[string][]byte{
+		"name-keyed": cffSpec{charstrings: [][]byte{glyph, glyph}, sids: []int{34}}.assemble(),
+		"garbage":    []byte("not a CFF program"),
+		"no charset": cffSpec{cid: true, noCharset: true, charstrings: [][]byte{glyph, glyph}}.assemble(),
+		"no glyphs":  cffSpec{cid: true, noCS: true}.assemble(),
+	} {
+		if m, ok := CFFCIDToGID(cff); ok || m != nil {
+			t.Errorf("%s: CFFCIDToGID = %v, %v", name, m, ok)
+		}
+	}
+}
