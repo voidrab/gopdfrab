@@ -199,7 +199,9 @@ func rotateClockwise(img *image.RGBA, deg int) *image.RGBA {
 }
 
 // renderCacheBytes bounds the decoded images a document keeps between renders.
-const renderCacheBytes = 96 << 20
+// A viewer holds one per open document, so it is sized for the images of a few
+// pages, about five A4 scans at 150 dpi, not for the whole document.
+const renderCacheBytes = 64 << 20
 
 // renderCache returns the document's cache for renders, made on first use. The
 // caller holds d.mu.

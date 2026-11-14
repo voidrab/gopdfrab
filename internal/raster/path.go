@@ -5,6 +5,7 @@ import (
 	"image"
 	"math"
 	"slices"
+	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/content"
 )
@@ -121,7 +122,10 @@ func scanRuns(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bo
 	if len(contours) == 0 {
 		return
 	}
-	edges := buildEdges(contours)
+	f := scanScratch.Get().(*coverage)
+	defer releaseScratch(f)
+	edges := buildEdges(f.edges[:0], contours)
+	f.edges = edges // kept, however this ends, for the next fill to reuse
 	// An edge wholly above or below the rows scanned changes none of them. A
 	// glyph far outside a tile or a clip then costs nothing but this pass.
 	keep := edges[:0]
@@ -165,14 +169,44 @@ func scanRuns(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bo
 	if aa {
 		samples = aaSamples
 	}
-	f := coverage{
-		edges: edges, evenOdd: evenOdd, aa: aa, samples: samples, w: w, minX: float64(minX),
-		partial: make([]float32, w+1), runs: make([]float32, w+2),
-	}
+	f.edges, f.evenOdd, f.aa, f.samples, f.w, f.minX = edges, evenOdd, aa, samples, w, float64(minX)
+	f.next, f.active, f.cross, f.marks = 0, f.active[:0], f.cross[:0], f.marks[:0]
+	f.partial, f.runs = zeroed(f.partial, w+1), zeroed(f.runs, w+2)
 	for y := minY; y < maxY; y++ {
 		f.row(y)
 		f.flush(minX, y, emit)
 	}
+}
+
+// scanScratch holds the buffers of finished fills for the next ones: showText
+// fills every glyph on its own, and allocating them afresh for each was most
+// of what rendering a page of text allocated.
+var scanScratch = sync.Pool{New: func() any { return new(coverage) }}
+
+// maxScratchEdges and maxScratchWidth bound the buffers kept in scanScratch, so
+// that one huge path does not hold its memory for the fills after it.
+const (
+	maxScratchEdges = 1 << 16
+	maxScratchWidth = 1 << 14
+)
+
+// releaseScratch returns f to scanScratch unless its buffers grew too large.
+func releaseScratch(f *coverage) {
+	if cap(f.edges) > maxScratchEdges || cap(f.partial) > maxScratchWidth+2 || cap(f.runs) > maxScratchWidth+2 {
+		return
+	}
+	scanScratch.Put(f)
+}
+
+// zeroed returns s resized to n with every element zero, reusing its memory
+// when it is large enough.
+func zeroed(s []float32, n int) []float32 {
+	if cap(s) < n {
+		return make([]float32, n)
+	}
+	s = s[:n]
+	clear(s)
+	return s
 }
 
 // coverage accumulates the coverage of one pixel row. A span adds its
@@ -312,8 +346,14 @@ type pathEdge struct {
 	dir    int // +1 if the original segment went upward in y, -1 otherwise
 }
 
-func buildEdges(contours [][]content.Point) []pathEdge {
-	var edges []pathEdge
+// buildEdges appends the non-horizontal edges of contours to edges, growing it
+// once for all of them, and returns it.
+func buildEdges(edges []pathEdge, contours [][]content.Point) []pathEdge {
+	n := 0
+	for _, c := range contours {
+		n += len(c)
+	}
+	edges = slices.Grow(edges, n)
 	for _, contour := range contours {
 		n := len(contour)
 		for i := 0; i < n; i++ {

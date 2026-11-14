@@ -157,6 +157,11 @@ func (r *renderer) recordGlyph(fi *fontInfo, code int, w1000 float64, gs *render
 	*r.glyphs = append(*r.glyphs, TextGlyph{R: fi.unicode(code), Box: box})
 }
 
+// textOnly reports whether the renderer only collects text, as ExtractText
+// runs it. Its canvas is then never looked at, so nothing needs painting: the
+// glyph boxes come from the advances, not the outlines.
+func (r *renderer) textOnly() bool { return r.glyphs != nil }
+
 // renderArea renders the content within bounds at dpi. A non-empty region, in
 // pixels of the whole page, limits the canvas to that part and keeps dpi as given.
 func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache, glyphs *[]TextGlyph) (*image.RGBA, []string, error) {
@@ -654,6 +659,9 @@ func (r *renderer) intersectClip(gs *renderState, contours [][]content.Point, ev
 // within the clip in gs. The clip rectangle limits drawing to a sub-image of
 // the canvas, and a non-rectangular clip scales the alpha of each pixel.
 func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
+	if r.textOnly() {
+		return
+	}
 	contours := path.deviceContours(gs.CTM)
 	if len(contours) == 0 {
 		return
@@ -1011,8 +1019,8 @@ func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState
 // paintImage decodes an Image XObject (and its /SMask, if present) and
 // composites it through the CTM.
 func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *renderState) {
-	if r.glyphs != nil {
-		return // only the text is wanted
+	if r.textOnly() {
+		return
 	}
 	img, err := r.decodeImage(xobj, resources)
 	if err != nil && !r.dropPlaceholder(err) {
@@ -1418,7 +1426,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 		// and its /FontMatrix stands in for the 1000-unit em below.
 		if fi.charProcs != nil {
 			r.recordGlyph(fi, code, width*fi.fontMatrix.A*1000, gs)
-			if !invisible {
+			if !invisible && !r.textOnly() {
 				r.drawType3Glyph(fi, code, resources, gs)
 			}
 			advance := (width*fi.fontMatrix.A*gs.fontSize + gs.charSpace + type3WordSpace(code, gs)) * gs.hScale
@@ -1427,20 +1435,8 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 		}
 
 		r.recordGlyph(fi, code, width, gs)
-		if gp, ok := fi.outline(code); ok && len(gp.Contours) > 0 && mode != 3 {
-			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
-			// rise) -> user space (tm) -> device (CTM).
-			glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
-			textToDevice := glyphToText.Mul(gs.tm).Mul(gs.CTM)
-			contours := make([][]content.Point, len(gp.Contours))
-			for ci, c := range gp.Contours {
-				dc := make([]content.Point, len(c))
-				for pi, p := range c {
-					dc[pi] = textToDevice.Apply(p)
-				}
-				contours[ci] = dc
-			}
-			r.paintGlyph(contours, gs)
+		if mode != 3 && !r.textOnly() {
+			r.showOutline(fi, code, gs)
 		}
 
 		ws := 0.0
@@ -1450,6 +1446,27 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 		advance := (width/1000*gs.fontSize + gs.charSpace + ws) * gs.hScale
 		gs.tm = content.Matrix{A: 1, D: 1, E: advance}.Mul(gs.tm)
 	}
+}
+
+// showOutline paints the outline of the glyph for code at the text position.
+func (r *renderer) showOutline(fi *fontInfo, code int, gs *renderState) {
+	gp, ok := fi.outline(code)
+	if !ok || len(gp.Contours) == 0 {
+		return
+	}
+	// Glyph space (1000-unit em) -> text space (font-size units, with Ts
+	// rise) -> user space (tm) -> device (CTM).
+	glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
+	textToDevice := glyphToText.Mul(gs.tm).Mul(gs.CTM)
+	contours := make([][]content.Point, len(gp.Contours))
+	for ci, c := range gp.Contours {
+		dc := make([]content.Point, len(c))
+		for pi, p := range c {
+			dc[pi] = textToDevice.Apply(p)
+		}
+		contours[ci] = dc
+	}
+	r.paintGlyph(contours, gs)
 }
 
 // fontInfo is a font resource's resolved rendering data: per-code advance
@@ -1757,6 +1774,9 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 // paintInlineImage decodes an inline image and composites it exactly as an
 // Image XObject, reporting a drop only when it cannot be built or decoded.
 func (r *renderer) paintInlineImage(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+	if r.textOnly() {
+		return
+	}
 	params, raw, ok := pdf.InlineImageRawOperand(operands)
 	if !ok {
 		r.drop(dropInlineImage)
@@ -1943,6 +1963,9 @@ func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alp
 // paintShadingOp implements the sh operator: paint the named shading over the
 // current clip, in the current user space.
 func (r *renderer) paintShadingOp(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+	if r.textOnly() {
+		return
+	}
 	sh, ok := r.namedShading(operands, resources)
 	if !ok {
 		return
