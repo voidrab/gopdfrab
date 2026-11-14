@@ -1062,11 +1062,11 @@ type imageSource struct {
 	smooth bool
 }
 
-// newImageSource prepares img to be drawn where one device pixel covers area
-// unit squares of the image. The footprint, the side in source pixels of the
-// square a device pixel covers, decides the filtering: above 1 the image is
-// shrunk and averaged through the pyramid; otherwise hard pixel edges are kept
-// unless interpolate is set.
+// newImageSource prepares img for drawing. area is the fraction of the image's
+// unit square that one device pixel covers. The footprint, the side in source
+// pixels of that square, decides the filtering: above 1 the image is shrunk and
+// averaged through the pyramid; otherwise hard pixel edges are kept unless
+// interpolate is set.
 func newImageSource(img *image.RGBA, area float64, interpolate bool) imageSource {
 	foot := math.Sqrt(area * float64(img.Rect.Dx()) * float64(img.Rect.Dy()))
 	s := newSampler(img)

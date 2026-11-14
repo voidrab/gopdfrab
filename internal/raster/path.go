@@ -84,9 +84,9 @@ func scanCoverage(bounds image.Rectangle, contours [][]content.Point, evenOdd, a
 	}
 	minY := max(bounds.Min.Y, int(math.Floor(edgeMinY)))
 	maxY := min(bounds.Max.Y, int(math.Ceil(edgeMaxY)))
-	// Likewise the pixel columns are limited to the edges' x-extent, a pixel
-	// either side of it, so the per-row buffers are as wide as the shape and
-	// not as the canvas.
+	// The pixel columns are limited to the edges' x-extent plus one pixel on
+	// each side, so the per-row buffers are as wide as the shape, not the
+	// canvas.
 	edgeMinX, edgeMaxX := math.Inf(1), math.Inf(-1)
 	for _, e := range edges {
 		x1 := e.x0 + (e.y1-e.y0)*e.dxdy
