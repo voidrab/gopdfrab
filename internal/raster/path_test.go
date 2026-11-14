@@ -261,8 +261,8 @@ func TestStrokePathJoinsDoNotDarkenTranslucentStrokes(t *testing.T) {
 	}
 }
 
-// TestFillSolidMatchesPerPixelFill checks the run-based solid fill against the
-// per-pixel one it replaced, over random shapes, colours, alphas and masks.
+// TestFillSolidMatchesPerPixelFill verifies that fillSolid paints the same
+// pixels as the per-pixel fill, over random shapes, colours, alphas and masks.
 func TestFillSolidMatchesPerPixelFill(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	randPoly := func(n int, w, h float64) []content.Point {

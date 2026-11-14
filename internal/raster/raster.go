@@ -29,8 +29,8 @@ func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dp
 	return RenderPageContext(context.Background(), page, resources, mediaBox, dpi, oc, nil)
 }
 
-// RenderPageContext is RenderPage that stops painting, and returns ctx.Err(),
-// soon after ctx is done.
+// RenderPageContext is RenderPage that stops painting soon after ctx is done,
+// and then returns ctx.Err().
 func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
@@ -94,10 +94,10 @@ func PixelSize(bounds [4]float64, dpi int) (width, height int) {
 	return int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72)), int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
 }
 
-// RenderPageRegion renders only region of the page: pixels of the unrotated
-// page at dpi, counted from its top-left corner, cut to the page. The result
-// is as large as the region and equals that part of the whole page at dpi,
-// which is not lowered to fit a pixel budget as a whole page's is. An empty
+// RenderPageRegion renders region of the page, in pixels of the unrotated page
+// at dpi counted from its top-left corner, cut to the page. The result is as
+// large as the region and equals that part of the whole page at dpi. Unlike a
+// whole-page render, dpi is not lowered to fit the pixel budget. An empty
 // region, or one that misses the page, is an error.
 func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, region image.Rectangle, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
@@ -112,8 +112,8 @@ func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDi
 	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache)
 }
 
-// renderArea renders the content within bounds at dpi. A non-empty region,
-// within the whole size, limits the canvas to that part and leaves dpi as asked.
+// renderArea renders the content within bounds at dpi. A non-empty region, in
+// pixels of the whole page, limits the canvas to that part and keeps dpi as given.
 func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	if region.Empty() {
 		dpi = dpiWithin(bounds, dpi)
@@ -1146,8 +1146,8 @@ func (r *renderer) compositeAligned(src imageSource, inv content.Matrix, x0, y0,
 	}
 	img := src.s.levels[src.level]
 	w, h := img.Rect.Dx(), img.Rect.Dy()
-	// sourceIndex returns the source column or row under device pixel d, or -1
-	// where the image does not reach. With inv.B and inv.C zero the unit-square
+	// cols holds, for each device column, the source column it reads, or -1
+	// where the image does not reach. With inv.B and inv.C zero, the unit-square
 	// position depends on one device coordinate alone.
 	cols := make([]int, x1-x0)
 	for x := x0; x < x1; x++ {
@@ -1188,7 +1188,7 @@ const tapScale = 4096
 
 // taps is where one device column or row reads a smoothed image: the two
 // neighbouring source pixels, as byte offsets, and the weight of the second in
-// 1/tapScale ths. A column the image does not reach has first < 0.
+// units of 1/tapScale. A column the image does not reach has first < 0.
 type taps struct {
 	first, second int
 	weight        int

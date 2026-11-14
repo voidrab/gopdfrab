@@ -7,10 +7,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// Cache keeps what rendering derives from a document and the next render of
-// the same document needs again: parsed fonts, and decoded images up to a
-// memory budget. A viewer that draws a page in tiles, or again at another
-// zoom, would otherwise decode every picture and parse every font each time.
+// Cache holds the parsed fonts and the decoded images that rendering derives
+// from a document, so that later renders of the same document can reuse them.
+// Decoded images are kept up to a memory budget.
 //
 // Entries are keyed by the identity of the document's own objects, which the
 // document keeps alive and keeps one copy of. A Cache is not safe for

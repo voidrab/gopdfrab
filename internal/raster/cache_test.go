@@ -31,7 +31,7 @@ func TestCacheKeepsDecodedImagesWithinItsBudget(t *testing.T) {
 	}
 	cache.decode(b, dictOf(nil))
 	cache.decode(a, dictOf(nil)) // a is now the most recently used
-	cache.decode(c, dictOf(nil)) // over budget: b, the least recently used, goes
+	cache.decode(c, dictOf(nil)) // exceeds the budget, so b, the least recently used, is evicted
 	if _, ok := cache.images[pdf.ValuePointer(b.Entries)]; ok {
 		t.Error("the least recently used image was kept")
 	}
@@ -59,8 +59,9 @@ func TestCacheSkipsOversizedImagesAndErrors(t *testing.T) {
 	}
 }
 
-// TestRendersThroughACacheMatchPlainRenders draws a page with an image and
-// text-free content twice through one cache and once without.
+// TestRendersThroughACacheMatchPlainRenders verifies that a page drawn twice
+// through one cache is identical to a render without a cache, and that the
+// image is cached once.
 func TestRendersThroughACacheMatchPlainRenders(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(pdf.DictOf(nil), []byte("q 40 0 0 30 5 5 cm /Im Do Q")),

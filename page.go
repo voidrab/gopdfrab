@@ -108,11 +108,10 @@ type RenderOptions struct {
 	// at a lower resolution to bound memory.
 	Scale float64
 	// Region, if not empty, limits the render to that part of the displayed
-	// page: pixels at Scale counted from the top-left corner, cut to the page.
-	// The result is as large as the region, and at the full resolution Scale
-	// asks for however large the page is, since the budget that lowers the
-	// resolution of a whole page does not apply. It is the same as that part
-	// of a render of the whole page, but costs in proportion to the region.
+	// page, in pixels at Scale counted from the top-left corner and cut to the
+	// page. The result is as large as the region. Its pixels equal those of
+	// the same part of a whole-page render, but Scale is not lowered to fit the
+	// pixel budget, so the cost is in proportion to the region.
 	Region image.Rectangle
 }
 

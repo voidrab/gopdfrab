@@ -27,8 +27,8 @@ func fillSolid(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, rgb
 	}
 	var opaque [4]byte
 	storeRGBA64(opaque[:], 0, rgb[0], rgb[1], rgb[2], 1)
-	// Runs and mask spans are never empty and their coverage is positive, so a
-	// is too.
+	// Runs and mask spans are never empty, so the byte slice passed to
+	// fillBytes is never empty.
 	paint := func(y, x0, x1 int, a float64) {
 		if a < 1 {
 			for x := x0; x < x1; x++ {

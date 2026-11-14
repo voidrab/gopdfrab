@@ -745,8 +745,9 @@ func TestRenderType3UndecodableCharProcDrops(t *testing.T) {
 	}
 }
 
-// TestRenderPageRegion checks that a region of a page is that part of the page,
-// at the resolution asked for, and that bad input is refused.
+// TestRenderPageRegion verifies that a region of a page is that part of the
+// whole page at the resolution asked for, and that a region beside the page
+// and undecodable contents are refused.
 func TestRenderPageRegion(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(pdf.DictOf(nil), []byte("1 0 0 rg 10 10 30 20 re f 0 0 1 rg 25.5 2.5 40 40 re f")),

@@ -215,9 +215,11 @@ func TestAlignedImageMatchesGeneralLoop(t *testing.T) {
 	}
 }
 
-// TestSmoothAlignedImageMatchesGeneralLoop is the same comparison for images
-// that are smoothed, either enlarged with /Interpolate or shrunk, within one
-// level per channel. An image with transparent pixels takes the general loop.
+// TestSmoothAlignedImageMatchesGeneralLoop verifies that smoothed images,
+// enlarged with /Interpolate or shrunk, drawn on the aligned path differ from
+// the general loop by at most one level per channel. Translucent smoothed
+// images take the general loop, because the smooth aligned path needs opaque
+// pixels.
 func TestSmoothAlignedImageMatchesGeneralLoop(t *testing.T) {
 	rng := rand.New(rand.NewSource(13))
 	for iter := 0; iter < 150; iter++ {
