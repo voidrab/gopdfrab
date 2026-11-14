@@ -84,8 +84,8 @@ func TestTextClipModes(t *testing.T) {
 	plain := modePage(t, "BT /F1 48 Tf 5 8 Td (H) Tj ET")
 	wantInk, minX, minY, maxX, maxY := ink(plain)
 
-	// Mode 7 paints nothing itself, but ET clips to the glyph: a red page-wide
-	// fill then shows only through it.
+	// Mode 7 paints nothing itself. The ET operator clips the following red
+	// page-wide fill to the glyph shape.
 	clipped := modePage(t, "BT 7 Tr /F1 48 Tf 5 8 Td (H) Tj ET 1 0 0 rg 0 0 60 60 re f")
 	n, cMinX, cMinY, cMaxX, cMaxY := ink(clipped)
 	if n < wantInk*9/10 || n > wantInk*11/10 {

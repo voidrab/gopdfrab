@@ -223,7 +223,7 @@ type renderer struct {
 	// effectPixelBudget.
 	effectPixels int64
 	// textClip collects the glyph outlines, in device space, that text render
-	// modes 4 to 7 add to the clipping path; ET applies them.
+	// modes 4 to 7 add to the clipping path. The ET operator applies them.
 	textClip [][]content.Point
 }
 
@@ -563,7 +563,8 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 
 // paintGlyph paints one glyph outline, in device space, as gs's text render
 // mode says: fill (modes 0, 2, 4, 6), stroke (1, 2, 5, 6), and, for modes 4 to
-// 7, add it to the text clip that ET applies. Mode 3 paints nothing.
+// 7, add it to the text clip that the ET operator applies. Mode 3 paints
+// nothing.
 func (r *renderer) paintGlyph(contours [][]content.Point, gs *renderState) {
 	mode := gs.renderMode
 	if mode == 0 || mode == 2 || mode == 4 || mode == 6 {
@@ -1117,9 +1118,8 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 	if gs.font.Entries == nil || len(raw) == 0 {
 		return
 	}
-	// Render modes 3 (invisible) and 7 (clip only) paint no marks -- most often
-	// the invisible OCR text layer over a scanned image, which must stay
-	// invisible.
+	// Render modes 3 (invisible) and 7 (clip only) paint no marks. Mode 3 is
+	// typically the invisible OCR text layer laid over a scanned image.
 	mode := gs.renderMode
 	invisible := mode == 3 || mode == 7
 	fi := r.fontInfoFor(gs.font)
