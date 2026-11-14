@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"image/color"
 	"sync"
 	"testing"
@@ -198,5 +199,43 @@ func TestPageResolveFailure(t *testing.T) {
 	// A quarter-turn page swaps its displayed width and height.
 	if w, h := p.Size(); w != 50 || h != 100 {
 		t.Errorf("rotated size = %vx%v", w, h)
+	}
+}
+
+func TestPageRenderRegionIsAPartOfTheWholePage(t *testing.T) {
+	for _, rot := range []int{0, 90, 180, 270} {
+		t.Run(fmt.Sprint(rot), func(t *testing.T) {
+			doc := pageDoc(t, fmt.Sprintf("/Rotate %d", rot))
+			p, _ := doc.Page(0)
+			ctx := context.Background()
+			whole, err := p.Render(ctx, RenderOptions{Scale: 4})
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := whole.Rect
+			for _, region := range []image.Rectangle{
+				b, image.Rect(0, 0, 30, 20), image.Rect(b.Dx()-25, b.Dy()-17, b.Dx(), b.Dy()),
+				image.Rect(10, 5, 90, 70), image.Rect(-20, -20, 40, 30), image.Rect(b.Dx()-10, 3, b.Dx()+50, 60),
+			} {
+				got, err := p.Render(ctx, RenderOptions{Scale: 4, Region: region})
+				if err != nil {
+					t.Fatalf("region %v: %v", region, err)
+				}
+				want := region.Intersect(b)
+				if got.Rect.Dx() != want.Dx() || got.Rect.Dy() != want.Dy() {
+					t.Fatalf("region %v: size %v, want %v", region, got.Rect, want)
+				}
+				for y := 0; y < got.Rect.Dy(); y++ {
+					for x := 0; x < got.Rect.Dx(); x++ {
+						if g, w := got.RGBAAt(x, y), whole.RGBAAt(want.Min.X+x, want.Min.Y+y); g != w {
+							t.Fatalf("region %v: pixel (%d,%d) = %v, whole page has %v", region, x, y, g, w)
+						}
+					}
+				}
+			}
+			if _, err := p.Render(ctx, RenderOptions{Scale: 4, Region: image.Rect(b.Dx()+5, 0, b.Dx()+9, 4)}); err == nil {
+				t.Error("a region beside the page was accepted")
+			}
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"context"
 	"encoding/binary"
 	"image"
 	"image/color"
@@ -741,5 +742,42 @@ func TestRenderType3UndecodableCharProcDrops(t *testing.T) {
 	_, drops := renderType3(t, "BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
 	if !hasDrop(drops, dropType3) {
 		t.Errorf("drops = %v, want %q", drops, dropType3)
+	}
+}
+
+// TestRenderPageRegion checks that a region of a page is that part of the page,
+// at the resolution asked for, and that bad input is refused.
+func TestRenderPageRegion(t *testing.T) {
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.NewStreamDict(pdf.DictOf(nil), []byte("1 0 0 rg 10 10 30 20 re f 0 0 1 rg 25.5 2.5 40 40 re f")),
+	})}
+	box := [4]float64{0, 0, 80, 60}
+	whole, _, err := RenderPageContext(context.Background(), page, dictOf(nil), box, 144, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, h := PixelSize(box, 144); w != whole.Rect.Dx() || h != whole.Rect.Dy() {
+		t.Fatalf("PixelSize = %dx%d, render is %v", w, h, whole.Rect)
+	}
+	region := image.Rect(37, 11, 140, 90)
+	got, _, err := RenderPageRegion(context.Background(), page, dictOf(nil), box, 144, region, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for y := 0; y < region.Dy(); y++ {
+		for x := 0; x < region.Dx(); x++ {
+			if g, w := got.RGBAAt(x, y), whole.RGBAAt(region.Min.X+x, region.Min.Y+y); g != w {
+				t.Fatalf("pixel (%d,%d) = %v, the whole page has %v", x, y, g, w)
+			}
+		}
+	}
+	if _, _, err := RenderPageRegion(context.Background(), page, dictOf(nil), box, 144, image.Rect(500, 0, 510, 10), nil); err == nil {
+		t.Error("a region beside the page was accepted")
+	}
+	bad := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF}),
+	})}
+	if _, _, err := RenderPageRegion(context.Background(), bad, dictOf(nil), box, 144, region, nil); err == nil {
+		t.Error("undecodable contents were accepted")
 	}
 }

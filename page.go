@@ -107,6 +107,13 @@ type RenderOptions struct {
 	// resolution is rounded to whole dpi, and very large pages are rendered
 	// at a lower resolution to bound memory.
 	Scale float64
+	// Region, if not empty, limits the render to that part of the displayed
+	// page: pixels at Scale counted from the top-left corner, cut to the page.
+	// The result is as large as the region, and at the full resolution Scale
+	// asks for however large the page is, since the budget that lowers the
+	// resolution of a whole page does not apply. It is the same as that part
+	// of a render of the whole page, but costs in proportion to the region.
+	Region image.Rectangle
 }
 
 // Render rasterizes the page, rotated for display, onto an opaque white
@@ -126,7 +133,14 @@ func (p *Page) Render(ctx context.Context, opt RenderOptions) (*image.RGBA, erro
 	dpi := max(1, int(math.Round(72*scale*p.geom.UserUnit)))
 
 	p.doc.mu.Lock()
-	img, _, err := raster.RenderPageContext(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, p.doc.oc)
+	var img *image.RGBA
+	var err error
+	if opt.Region.Empty() {
+		img, _, err = raster.RenderPageContext(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, p.doc.oc)
+	} else {
+		w, h := raster.PixelSize(p.geom.CropBox, dpi)
+		img, _, err = raster.RenderPageRegion(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, unrotateRegion(opt.Region, w, h, p.geom.Rotate), p.doc.oc)
+	}
 	p.doc.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -135,6 +149,25 @@ func (p *Page) Render(ctx context.Context, opt RenderOptions) (*image.RGBA, erro
 		return nil, err
 	}
 	return rotateClockwise(img, p.geom.Rotate), nil
+}
+
+// unrotateRegion maps region, in pixels of the page displayed rotated by deg
+// clockwise, to the pixels of the unrotated page, which is w by h. It is the
+// inverse of the pixel movement in rotateClockwise. The region is first cut to
+// the displayed page, so a region that misses it comes out empty.
+func unrotateRegion(region image.Rectangle, w, h, deg int) image.Rectangle {
+	switch deg {
+	case 90:
+		region = region.Intersect(image.Rect(0, 0, h, w))
+		return image.Rect(region.Min.Y, h-region.Max.X, region.Max.Y, h-region.Min.X)
+	case 180:
+		region = region.Intersect(image.Rect(0, 0, w, h))
+		return image.Rect(w-region.Max.X, h-region.Max.Y, w-region.Min.X, h-region.Min.Y)
+	case 270:
+		region = region.Intersect(image.Rect(0, 0, h, w))
+		return image.Rect(w-region.Max.Y, region.Min.X, w-region.Min.Y, region.Max.X)
+	}
+	return region
 }
 
 // rotateClockwise returns img turned by deg (0, 90, 180 or 270) clockwise.

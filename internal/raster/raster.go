@@ -84,12 +84,48 @@ const (
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
 func renderContent(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	dpi = dpiWithin(bounds, dpi)
-	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
-	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
-	if width <= 0 || height <= 0 || width > 20000 || height > 20000 {
+	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc)
+}
+
+// PixelSize returns the size in pixels of a page whose crop box is bounds
+// when rendered at dpi, which is the extent that RenderPageRegion's regions
+// are within.
+func PixelSize(bounds [4]float64, dpi int) (width, height int) {
+	return int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72)), int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
+}
+
+// RenderPageRegion renders only region of the page: pixels of the unrotated
+// page at dpi, counted from its top-left corner, cut to the page. The result
+// is as large as the region and equals that part of the whole page at dpi,
+// which is not lowered to fit a pixel budget as a whole page's is. An empty
+// region, or one that misses the page, is an error.
+func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, region image.Rectangle, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+	src, err := PageContentBytes(page)
+	if err != nil {
+		return nil, nil, err
+	}
+	w, h := PixelSize(mediaBox, dpi)
+	region = region.Intersect(image.Rect(0, 0, w, h))
+	if region.Empty() {
+		return nil, nil, fmt.Errorf("raster: empty render region")
+	}
+	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc)
+}
+
+// renderArea renders the content within bounds at dpi. A non-empty region,
+// within the whole size, limits the canvas to that part and leaves dpi as asked.
+func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+	if region.Empty() {
+		dpi = dpiWithin(bounds, dpi)
+	}
+	width, height := PixelSize(bounds, dpi)
+	if region.Empty() {
+		region = image.Rect(0, 0, width, height)
+	}
+	if width <= 0 || height <= 0 || region.Dx() > 20000 || region.Dy() > 20000 {
 		return nil, nil, fmt.Errorf("raster: degenerate or oversized bounds")
 	}
+	width, height = region.Dx(), region.Dy()
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	// Opaque white backdrop via doubling copies (memmove) instead of a
 	// per-byte loop -- the canvas fill was a measurable share of small
@@ -103,7 +139,7 @@ func renderContent(ctx context.Context, src []byte, resources pdf.PDFDict, bound
 
 	scale := float64(dpi) / 72
 	// Device CTM: PDF user space origin bottom-left Y-up -> image space origin top-left Y-down.
-	base := content.Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
+	base := content.Matrix{A: scale, D: -scale, E: -bounds[0]*scale - float64(region.Min.X), F: bounds[3]*scale - float64(region.Min.Y)}
 	// The colour a drawing starts in is black in DeviceGray, so "1 sc"
 	// without a preceding cs selects white.
 	gs := newRenderState(base, [4]float64{0, 0, float64(width), float64(height)})
