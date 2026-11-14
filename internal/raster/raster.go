@@ -225,8 +225,8 @@ type renderer struct {
 	// textClip collects the glyph outlines, in device space, that text render
 	// modes 4 to 7 add to the clipping path. The ET operator applies them.
 	textClip [][]content.Point
-	// tiles caches rendered tiling-pattern cells, and tileBytes is their
-	// size, for maxTileCacheBytes.
+	// tiles caches rendered tiling-pattern cells. tileBytes is the total size
+	// of their pixel data, which is bounded by maxTileCacheBytes.
 	tiles     map[tileKey]*image.RGBA
 	tileBytes int
 }
@@ -1454,9 +1454,10 @@ func (r *renderer) patternToDevice(pattern pdf.PDFDict) content.Matrix {
 	return m.Mul(r.patternBase)
 }
 
-// selectPattern resolves a scn/SCN pattern-name operand. A pattern the
-// rasterizer cannot use is reported as a drop and yields no pattern, so the
-// caller paints nothing rather than a misleading flat colour.
+// selectPattern resolves the pattern name operand of the scn and SCN
+// operators. A pattern the rasterizer cannot use is reported as a drop and
+// yields no pattern, so the caller paints nothing rather than a misleading
+// flat colour.
 func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDict, bool) {
 	patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
 	pattern, ok := patterns.Entries.Get(name).(pdf.PDFDict)
@@ -1498,9 +1499,9 @@ func (r *renderer) trackPattern(cur pdf.PDFDict, was, name string, resources pdf
 }
 
 // patternSampler returns a per-pixel colour source for a pattern: a tiling
-// pattern, painted in under if it is uncoloured, or a shading pattern. It
-// reports false when the shading is a mesh (which is geometry, not a field,
-// and so is painted separately) or the pattern cannot be drawn.
+// pattern, which uses the under colour when it is uncoloured, or a shading
+// pattern. It reports false when the shading is a mesh (which is geometry, not
+// a field, and so is painted separately) or the pattern cannot be drawn.
 func (r *renderer) patternSampler(pattern pdf.PDFDict, under [3]float64, alpha float64) (func(x, y int) ([3]float64, float64), bool) {
 	if pdf.DictInt(pattern, "PatternType", 0) == 1 {
 		return r.tilingSampler(pattern, under, alpha)

@@ -28,8 +28,9 @@ func checker() pdf.PDFDict {
 	return tilingPattern(1, numArray(0, 0, 4, 4), 4, "1 0 0 rg 0 0 2 2 re f 0 0 1 rg 2 2 2 2 re f", nil)
 }
 
-// renderTiled paints content over a 20x20 page whose resources hold the given
-// patterns, an uncoloured-pattern colour space CS1, and an ExtGState G.
+// renderTiled renders content on a 20x20 page. The page resources hold the
+// given patterns, a Pattern colour space CS1 with DeviceRGB as its base, an
+// ExtGState G with a fill alpha of 0.5, and a Helvetica font F1.
 func renderTiled(t *testing.T, content string, patterns map[string]pdf.PDFValue) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -85,13 +86,15 @@ func TestTilingPatternFill(t *testing.T) {
 }
 
 func TestUncolouredTilingPatternTakesTheSelectedColour(t *testing.T) {
-	// The cell's own red is ignored: the pattern paints in the colour given to scn.
+	// The cell's own red is ignored: the pattern paints in the colour given to
+	// scn.
 	p := tilingPattern(2, numArray(0, 0, 4, 4), 4, "1 0 0 rg 0 0 2 2 re f", nil)
 	img, drops := renderTiled(t, "/CS1 cs 0 1 0 /P1 scn 0 0 20 20 re f", map[string]pdf.PDFValue{"P1": p})
 	if len(drops) != 0 {
 		t.Errorf("drops = %v", drops)
 	}
-	// Pixel (0, 19) has its centre at pattern space (0.5, 0.5): inside the square.
+	// The centre of pixel (0, 19) maps to pattern space (0.5, 0.5), which lies
+	// inside the square.
 	if c := nrgbaAt(t, img, 0, 19); c.R != 0 || c.G != 255 || c.B != 0 {
 		t.Errorf("pixel in the square = %v, want green", c)
 	}
@@ -128,8 +131,8 @@ func TestTilingPatternMatrix(t *testing.T) {
 		t.Errorf("gap = %v", nrgbaAt(t, img, 5, 19))
 	}
 
-	// Rotated by 45 degrees the cell no longer lines up with the pixels, but
-	// the fill is still confined to its path and shows both ink and gaps.
+	// Rotated by 45 degrees, the cell is not aligned with the pixel grid. The
+	// fill must still be confined to its path and show both ink and gaps.
 	c, s := math.Cos(math.Pi/4), math.Sin(math.Pi/4)
 	rot := tilingPattern(1, numArray(0, 0, 4, 4), 4, "1 0 0 rg 0 0 2 2 re f", map[string]pdf.PDFValue{
 		"Matrix": numArray(c, s, -s, c, 0, 0),

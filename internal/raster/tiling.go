@@ -27,9 +27,10 @@ type tiling struct {
 	uncoloured   bool       // PaintType 2: the content carries no colour
 }
 
-// parseTiling reads a tiling pattern's geometry. It reports false for a
-// pattern that is not a content stream, has an empty bounding box, or has a
-// step of zero or less than a visible size.
+// parseTiling reads the geometry of a tiling pattern (PatternType 1). It
+// reports false if the pattern is not a stream, has a PaintType other than 1
+// or 2, has a BBox that is not four numbers or is empty, or has a step that
+// is missing, below 1e-6, or not finite.
 func parseTiling(pattern pdf.PDFDict) (*tiling, bool) {
 	if !pattern.IsStream() || pdf.DictInt(pattern, "PatternType", 0) != 1 {
 		return nil, false
@@ -67,7 +68,8 @@ type tileKey struct {
 // tilingSampler returns a per-pixel colour source for a tiling pattern: the
 // pattern's cell, rendered once and repeated across device space through the
 // pattern matrix. under is the colour an uncoloured pattern paints in, and
-// alpha scales the result. It reports false when the pattern cannot be drawn.
+// alpha scales the result. It reports false if the pattern cannot be parsed,
+// its matrix is singular, or its cell cannot be rendered.
 func (r *renderer) tilingSampler(pattern pdf.PDFDict, under [3]float64, alpha float64) (func(x, y int) ([3]float64, float64), bool) {
 	t, ok := parseTiling(pattern)
 	if !ok {
