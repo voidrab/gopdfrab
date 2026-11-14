@@ -123,12 +123,13 @@ func ParseCFFCharstrings(cff []byte) (*CFFCharstrings, bool) {
 	p := &CFFCharstrings{charStrings: entries, subrs: ParseCFFSubrs(cff, td, len(entries))}
 	// A program in a glyph space other than 1/1000 em, such as one with 2000
 	// units to the em, declares it in its FontMatrix.
+	// A matrix that shears or rotates is left unapplied altogether.
 	if td.HasFontMatrix {
-		if sx, ok := fontMatrixWidthScale(td.FontMatrix[0], td.FontMatrix[1]); ok {
-			p.sx = sx
-		}
-		if d := td.FontMatrix[3]; d > 0 && !math.IsInf(d, 0) {
-			p.sy = d * 1000
+		if sx, ok := fontMatrixWidthScale(td.FontMatrix[0], td.FontMatrix[1]); ok && td.FontMatrix[2] == 0 {
+			p.sx, p.sy = sx, sx
+			if d := td.FontMatrix[3]; d > 0 && !math.IsInf(d, 0) {
+				p.sy = d * 1000
+			}
 		}
 	}
 	return p, true

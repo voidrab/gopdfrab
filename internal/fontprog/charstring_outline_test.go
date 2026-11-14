@@ -730,6 +730,10 @@ func TestCFFOutlineHonoursTheFontMatrix(t *testing.T) {
 	if got := last(outline(2, half)); got != (Point{45, 60}) {
 		t.Errorf("curve end point under a 0.0005 FontMatrix = %v, want (45, 60)", got)
 	}
+	// An unusable d entry leaves y scaled like x.
+	if got := last(outline(1, []string{"0.0005", "0", "0", "0", "0", "0"})); got != (Point{45, 40}) {
+		t.Errorf("end point with a zero d entry = %v, want (45, 40)", got)
+	}
 	// The axes scale independently.
 	if got := last(outline(1, []string{"0.0005", "0", "0", "0.001", "0", "0"})); got != (Point{45, 80}) {
 		t.Errorf("end point under an anisotropic FontMatrix = %v, want (45, 80)", got)
@@ -737,6 +741,7 @@ func TestCFFOutlineHonoursTheFontMatrix(t *testing.T) {
 	// The sheared matrix and the zero matrix below leave the outline unscaled.
 	for _, m := range [][]string{
 		{"0.001", "0.001", "0", "0.001", "0", "0"},
+		{"0.0005", "0", "0.0002", "0.0005", "0", "0"},
 		{"0", "0", "0", "0", "0", "0"},
 	} {
 		if got := last(outline(1, m)); got != (Point{90, 80}) {
