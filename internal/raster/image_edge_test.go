@@ -257,3 +257,42 @@ func TestSmoothAlignedImageMatchesGeneralLoop(t *testing.T) {
 		}
 	}
 }
+
+// TestPaletteUnpackMatchesPerPixelResolution reads random one-component
+// images of every bit depth, indexed and gray, straight and inverted, and
+// compares each pixel with resolving its sample on its own.
+func TestPaletteUnpackMatchesPerPixelResolution(t *testing.T) {
+	rng := rand.New(rand.NewSource(17))
+	for bpc := 1; bpc <= 8; bpc++ {
+		for _, mode := range []string{"indexed", "gray", "inverted gray"} {
+			w, h := 1+rng.Intn(13), 1+rng.Intn(5)
+			rowBytes := (w*bpc + 7) / 8
+			data := make([]byte, rowBytes*h)
+			rng.Read(data)
+			var cs pdf.PDFValue = pdf.PDFName{Value: "DeviceGray"}
+			decode := []float64{0, 1}
+			switch mode {
+			case "indexed":
+				palette := make([]byte, 3*(1<<bpc))
+				rng.Read(palette)
+				cs = pdf.PDFArray{pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(1<<bpc - 1), pdf.PDFString{Value: string(palette)}}
+				decode = []float64{0, float64(int(1)<<bpc - 1)}
+			case "inverted gray":
+				decode = []float64{1, 0}
+			}
+			got := unpackPalette(cs, pdf.PDFDict{}, decode, data, w, h, bpc)
+			for y := 0; y < h; y++ {
+				for x := 0; x < w; x++ {
+					raw := float64(pdf.ReadBits(data[y*rowBytes:], x*bpc, bpc))
+					comps := []float64{decode[0] + raw/float64(int(1)<<bpc-1)*(decode[1]-decode[0])}
+					r, g, b := pdf.ResolveColor(cs, comps, pdf.PDFDict{})
+					want := make([]byte, 4)
+					storeRGBA64(want, 0, r, g, b, 1)
+					if gp := got.Pix[got.PixOffset(x, y):][:4]; !bytes.Equal(gp, want) {
+						t.Fatalf("%d bpc %s: pixel (%d,%d) = %v, want %v", bpc, mode, x, y, gp, want)
+					}
+				}
+			}
+		}
+	}
+}
