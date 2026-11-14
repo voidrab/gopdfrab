@@ -66,6 +66,18 @@ func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bo
 // false a pixel is covered whole or not at all, by whether its centre is
 // inside.
 func scanCoverage(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bool, emit func(x, y int, cov float32)) {
+	scanRuns(bounds, contours, evenOdd, aa, func(y, x0, x1 int, cov float32) {
+		for x := x0; x < x1; x++ {
+			emit(x, y, cov)
+		}
+	})
+}
+
+// scanRuns is scanCoverage reporting runs: emit is called for each stretch
+// [x0, x1) of row y over which the covered fraction is the constant cov, in
+// (0, 1]. A shape's interior is a few long runs and its edges short ones, so
+// the work done is proportional to the outline, not the area.
+func scanRuns(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bool, emit func(y, x0, x1 int, cov float32)) {
 	if len(contours) == 0 {
 		return
 	}
@@ -131,12 +143,12 @@ type coverage struct {
 
 	partial []float32 // coverage in units of sub-scanlines, per pixel
 	runs    []float32 // difference array of fully covered sub-scanlines
-	lo, hi  int       // touched pixel range of the current row
+	marks   []int     // the pixels of the current row where partial or runs is set
 }
 
 // row samples the sub-scanlines of pixel row y.
 func (f *coverage) row(y int) {
-	f.lo, f.hi = f.w, -1
+	f.marks = f.marks[:0]
 	for k := range f.samples {
 		sy := float64(y) + (float64(k)+0.5)/float64(f.samples)
 		for f.next < len(f.edges) && f.edges[f.next].y0 <= sy {
@@ -195,26 +207,40 @@ func (f *coverage) addSpan(xa, xb float64) {
 		}
 		f.partial[ib] += float32(xb - float64(ib))
 	}
-	f.lo = min(f.lo, ia)
-	f.hi = max(f.hi, min(ib, f.w-1))
+	f.marks = append(f.marks, ia)
+	if ib > ia {
+		f.marks = append(f.marks, ib)
+		if ib > ia+1 {
+			f.marks = append(f.marks, ia+1)
+		}
+	}
 }
 
-// flush reports the accumulated row to emit and clears it for the next one.
-func (f *coverage) flush(x0, y int, emit func(x, y int, cov float32)) {
-	var run float32
-	for i := f.lo; i <= f.hi; i++ {
-		run += f.runs[i]
-		cov := (f.partial[i] + run) / float32(f.samples)
-		f.partial[i], f.runs[i] = 0, 0
-		if cov < 0.5/float32(f.samples) {
-			continue
-		}
-		emit(x0+i, y, min(cov, 1))
+// flush reports the accumulated row as runs and clears it for the next one.
+// Coverage only changes at the marked pixels, so between two of them it is
+// the constant that the difference array has summed to.
+func (f *coverage) flush(x0, y int, emit func(y, x0, x1 int, cov float32)) {
+	if len(f.marks) == 0 {
+		return
 	}
-	if f.hi >= 0 {
-		f.runs[f.hi+1] = 0
-		f.runs[f.w] = 0
-		f.partial[f.w] = 0
+	slices.Sort(f.marks)
+	marks := slices.Compact(f.marks)
+	thr := 0.5 / float32(f.samples)
+	var run float32
+	for k, m := range marks {
+		run += f.runs[m]
+		cov := (f.partial[m] + run) / float32(f.samples)
+		f.partial[m], f.runs[m] = 0, 0
+		if m < f.w && cov >= thr {
+			emit(y, x0+m, x0+m+1, min(cov, 1))
+		}
+		end := f.w
+		if k+1 < len(marks) {
+			end = marks[k+1]
+		}
+		if between := run / float32(f.samples); end > m+1 && between >= thr {
+			emit(y, x0+m+1, x0+end, min(between, 1))
+		}
 	}
 }
 

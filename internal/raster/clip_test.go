@@ -2,6 +2,8 @@ package raster
 
 import (
 	"image"
+	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/content"
@@ -124,7 +126,12 @@ func TestClipMaskLookup(t *testing.T) {
 	if none.at(5, 5) != 1 {
 		t.Error("a nil mask must let everything through")
 	}
-	m := &clipMask{rect: image.Rect(2, 3, 4, 5), cov: []uint8{0, 255, 51, 255}}
+	// Row 3 lets pixel 3 through, row 4 lets pixel 2 through at a fifth and
+	// pixel 3 fully.
+	m := &clipMask{rect: image.Rect(2, 3, 4, 5), rows: [][]clipSpan{
+		{{3, 4, 255}},
+		{{2, 3, 51}, {3, 4, 255}},
+	}}
 	for _, tc := range []struct {
 		x, y int
 		want float64
@@ -145,20 +152,45 @@ func TestClipMaskLookup(t *testing.T) {
 	}
 }
 
+// TestClipMaskLookupInLongRows checks the search in rows with many spans:
+// every second pixel of a 200 pixel row is let through, each at its own level.
+func TestClipMaskLookupInLongRows(t *testing.T) {
+	var row []clipSpan
+	for x := 0; x < 200; x += 2 {
+		row = append(row, clipSpan{int32(x), int32(x + 1), uint8(x + 1)})
+	}
+	m := &clipMask{rect: image.Rect(0, 0, 200, 1), rows: [][]clipSpan{row}}
+	for x := range 200 {
+		want := 0.0
+		if x%2 == 0 {
+			want = float64(x+1) / 255
+		}
+		if got := m.at(x, 0); got != want {
+			t.Fatalf("at(%d) = %v, want %v", x, got, want)
+		}
+	}
+}
+
 func TestNewClipMaskBounds(t *testing.T) {
 	bounds := image.Rect(0, 0, 10, 10)
 	sq := [][]content.Point{{{X: -5, Y: 2}, {X: 4, Y: 2}, {X: 4, Y: 20}, {X: -5, Y: 20}}}
 	m := newClipMask(bounds, sq, false, nil)
-	if m.rect != image.Rect(0, 2, 4, 10) || len(m.cov) != 32 {
-		t.Fatalf("mask rect %v with %d samples", m.rect, len(m.cov))
+	if m.rect != image.Rect(0, 2, 4, 10) || len(m.rows) != 8 {
+		t.Fatalf("mask rect %v with %d rows", m.rect, len(m.rows))
+	}
+	// A solid rectangle is one span per row, however wide.
+	for y, row := range m.rows {
+		if len(row) != 1 || row[0] != (clipSpan{0, 4, 255}) {
+			t.Errorf("row %d = %v, want one full span", y, row)
+		}
 	}
 	if m.at(0, 2) != 1 || m.at(5, 5) != 0 {
 		t.Errorf("mask coverage: %v %v", m.at(0, 2), m.at(5, 5))
 	}
 	// A parent narrows both the rectangle and the coverage.
-	parent := &clipMask{rect: image.Rect(1, 0, 10, 6), cov: make([]uint8, 9*6)}
-	for i := range parent.cov {
-		parent.cov[i] = 128
+	parent := &clipMask{rect: image.Rect(1, 0, 10, 6)}
+	for range 6 {
+		parent.rows = append(parent.rows, []clipSpan{{1, 10, 128}})
 	}
 	child := newClipMask(bounds, sq, false, parent)
 	if child.rect != image.Rect(1, 2, 4, 6) {
@@ -167,10 +199,62 @@ func TestNewClipMaskBounds(t *testing.T) {
 	if a := child.at(2, 3); a < 0.49 || a > 0.51 {
 		t.Errorf("child coverage = %v, want half", a)
 	}
+	// A parent with gaps and levels of its own: the child is their product.
+	patchy := &clipMask{rect: image.Rect(0, 0, 10, 10)}
+	for range 10 {
+		patchy.rows = append(patchy.rows, []clipSpan{{1, 3, 255}, {5, 8, 128}})
+	}
+	both := newClipMask(bounds, [][]content.Point{rectContour(0, 0, 10, 10)}, false, patchy)
+	for x, want := range []float64{0, 1, 1, 0, 0, 0.5, 0.5, 0.5, 0, 0} {
+		if got := both.at(x, 4); got < want-0.01 || got > want+0.01 {
+			t.Errorf("patchy parent at x=%d = %v, want %v", x, got, want)
+		}
+	}
 	// A path off the bounds leaves an empty mask that hides everything.
 	off := newClipMask(bounds, [][]content.Point{{{X: 20, Y: 20}, {X: 30, Y: 20}, {X: 25, Y: 30}}}, false, nil)
 	if !off.rect.Empty() || off.at(5, 5) != 0 {
 		t.Errorf("off-bounds mask: %v", off.rect)
+	}
+}
+
+// TestClipMaskMatchesADenseRasterization verifies the spans against a plain
+// pixel-by-pixel coverage of the same shapes, with and without a parent mask:
+// merging and intersecting runs must not change what a pixel lets through.
+func TestClipMaskMatchesADenseRasterization(t *testing.T) {
+	bounds := image.Rect(0, 0, 60, 50)
+	rng := rand.New(rand.NewSource(7))
+	shape := func() [][]content.Point {
+		n := 3 + rng.Intn(5)
+		poly := make([]content.Point, n)
+		for i := range poly {
+			poly[i] = content.Point{X: rng.Float64()*70 - 5, Y: rng.Float64()*60 - 5}
+		}
+		return [][]content.Point{poly}
+	}
+	for trial := range 40 {
+		evenOdd := trial%2 == 0
+		first, second := shape(), shape()
+		parent := newClipMask(bounds, first, evenOdd, nil)
+		child := newClipMask(bounds, second, !evenOdd, parent)
+
+		// The reference, built the dumb way.
+		dense := func(contours [][]content.Point, eo bool) map[image.Point]float64 {
+			out := map[image.Point]float64{}
+			scanCoverage(bounds, contours, eo, true, func(x, y int, cov float32) { out[image.Pt(x, y)] = float64(cov) })
+			return out
+		}
+		d1, d2 := dense(first, evenOdd), dense(second, !evenOdd)
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				p := image.Pt(x, y)
+				if got, want := parent.at(x, y), d1[p]; math.Abs(got-want) > 1.0/255 {
+					t.Fatalf("trial %d parent (%d,%d) = %v, want %v", trial, x, y, got, want)
+				}
+				if got, want := child.at(x, y), d2[p]*d1[p]; math.Abs(got-want) > 2.0/255 {
+					t.Fatalf("trial %d child (%d,%d) = %v, want %v", trial, x, y, got, want)
+				}
+			}
+		}
 	}
 }
 
