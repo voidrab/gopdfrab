@@ -58,12 +58,13 @@ func TestClipsIntersectAndRestore(t *testing.T) {
 	if !isBlack(t, both, 6, 14) || !isWhite(t, both, 14, 14) || !isWhite(t, both, 3, 5) {
 		t.Error("shape and rectangle clips did not intersect")
 	}
-	// Two shape clips multiply: a second triangle covering the right half.
+	// Nested shape clips intersect: the second triangle covers the lower right
+	// of the page.
 	two := render20(t, triClip+"10 0 m 20 0 l 20 20 l h W n 0 0 0 rg 0 0 20 20 re f", pdf.PDFDict{})
 	if !isBlack(t, two, 13, 14) || !isWhite(t, two, 6, 16) || !isWhite(t, two, 3, 5) {
 		t.Error("two shape clips did not intersect")
 	}
-	// Q brings the unclipped state back.
+	// The Q operator restores the clip that q saved.
 	restored := render20(t, "q "+triClip+"Q 0 0 0 rg 0 0 20 20 re f", pdf.PDFDict{})
 	if !isBlack(t, restored, 1, 1) || !isBlack(t, restored, 18, 18) {
 		t.Error("Q did not restore the clip")
@@ -93,7 +94,7 @@ func TestClipAppliesToEveryPaintingOperation(t *testing.T) {
 	if !isBlack(t, image, 10, 12) || !isWhite(t, image, 3, 5) {
 		t.Error("inline image ignored the shape clip")
 	}
-	// Axial and mesh shadings painted with sh.
+	// Axial and mesh shadings painted with the sh operator.
 	axial := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(2), "ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
 		"Coords": numArray(0, 0, 20, 0), "Function": expFunction([]float64{0, 0, 0}, []float64{0, 0, 0}),

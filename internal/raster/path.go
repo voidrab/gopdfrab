@@ -60,10 +60,11 @@ func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bo
 	})
 }
 
-// scanCoverage rasterizes contours within bounds and calls emit for every
-// pixel they cover, with the covered fraction in (0, 1]. Pixels are visited
-// row by row, left to right. With aa false a pixel is covered whole or not at
-// all, by whether its centre is inside.
+// scanCoverage rasterizes contours within bounds and calls emit for each pixel
+// they cover, with the covered fraction in (0, 1]. Pixels whose coverage rounds
+// to zero are skipped. Pixels are visited row by row, left to right. With aa
+// false a pixel is covered whole or not at all, by whether its centre is
+// inside.
 func scanCoverage(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bool, emit func(x, y int, cov float32)) {
 	if len(contours) == 0 {
 		return

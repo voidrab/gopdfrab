@@ -172,8 +172,8 @@ type renderState struct {
 	dash       []float64
 	dashPhase  float64
 	clip       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
-	// mask narrows the clip rectangle to the shape of a non-rectangular
-	// clipping path; nil when the clip is the rectangle.
+	// mask holds the coverage of the non-rectangular clipping paths in force.
+	// It is nil when no such path has been applied.
 	mask *clipMask
 
 	font       pdf.PDFDict
@@ -517,9 +517,9 @@ func intersectRect(a, b [4]float64) [4]float64 {
 	}
 }
 
-// paintPath fills and strokes path as op says, within gs's clip. The clip
-// rectangle restricts the canvas the painters draw on, a sub-image of it, and
-// the clip shape, if any, scales the alpha of each pixel.
+// paintPath fills and/or strokes path, as selected by the paint operator op,
+// within the clip in gs. The clip rectangle limits drawing to a sub-image of
+// the canvas, and a non-rectangular clip scales the alpha of each pixel.
 func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	contours := path.deviceContours(gs.CTM)
 	if len(contours) == 0 {
@@ -1462,7 +1462,7 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 	area := clipToBounds(target.Bounds(), intersectRect(gs.clip, [4]float64{
 		math.Floor(minX), math.Floor(minY), math.Ceil(maxX), math.Ceil(maxY),
 	}))
-	// The path's own shape, within the clip in force, selects what shows.
+	// The mask is the path's own shape, within the clip in force.
 	shape := newClipMask(target.Bounds(), contours, evenOdd, gs.mask)
 	r.paintShading(sh, r.patternToDevice(pattern), alpha, area, shape)
 	return true

@@ -7,10 +7,11 @@ import (
 	"github.com/voidrab/gopdfrab/internal/content"
 )
 
-// clipMask is the soft edge of a non-rectangular clipping path: how much of
-// each pixel the path covers, within rect. Outside rect nothing shows. A nil
-// *clipMask clips nothing beyond the rectangle clip, and masks are immutable,
-// so the graphics states q saves can share one.
+// clipMask holds the coverage of a non-rectangular clipping path: the fraction
+// of each pixel in rect that the path covers. Pixels outside rect are fully
+// clipped. A nil *clipMask clips nothing beyond the rectangle clip. Masks are
+// not modified after construction, so the graphics states saved by the q
+// operator can share one.
 type clipMask struct {
 	rect image.Rectangle
 	cov  []uint8 // rect.Dx() x rect.Dy() coverage, row by row
@@ -27,7 +28,8 @@ func (m *clipMask) at(x, y int) float64 {
 	return float64(m.cov[(y-m.rect.Min.Y)*m.rect.Dx()+(x-m.rect.Min.X)]) / 255
 }
 
-// wrap returns colorAt with the pixels the mask hides removed or faded.
+// wrap returns colorAt with its alpha scaled by the mask coverage at each
+// pixel. A nil mask returns colorAt unchanged.
 func (m *clipMask) wrap(colorAt func(x, y int) ([3]float64, float64)) func(x, y int) ([3]float64, float64) {
 	if m == nil {
 		return colorAt
