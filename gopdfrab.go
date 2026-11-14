@@ -2,7 +2,9 @@ package gopdfrab
 
 import (
 	"context"
+	"sync"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/convert"
 	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -394,12 +396,22 @@ func ConvertObjectModelBytes(data []byte) (ConvertResult, error) {
 
 // Document represents an open PDF file.
 //
-// A Document is not safe for concurrent use: it holds parse and stream-decode
-// caches that its methods fill without synchronization. Open one per goroutine
-// rather than sharing one. The package-level Verify and Convert functions each
-// open their own document, so those are safe to call concurrently.
+// A Document is not safe for concurrent use, except for Page and the Page
+// methods, which serialize on an internal lock: its other methods fill parse
+// and stream-decode caches without synchronization. Open one per goroutine
+// rather than sharing one for those. The package-level Verify and Convert
+// functions each open their own document, so those are safe to call
+// concurrently.
 type Document struct {
 	r *pdf.Reader
+
+	// mu serializes page access and rendering, which share r's caches.
+	mu    sync.Mutex
+	pages []pageEntry
+	oc    *content.OptionalContent
+	index bool
+	// resolveGraph replaces r.ResolveGraph; tests use it to force failures.
+	resolveGraph func() (pdf.PDFValue, error)
 }
 
 // Open initializes the PDF document at path, decrypting an encrypted file with
