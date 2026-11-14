@@ -143,10 +143,11 @@ func rotateClockwise(img *image.RGBA, deg int) *image.RGBA {
 		return img
 	}
 	w, h := img.Rect.Dx(), img.Rect.Dy()
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
+	ow, oh := w, h
 	if deg != 180 {
-		out = image.NewRGBA(image.Rect(0, 0, h, w))
+		ow, oh = h, w
 	}
+	out := image.NewRGBA(image.Rect(0, 0, ow, oh))
 	for y := range h {
 		for x := range w {
 			var dx, dy int

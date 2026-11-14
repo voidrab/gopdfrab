@@ -77,7 +77,7 @@ func strokeOutline(contours [][]content.Point, st StrokeStyle) [][]content.Point
 func dedupe(c []content.Point) []content.Point {
 	pts := make([]content.Point, 0, len(c))
 	for _, p := range c {
-		if math.IsNaN(p.X) || math.IsNaN(p.Y) || math.IsInf(p.X, 0) || math.IsInf(p.Y, 0) {
+		if !finite(p.X, p.Y) {
 			continue
 		}
 		if n := len(pts); n > 0 && math.Hypot(p.X-pts[n-1].X, p.Y-pts[n-1].Y) < 1e-9 {
@@ -114,7 +114,7 @@ func dashed(pts []content.Point, closed bool, st StrokeStyle) []polyline {
 	}
 	var sum float64
 	for _, d := range st.Dash {
-		if d < 0 || math.IsNaN(d) || math.IsInf(d, 0) {
+		if d < 0 || !finite(d) {
 			return whole
 		}
 		sum += d

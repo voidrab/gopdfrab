@@ -998,11 +998,6 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 	if w == 0 || h == 0 {
 		return
 	}
-	var smW, smH int
-	if smask != nil {
-		smW, smH = smask.Bounds().Dx(), smask.Bounds().Dy()
-	}
-
 	ctm := gs.CTM
 	inv, ok := ctm.Invert()
 	if !ok {
@@ -1013,16 +1008,11 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 	// averaged through the pyramid; otherwise hard pixel edges are kept
 	// unless the image sets /Interpolate.
 	area := math.Abs(inv.A*inv.D - inv.B*inv.C)
-	srcFoot := math.Sqrt(area * float64(w) * float64(h))
-	src := newSampler(img)
-	srcLevel, srcSmooth := src.levelFor(srcFoot), interpolate || srcFoot > 1
-	var msk *sampler
-	var mskLevel int
-	var mskSmooth bool
+	src := newImageSource(img, area, interpolate)
+	var msk *imageSource
 	if smask != nil {
-		mskFoot := math.Sqrt(area * float64(smW) * float64(smH))
-		msk = newSampler(smask)
-		mskLevel, mskSmooth = msk.levelFor(mskFoot), interpolate || mskFoot > 1
+		m := newImageSource(smask, area, interpolate)
+		msk = &m
 	}
 
 	corners := []content.Point{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}}
@@ -1043,13 +1033,13 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 			if p.X < 0 || p.X >= 1 || p.Y < 0 || p.Y >= 1 {
 				continue
 			}
-			rgb, a := src.at(srcLevel, p.X, 1-p.Y, srcSmooth)
+			rgb, a := src.at(p.X, 1-p.Y)
 			alpha := a * gs.fillAlpha
 			if msk != nil {
 				// Sampled from p directly, not from the base image's pixel: a
 				// low-res base under a higher-res mask would otherwise collapse
 				// the mask's shape down to the base's resolution.
-				m, _ := msk.at(mskLevel, p.X, 1-p.Y, mskSmooth)
+				m, _ := msk.at(p.X, 1-p.Y)
 				alpha *= m[0]
 			}
 			alpha *= gs.mask.at(x, y)
@@ -1062,6 +1052,30 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate b
 			blendPixel(r.canvas, x, y, rgb, alpha)
 		}
 	}
+}
+
+// imageSource is an image read through a sampler at the pyramid level and
+// smoothing that its size on the page calls for.
+type imageSource struct {
+	s      *sampler
+	level  int
+	smooth bool
+}
+
+// newImageSource prepares img to be drawn where one device pixel covers area
+// unit squares of the image. The footprint, the side in source pixels of the
+// square a device pixel covers, decides the filtering: above 1 the image is
+// shrunk and averaged through the pyramid; otherwise hard pixel edges are kept
+// unless interpolate is set.
+func newImageSource(img *image.RGBA, area float64, interpolate bool) imageSource {
+	foot := math.Sqrt(area * float64(img.Rect.Dx()) * float64(img.Rect.Dy()))
+	s := newSampler(img)
+	return imageSource{s: s, level: s.levelFor(foot), smooth: interpolate || foot > 1}
+}
+
+// at returns the colour and alpha at the unit-square position (u, v).
+func (i imageSource) at(u, v float64) (rgb [3]float64, alpha float64) {
+	return i.s.at(i.level, u, v, i.smooth)
 }
 
 // interpolates reports whether an image dictionary asks for its pixels to be
@@ -1146,10 +1160,6 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 		width := fi.defaultWidth
 		if w, ok := fi.widths[code]; ok {
 			width = w
-		} else if fi.advanceFor != nil {
-			if w, ok := fi.advanceFor(code); ok {
-				width = w
-			}
 		}
 
 		// A Type 3 glyph is a content stream in glyph space, not an outline,
@@ -1196,11 +1206,7 @@ type fontInfo struct {
 	bytesPerCode int
 	defaultWidth float64
 	widths       map[int]float64
-	// advanceFor gives the advance of a code a font without /Widths does not
-	// list, from the face that stands in for it; nil when the font lists its
-	// widths or has no substitute.
-	advanceFor func(code int) (float64, bool)
-	glyphFor   func(code int) (GlyphPath, bool)
+	glyphFor     func(code int) (GlyphPath, bool)
 
 	charProcs   map[int]pdf.PDFDict
 	fontMatrix  content.Matrix
@@ -1429,13 +1435,12 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 		// The standard 14 fonts may omit /Widths because their metrics are
 		// known, and the bundled faces are metric-compatible with them.
 		if len(fi.widths) == 0 {
-			fi.advanceFor = func(code int) (float64, bool) {
-				f, gid, ok := lookup(code)
-				if !ok {
-					return 0, false
+			for code := range 256 {
+				if f, gid, ok := lookup(code); ok {
+					if w := fontprog.TTAdvanceWidth(f.tables, gid); w >= 0 {
+						fi.widths[code] = w
+					}
 				}
-				w := fontprog.TTAdvanceWidth(f.tables, gid)
-				return w, w >= 0
 			}
 		}
 		return fi
