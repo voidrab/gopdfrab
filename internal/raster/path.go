@@ -51,6 +51,20 @@ func fillPathAliased(canvas *image.RGBA, contours [][]content.Point, evenOdd boo
 }
 
 func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bool, colorAt func(x, y int) ([3]float64, float64)) {
+	scanCoverage(canvas.Bounds(), contours, evenOdd, aa, func(x, y int, cov float32) {
+		rgb, alpha := colorAt(x, y)
+		if alpha <= 0 {
+			return
+		}
+		blendPixel(canvas, x, y, rgb, alpha*float64(cov))
+	})
+}
+
+// scanCoverage rasterizes contours within bounds and calls emit for every
+// pixel they cover, with the covered fraction in (0, 1]. Pixels are visited
+// row by row, left to right. With aa false a pixel is covered whole or not at
+// all, by whether its centre is inside.
+func scanCoverage(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bool, emit func(x, y int, cov float32)) {
 	if len(contours) == 0 {
 		return
 	}
@@ -67,7 +81,6 @@ func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bo
 	for _, e := range edges[1:] {
 		edgeMaxY = math.Max(edgeMaxY, e.y1)
 	}
-	bounds := canvas.Bounds()
 	minY := max(bounds.Min.Y, int(math.Floor(edgeMinY)))
 	maxY := min(bounds.Max.Y, int(math.Ceil(edgeMaxY)))
 	w := bounds.Dx()
@@ -85,7 +98,7 @@ func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bo
 	}
 	for y := minY; y < maxY; y++ {
 		f.row(y)
-		f.flush(canvas, y, colorAt)
+		f.flush(bounds.Min.X, y, emit)
 	}
 }
 
@@ -174,10 +187,9 @@ func (f *coverage) addSpan(xa, xb float64) {
 	f.hi = max(f.hi, min(ib, f.w-1))
 }
 
-// flush paints the accumulated row and clears it for the next one.
-func (f *coverage) flush(canvas *image.RGBA, y int, colorAt func(x, y int) ([3]float64, float64)) {
+// flush reports the accumulated row to emit and clears it for the next one.
+func (f *coverage) flush(x0, y int, emit func(x, y int, cov float32)) {
 	var run float32
-	x0 := canvas.Bounds().Min.X
 	for i := f.lo; i <= f.hi; i++ {
 		run += f.runs[i]
 		cov := (f.partial[i] + run) / float32(f.samples)
@@ -185,11 +197,7 @@ func (f *coverage) flush(canvas *image.RGBA, y int, colorAt func(x, y int) ([3]f
 		if cov < 0.5/float32(f.samples) {
 			continue
 		}
-		rgb, alpha := colorAt(x0+i, y)
-		if alpha <= 0 {
-			continue
-		}
-		blendPixel(canvas, x0+i, y, rgb, alpha*math.Min(float64(cov), 1))
+		emit(x0+i, y, min(cov, 1))
 	}
 	if f.hi >= 0 {
 		f.runs[f.hi+1] = 0

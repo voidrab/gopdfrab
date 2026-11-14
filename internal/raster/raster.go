@@ -20,7 +20,9 @@ import (
 // f/F/f*/S/s/B/B*/b/b*/n), colour (g/G/rg/RG/k/K/cs/CS/sc/SC/scn/SCN), alpha
 // (gs ExtGState ca/CA), Form/Image XObjects (Do, recursing into Forms and
 // compositing Images including their own /SMask), and text (BT/ET/Tf/Td/TD/
-// Tm/T*/Tj/TJ/'/"). Clipping (W/W*) is approximated as a bounding box.
+// Tm/T*/Tj/TJ/'/"). Clipping (W/W*) confines painting to the clip path: a
+// rectangle exactly, to whole pixels, and any other shape by its anti-aliased
+// coverage.
 // Content that oc hides is not drawn; a nil oc hides nothing.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
@@ -170,6 +172,9 @@ type renderState struct {
 	dash       []float64
 	dashPhase  float64
 	clip       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
+	// mask narrows the clip rectangle to the shape of a non-rectangular
+	// clipping path; nil when the clip is the rectangle.
+	mask *clipMask
 
 	font       pdf.PDFDict
 	fontSize   float64
@@ -327,8 +332,13 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		if len(contours) == 0 {
 			return
 		}
+		if rect, ok := axisAlignedRect(contours); ok {
+			gs.clip = intersectRect(gs.clip, rect)
+			return
+		}
 		minX, minY, maxX, maxY := boundsOfContours(contours)
 		gs.clip = intersectRect(gs.clip, [4]float64{minX, minY, maxX, maxY})
+		gs.mask = newClipMask(r.canvas.Bounds(), contours, pendingClipEvenOdd, gs.mask)
 	}
 
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
@@ -416,7 +426,6 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 				r.withEffects(&gs, func() image.Rectangle { return pathReach(&path, &gs) }, func() { r.paintPath(&path, &gs, op) })
 			}
 			applyPendingClip()
-			_ = pendingClipEvenOdd
 			path.reset()
 		case "g", "G", "rg", "RG", "k", "K", "cs", "CS", "sc", "scn", "SC", "SCN":
 			fill, stroke := gs.Fill.Pattern, gs.Stroke.Pattern
@@ -508,10 +517,9 @@ func intersectRect(a, b [4]float64) [4]float64 {
 	}
 }
 
-// clipContours intersects each contour's device-space points against gs's
-// bounding-box clip by intersecting the path's own bbox; since FillPath/
-// StrokePath only paint within canvas.Bounds(), the clip is applied by
-// further restricting the canvas rect passed to a scratch sub-image.
+// paintPath fills and strokes path as op says, within gs's clip. The clip
+// rectangle restricts the canvas the painters draw on, a sub-image of it, and
+// the clip shape, if any, scales the alpha of each pixel.
 func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	contours := path.deviceContours(gs.CTM)
 	if len(contours) == 0 {
@@ -527,14 +535,18 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 			r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
 			return
 		}
-		FillPath(target, contours, gs.Fill.RGB, gs.fillAlpha, evenOdd)
+		if gs.mask == nil {
+			FillPath(target, contours, gs.Fill.RGB, gs.fillAlpha, evenOdd)
+			return
+		}
+		FillPathShaded(target, contours, evenOdd, gs.mask.wrap(constant(gs.Fill.RGB, gs.fillAlpha)))
 	}
 	stroke := func() {
 		if gs.Stroke.IsPattern() {
 			r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
 			return
 		}
-		StrokePathStyled(target, contours, gs.strokeStyle(), gs.Stroke.RGB, gs.strokeAlpha)
+		StrokePathStyledShaded(target, contours, gs.strokeStyle(), gs.mask.wrap(constant(gs.Stroke.RGB, gs.strokeAlpha)))
 	}
 
 	switch op {
@@ -964,6 +976,7 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 				srow := pdf.ClampInt(int((1-p.Y)*float64(smH)), 0, smH-1)
 				alpha *= float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
 			}
+			alpha *= gs.mask.at(x, y)
 			if alpha <= 0 {
 				continue
 			}
@@ -1077,7 +1090,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 				}
 				contours[ci] = dc
 			}
-			FillPath(r.clipTarget(gs), contours, gs.Fill.RGB, gs.fillAlpha, false)
+			FillPathShaded(r.clipTarget(gs), contours, false, gs.mask.wrap(constant(gs.Fill.RGB, gs.fillAlpha)))
 		}
 
 		ws := 0.0
@@ -1421,9 +1434,8 @@ func (r *renderer) patternSampler(pattern pdf.PDFDict, alpha float64) (func(x, y
 }
 
 // paintPatternPath paints contours with gs's shading pattern, reporting
-// whether it handled the paint. Mesh patterns fall back to painting the mesh
-// over the path's bounding box, the same approximation the renderer already
-// makes for clipping.
+// whether it handled the paint. A mesh pattern is painted as geometry over the
+// path's bounding box, masked by the path's own shape.
 func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Point, pattern pdf.PDFDict, gs *renderState, evenOdd bool, stroke bool) bool {
 	if pattern.Entries == nil {
 		return false
@@ -1433,6 +1445,7 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 		alpha = gs.strokeAlpha
 	}
 	if sample, ok := r.patternSampler(pattern, alpha); ok {
+		sample = gs.mask.wrap(sample)
 		if stroke {
 			StrokePathStyledShaded(target, contours, gs.strokeStyle(), sample)
 		} else {
@@ -1449,16 +1462,18 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 	area := clipToBounds(target.Bounds(), intersectRect(gs.clip, [4]float64{
 		math.Floor(minX), math.Floor(minY), math.Ceil(maxX), math.Ceil(maxY),
 	}))
-	r.paintShading(sh, r.patternToDevice(pattern), alpha, area)
+	// The path's own shape, within the clip in force, selects what shows.
+	shape := newClipMask(target.Bounds(), contours, evenOdd, gs.mask)
+	r.paintShading(sh, r.patternToDevice(pattern), alpha, area, shape)
 	return true
 }
 
 // paintShading fills area by mapping each device pixel back through
 // shadingToDevice and sampling the shading there. Mesh shadings define no
 // such field and are drawn as geometry instead.
-func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle) {
+func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle, mask *clipMask) {
 	if sh.isMesh() {
-		r.paintMeshShading(sh, shadingToDevice, alpha, area)
+		r.paintMeshShading(sh, shadingToDevice, alpha, area, mask)
 		return
 	}
 	inv, ok := shadingToDevice.Invert()
@@ -1472,7 +1487,9 @@ func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alp
 			if !ok {
 				continue
 			}
-			blendPixel(r.canvas, x, y, rgb, alpha)
+			if a := alpha * mask.at(x, y); a > 0 {
+				blendPixel(r.canvas, x, y, rgb, a)
+			}
 		}
 	}
 }
@@ -1484,7 +1501,7 @@ func (r *renderer) paintShadingOp(operands []pdf.PDFValue, resources pdf.PDFDict
 	if !ok {
 		return
 	}
-	r.paintShading(sh, gs.CTM, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip))
+	r.paintShading(sh, gs.CTM, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip), gs.mask)
 }
 
 // namedShading resolves an operator's shading-name operand against the
@@ -1509,7 +1526,7 @@ func (r *renderer) namedShading(operands []pdf.PDFValue, resources pdf.PDFDict) 
 }
 
 // paintMeshShading decodes the mesh stream and paints it, clipped to area.
-func (r *renderer) paintMeshShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle) {
+func (r *renderer) paintMeshShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle, mask *clipMask) {
 	if area.Empty() || alpha <= 0 {
 		return
 	}
@@ -1523,7 +1540,7 @@ func (r *renderer) paintMeshShading(sh *shading, shadingToDevice content.Matrix,
 		target = r.canvas.SubImage(area).(*image.RGBA)
 	}
 
-	mp := &meshPainter{canvas: target, toDevice: shadingToDevice, alpha: alpha}
+	mp := &meshPainter{canvas: target, toDevice: shadingToDevice, alpha: alpha, mask: mask}
 	m := &meshReader{data: data}
 	switch sh.kind {
 	case 4:

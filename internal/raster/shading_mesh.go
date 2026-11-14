@@ -78,6 +78,7 @@ type meshPainter struct {
 	canvas    *image.RGBA
 	toDevice  content.Matrix
 	alpha     float64
+	mask      *clipMask // what the clip lets through; nil for all
 	primitive int
 	overflow  bool
 }
@@ -131,7 +132,7 @@ func (mp *meshPainter) flat(a, b, c meshVertex, u, v, d float64, flipped bool) {
 		}
 	}
 	if mp.alpha > 0 {
-		fillPathAliased(mp.canvas, [][]content.Point{pts}, false, func(int, int) ([3]float64, float64) { return rgb, mp.alpha })
+		fillPathAliased(mp.canvas, [][]content.Point{pts}, false, mp.mask.wrap(constant(rgb, mp.alpha)))
 	}
 }
 
