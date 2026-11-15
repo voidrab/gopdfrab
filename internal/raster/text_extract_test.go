@@ -149,3 +149,16 @@ func TestExtractTextReportsErrors(t *testing.T) {
 		t.Errorf("a cancelled extraction returned %v", err)
 	}
 }
+
+// TestExtractTextPaintsNothing checks that collecting text skips the operators
+// that only paint: paths, inline images and shadings, the last named after a
+// shading the resources do not even hold.
+func TestExtractTextPaintsNothing(t *testing.T) {
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.NewStreamDict(nil, []byte("0 g 0 0 10 10 re f BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI /Sh0 sh")),
+	})}
+	glyphs, err := ExtractText(context.Background(), page, pdf.PDFDict{}, [4]float64{0, 0, 10, 10}, nil, nil)
+	if err != nil || len(glyphs) != 0 {
+		t.Errorf("got %v, %v; want no glyphs and no error", glyphs, err)
+	}
+}

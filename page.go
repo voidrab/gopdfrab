@@ -142,10 +142,8 @@ func (p *Page) Render(ctx context.Context, opt RenderOptions) (*image.RGBA, erro
 		img, _, err = raster.RenderPageRegion(ctx, p.entry.dict, p.entry.resources, p.geom.CropBox, dpi, unrotateRegion(opt.Region, w, h, p.geom.Rotate), p.doc.oc, p.doc.renderCache())
 	}
 	p.doc.mu.Unlock()
+	// The raster functions return ctx.Err() when ctx is done after the render.
 	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return rotateClockwise(img, p.geom.Rotate), nil

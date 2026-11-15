@@ -96,7 +96,7 @@ func TestCacheKeepsOnePyramidPerImage(t *testing.T) {
 	}
 	// An image the cache did not decode gets a sampler of its own each time.
 	other := image.NewRGBA(image.Rect(0, 0, 2, 2))
-	if cache.sampler(other) == cache.sampler(other) {
+	if first, second := cache.sampler(other), cache.sampler(other); first == second {
 		t.Error("a foreign image shares a sampler")
 	}
 }
