@@ -5,9 +5,9 @@
 // and the rasterizer draws with them. All are under the SIL Open Font License
 // 1.1; see fonts/OFL.txt and the repository NOTICE.
 //
-// The fonts are stored gzip-compressed, which halves what they add to every
-// binary, and each is inflated the first time it is used. A program that
-// never needs a substitute font never inflates one.
+// The fonts are stored gzip-compressed and each is inflated the first time
+// it is used, so a program that never needs a substitute font never inflates
+// one.
 package fontsubst
 
 import (
@@ -84,9 +84,9 @@ func bundled(z []byte) func() []byte {
 	return sync.OnceValue(func() []byte { return inflate(z) })
 }
 
-// inflate decompresses the gzip data z. The data is embedded at build time
-// and every bundled font is inflated by the tests, so a failure here is a
-// broken build, not bad input, and panics.
+// inflate decompresses the gzip data z and panics if it is corrupt. The data
+// is embedded at build time and the tests inflate every bundled font, so
+// corruption means a broken build rather than bad input.
 func inflate(z []byte) []byte {
 	r, err := gzip.NewReader(bytes.NewReader(z))
 	if err == nil {

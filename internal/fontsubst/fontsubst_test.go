@@ -57,9 +57,9 @@ func TestPick(t *testing.T) {
 	}
 }
 
-// TestBundledFonts inflates every bundled font, checks it is a TrueType or
-// OpenType program, and checks a second call returns the same bytes without
-// inflating again.
+// TestBundledFonts verifies that every bundled font inflates to a TrueType
+// program with sfnt version 0x00010000, and that a second call returns the
+// same backing array instead of inflating again.
 func TestBundledFonts(t *testing.T) {
 	fonts := map[string]func() []byte{
 		"LiberationSans-Regular":            LiberationSansRegular,
@@ -90,8 +90,9 @@ func TestBundledFonts(t *testing.T) {
 	}
 }
 
-// TestInflateCorrupt checks that inflate panics, naming the cause, on data
-// that is not gzip at all and on a gzip stream cut short.
+// TestInflateCorrupt verifies that inflate panics with a "fontsubst: corrupt
+// bundled font" message on data that is not gzip and on a gzip stream cut
+// short.
 func TestInflateCorrupt(t *testing.T) {
 	cases := map[string][]byte{
 		"not gzip":  []byte("not gzip"),
