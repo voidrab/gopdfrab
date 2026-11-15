@@ -274,7 +274,7 @@ func TestFixCIDCFFWidthsBailsOut(t *testing.T) {
 }
 
 func TestFixCIDTrueTypeWidths(t *testing.T) {
-	ttf := streamOf(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
 	// CID 36 is "A" in Liberation Sans; CID 60000 is beyond its hmtx.
 	d := cidFont("CIDFontType2", "FontFile2", ttf, pdf.PDFArray{pdf.PDFInteger(36), ints(100)})
 	if !fixFontMetricsDict(d) {
@@ -299,7 +299,7 @@ func TestFixCIDTrueTypeWidths(t *testing.T) {
 // TestGrowTrueTypeWidths verifies that /Widths grows over the shown codes whose
 // program width differs from /MissingWidth, and over nothing else.
 func TestGrowTrueTypeWidths(t *testing.T) {
-	ttf := streamOf(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
 	font := func(first int, widths pdf.PDFArray, program pdf.PDFValue) pdf.PDFDict {
 		return dictOf(map[string]pdf.PDFValue{
 			"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"},
@@ -343,7 +343,7 @@ func TestGrowTrueTypeWidths(t *testing.T) {
 // repair of a simple TrueType font covers a shown code outside /Widths, and that
 // other fonts keep their /Widths range.
 func TestFontMetricFixerGrowsTrueTypeWidthsForShownCode(t *testing.T) {
-	ttf := streamOf(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
 	font := dictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"},
 		"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": ttf}),
@@ -389,7 +389,7 @@ func TestFontMetricFixerGrowsTrueTypeWidthsForShownCode(t *testing.T) {
 // simple TrueType font, and of CIDs shown without a /W entry to a CIDFontType2
 // font.
 func TestFontMetricFixerFullWalkGrowsWidths(t *testing.T) {
-	ttf := streamOf(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
 	simple := dictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"},
 		"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": ttf}),
@@ -428,7 +428,7 @@ func TestFontMetricFixerFullWalkGrowsWidths(t *testing.T) {
 // TestGrowCIDTrueTypeWidths verifies that /W gains the shown CIDs it lacks whose
 // glyph differs from the default width, keeps its order, and gains nothing else.
 func TestGrowCIDTrueTypeWidths(t *testing.T) {
-	ttf := streamOf(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
 	font := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
 		m := map[string]pdf.PDFValue{"FontDescriptor": dictOf(map[string]pdf.PDFValue{"FontFile2": ttf})}
 		for k, v := range entries {
@@ -487,8 +487,8 @@ func TestShownUsageGrowShownIgnoresOtherDicts(t *testing.T) {
 // TestFixCIDTrueTypeWidthsReadsCIDToGIDMap verifies that a width is taken from
 // the glyph a stream CIDToGIDMap selects, so a correct /W stays as it is.
 func TestFixCIDTrueTypeWidthsReadsCIDToGIDMap(t *testing.T) {
-	ttf := streamOf(fontsubst.LiberationSansRegular)
-	tables, ok := fontprog.ParseSfnt(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
+	tables, ok := fontprog.ParseSfnt(fontsubst.LiberationSansRegular())
 	if !ok {
 		t.Fatal("ParseSfnt failed")
 	}
@@ -532,7 +532,7 @@ func TestFixSimpleTrueTypeWidths(t *testing.T) {
 			"Encoding": pdf.PDFName{Value: "WinAnsiEncoding"},
 		})
 	}
-	ttf := streamOf(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
 
 	// A (wrong), a zero width, a name and a code beyond 255 sit side by side.
 	d := font(ttf, pdf.PDFArray{pdf.PDFInteger(100), pdf.PDFInteger(0), pdf.PDFName{Value: "x"}})

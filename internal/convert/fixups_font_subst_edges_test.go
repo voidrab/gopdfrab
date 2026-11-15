@@ -71,7 +71,7 @@ func TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace(t *testing.T) {
 }
 
 func TestSimpleFontNeedsSubstitutionKeepsConformingProgram(t *testing.T) {
-	ttf := streamOf(fontsubst.LiberationSansRegular)
+	ttf := streamOf(fontsubst.LiberationSansRegular())
 	font := func(baseFont string, extra map[string]pdf.PDFValue) (pdf.PDFDict, pdf.PDFDict) {
 		desc := dictOf(map[string]pdf.PDFValue{"FontFile2": ttf})
 		d := dictOf(map[string]pdf.PDFValue{
@@ -96,7 +96,7 @@ func TestSimpleFontNeedsSubstitutionKeepsConformingProgram(t *testing.T) {
 }
 
 func TestSubstituteCoversUsageEdges(t *testing.T) {
-	tables, _ := fontprog.ParseSfnt(fontsubst.LiberationSansRegular)
+	tables, _ := fontprog.ParseSfnt(fontsubst.LiberationSansRegular())
 	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 	var table [256]uint16
 	table['A'] = 'A'
@@ -276,7 +276,7 @@ func TestSubstituteCIDFontDeclines(t *testing.T) {
 
 	// A full (not subset-tagged) program that conforms is kept.
 	type0, cid = type0WithToUnicode(w, map[int]uint16{1: 'A'})
-	cid.Entries.Set("FontDescriptor", dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(fontsubst.LiberationSansRegular)}))
+	cid.Entries.Set("FontDescriptor", dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(fontsubst.LiberationSansRegular())}))
 	if substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Error("substituted a conforming full program")
 	}
@@ -377,7 +377,7 @@ func TestTrueTypeCmapSubtableCountTinyCmap(t *testing.T) {
 // Liberation Sans, so any CID from 2 up has no glyph in it.
 func tinyTrueType(t *testing.T) []byte {
 	t.Helper()
-	data, err := fontedit.SubsetTrueType(fontsubst.LiberationSansRegular, []uint16{'A'})
+	data, err := fontedit.SubsetTrueType(fontsubst.LiberationSansRegular(), []uint16{'A'})
 	if err != nil {
 		t.Fatalf("SubsetTrueType: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestSubstituteCIDFontKeepsGlyphlessCID(t *testing.T) {
 		t.Fatalf("DecodeStream: %v", err)
 	}
 	tables, _ := fontprog.ParseSfnt(program)
-	face, _ := fontprog.ParseSfnt(fontsubst.LiberationSansRegular)
+	face, _ := fontprog.ParseSfnt(fontsubst.LiberationSansRegular())
 	if !bytes.Equal(fontprog.GlyfRecord(tables, 7), fontprog.GlyfRecord(face, 0)) {
 		t.Error("CID 7 does not draw the substitute's .notdef")
 	}

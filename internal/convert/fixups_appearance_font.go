@@ -11,7 +11,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// liberationSansTTF is the Liberation Sans (SIL OFL 1.1) regular face,
+// liberationSansTTF returns the Liberation Sans (SIL OFL 1.1) regular face,
 // metric-compatible with Helvetica/Arial, used to render text into
 // synthesized form-field appearance streams (fixups_appearance.go). See
 // internal/fontsubst/fonts/OFL.txt.
@@ -53,7 +53,8 @@ func (s *appearanceFontSource) font() pdf.PDFDict {
 }
 
 func buildAppearanceFont() pdf.PDFDict {
-	tables, _ := fontprog.ParseSfnt(liberationSansTTF)
+	ttf := liberationSansTTF()
+	tables, _ := fontprog.ParseSfnt(ttf)
 	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
 	const firstChar, lastChar = 32, 255
@@ -71,8 +72,8 @@ func buildAppearanceFont() pdf.PDFDict {
 	}
 
 	fontFile := pdf.NewPDFDict()
-	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(liberationSansTTF)))
-	writer.SetStreamFlate(&fontFile, liberationSansTTF)
+	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(ttf)))
+	writer.SetStreamFlate(&fontFile, ttf)
 
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})

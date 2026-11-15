@@ -199,7 +199,9 @@ func TestNoticeCoversBundledAssets(t *testing.T) {
 				return err
 			}
 			// README.md documents the directory rather than shipping in output.
-			if name := d.Name(); name != "README.md" && !strings.Contains(string(notice), name) {
+			// A .gz file is matched by the font name it holds, without the
+			// .gz suffix.
+			if name := strings.TrimSuffix(d.Name(), ".gz"); name != "README.md" && !strings.Contains(string(notice), name) {
 				t.Errorf("NOTICE does not name %s", path)
 			}
 			return nil

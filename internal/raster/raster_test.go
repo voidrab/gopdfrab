@@ -5,9 +5,9 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
-	"os"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -458,10 +458,7 @@ ET
 
 func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 	t.Helper()
-	ttf, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
-	if err != nil {
-		t.Skipf("font asset not available: %v", err)
-	}
+	ttf := fontsubst.LiberationSansRegular()
 	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Length1": pdf.PDFInteger(len(ttf))}), ttf)
 }
 

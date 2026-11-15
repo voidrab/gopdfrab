@@ -1727,7 +1727,7 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 		var faces []parsedFace
 		baseFont, _ := font.Entries.Get("BaseFont").(pdf.PDFName)
 		lib := fontsubst.Pick(desc, baseFont.Value)
-		for _, data := range [][]byte{lib.Data, fontsubst.NotoSymbols2, fontsubst.NotoSymbols} {
+		for _, data := range [][]byte{lib.Data, fontsubst.NotoSymbols2(), fontsubst.NotoSymbols()} {
 			if tables, ok := fontprog.ParseSfnt(data); ok {
 				if cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables)); cmap != nil {
 					faces = append(faces, parsedFace{tables, cmap})

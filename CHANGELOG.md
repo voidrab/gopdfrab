@@ -22,6 +22,14 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
+## [Unreleased]
+
+### Changed
+
+- The bundled substitute fonts are stored gzip-compressed and inflated on first
+  use, which makes every binary that links gopdfrab about 2.8 MB smaller. A
+  program that never substitutes a font never inflates one.
+
 ## [1.5.0] - 2026-11-15
 
 ### Added

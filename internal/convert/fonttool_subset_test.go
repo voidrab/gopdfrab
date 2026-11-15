@@ -1,20 +1,16 @@
 package convert
 
 import (
-	"os"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 )
 
 func loadLiberationSansForTest(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
-	if err != nil {
-		t.Skipf("bundled font not present: %v", err)
-	}
-	return data
+	return fontsubst.LiberationSansRegular()
 }
 
 // TestSubsetTrueTypeRoundTrips subsets a bundled Liberation Sans face down to

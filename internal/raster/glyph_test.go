@@ -1,20 +1,16 @@
 package raster
 
 import (
-	"os"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 )
 
 func loadLiberationSansGID(t *testing.T, rune16 uint16) (map[string][]byte, int) {
 	t.Helper()
-	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
-	if err != nil {
-		t.Fatalf("read font: %v", err)
-	}
-	tables, ok := fontprog.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(fontsubst.LiberationSansRegular())
 	if !ok {
 		t.Fatalf("parseSfnt failed")
 	}

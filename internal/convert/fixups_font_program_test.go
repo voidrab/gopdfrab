@@ -338,7 +338,7 @@ func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
 // with a stream CIDToGIDMap lists the CIDs mapped within the program, and that an
 // unusable map leaves the descriptor alone.
 func TestFixTrueTypeCIDSetReadsStreamCIDToGIDMap(t *testing.T) {
-	ttf := fontsubst.LiberationSansRegular
+	ttf := fontsubst.LiberationSansRegular()
 	tables, ok := fontprog.ParseSfnt(ttf)
 	if !ok {
 		t.Fatal("ParseSfnt failed")

@@ -4,21 +4,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 func loadTTF(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
-	if err != nil {
-		t.Skipf("font asset not available: %v", err)
-	}
-	return data
+	return fontsubst.LiberationSansRegular()
 }
 
 // TestTrueTypeTableParsers exercises the sfnt/cmap/glyf/hmtx accessors against a
