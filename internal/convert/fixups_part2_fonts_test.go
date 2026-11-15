@@ -476,7 +476,7 @@ func TestTrimSymbolicCmapKeepsSymbolSubtable(t *testing.T) {
 	if trimSymbolicCmap(pdf.NewPDFDict(), readTrueTypeProgram(descWith([2]uint16{1, 0}, [2]uint16{3, 0})), true) {
 		t.Error("trimmed a cmap with a (3,0) subtable that may keep several")
 	}
-	liberation := dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(fontsubst.LiberationSansRegular)})
+	liberation := dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(fontsubst.LiberationSansRegular())})
 	if !trimSymbolicCmap(liberation, readTrueTypeProgram(liberation), true) {
 		t.Error("kept several subtables without a (3,0) one")
 	}

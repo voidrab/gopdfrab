@@ -4,62 +4,99 @@
 // two Noto symbol faces. The converter embeds them when it substitutes a font,
 // and the rasterizer draws with them. All are under the SIL Open Font License
 // 1.1; see fonts/OFL.txt and the repository NOTICE.
+//
+// The fonts are stored gzip-compressed, which halves what they add to every
+// binary, and each is inflated the first time it is used. A program that
+// never needs a substitute font never inflates one.
 package fontsubst
 
 import (
+	"bytes"
 	_ "embed"
+	"io"
 	"strings"
+	"sync"
+
+	"github.com/klauspost/compress/gzip"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// LiberationSansRegular is the Liberation Sans regular face, metric-compatible
-// with Helvetica/Arial.
-//
-//go:embed fonts/LiberationSans-Regular.ttf
-var LiberationSansRegular []byte
+var (
+	//go:embed fonts/LiberationSans-Regular.ttf.gz
+	libSansRegularGz []byte
+	//go:embed fonts/LiberationSans-Bold.ttf.gz
+	libSansBoldGz []byte
+	//go:embed fonts/LiberationSans-Italic.ttf.gz
+	libSansItalicGz []byte
+	//go:embed fonts/LiberationSans-BoldItalic.ttf.gz
+	libSansBoldItalicGz []byte
+	//go:embed fonts/LiberationSerif-Regular.ttf.gz
+	libSerifRegularGz []byte
+	//go:embed fonts/LiberationSerif-Bold.ttf.gz
+	libSerifBoldGz []byte
+	//go:embed fonts/LiberationSerif-Italic.ttf.gz
+	libSerifItalicGz []byte
+	//go:embed fonts/LiberationSerif-BoldItalic.ttf.gz
+	libSerifBoldItalicGz []byte
+	//go:embed fonts/LiberationMono-Regular.ttf.gz
+	libMonoRegularGz []byte
+	//go:embed fonts/LiberationMono-Bold.ttf.gz
+	libMonoBoldGz []byte
+	//go:embed fonts/LiberationMono-Italic.ttf.gz
+	libMonoItalicGz []byte
+	//go:embed fonts/LiberationMono-BoldItalic.ttf.gz
+	libMonoBoldItalicGz []byte
+	//go:embed fonts/NotoSansSymbols2-Regular.ttf.gz
+	notoSymbols2Gz []byte
+	//go:embed fonts/NotoSansSymbols-VariableFont_wght.ttf.gz
+	notoSymbolsGz []byte
+)
 
-//go:embed fonts/LiberationSans-Bold.ttf
-var libSansBold []byte
+// LiberationSansRegular returns the Liberation Sans regular face,
+// metric-compatible with Helvetica/Arial.
+var LiberationSansRegular = bundled(libSansRegularGz)
 
-//go:embed fonts/LiberationSans-Italic.ttf
-var libSansItalic []byte
+var (
+	libSansBold        = bundled(libSansBoldGz)
+	libSansItalic      = bundled(libSansItalicGz)
+	libSansBoldItalic  = bundled(libSansBoldItalicGz)
+	libSerifRegular    = bundled(libSerifRegularGz)
+	libSerifBold       = bundled(libSerifBoldGz)
+	libSerifItalic     = bundled(libSerifItalicGz)
+	libSerifBoldItalic = bundled(libSerifBoldItalicGz)
+	libMonoRegular     = bundled(libMonoRegularGz)
+	libMonoBold        = bundled(libMonoBoldGz)
+	libMonoItalic      = bundled(libMonoItalicGz)
+	libMonoBoldItalic  = bundled(libMonoBoldItalicGz)
+)
 
-//go:embed fonts/LiberationSans-BoldItalic.ttf
-var libSansBoldItalic []byte
-
-//go:embed fonts/LiberationSerif-Regular.ttf
-var libSerifRegular []byte
-
-//go:embed fonts/LiberationSerif-Bold.ttf
-var libSerifBold []byte
-
-//go:embed fonts/LiberationSerif-Italic.ttf
-var libSerifItalic []byte
-
-//go:embed fonts/LiberationSerif-BoldItalic.ttf
-var libSerifBoldItalic []byte
-
-//go:embed fonts/LiberationMono-Regular.ttf
-var libMonoRegular []byte
-
-//go:embed fonts/LiberationMono-Bold.ttf
-var libMonoBold []byte
-
-//go:embed fonts/LiberationMono-Italic.ttf
-var libMonoItalic []byte
-
-//go:embed fonts/LiberationMono-BoldItalic.ttf
-var libMonoBoldItalic []byte
-
-// NotoSymbols2 and NotoSymbols are fallback faces for symbol glyphs the
+// NotoSymbols2 and NotoSymbols return fallback faces for symbol glyphs the
 // Liberation faces do not cover.
-//
-//go:embed fonts/NotoSansSymbols2-Regular.ttf
-var NotoSymbols2 []byte
+var (
+	NotoSymbols2 = bundled(notoSymbols2Gz)
+	NotoSymbols  = bundled(notoSymbolsGz)
+)
 
-//go:embed fonts/NotoSansSymbols-VariableFont_wght.ttf
-var NotoSymbols []byte
+// bundled returns a function that inflates the gzip data z on its first call
+// and returns those same bytes on every call. Callers must not modify them.
+func bundled(z []byte) func() []byte {
+	return sync.OnceValue(func() []byte { return inflate(z) })
+}
+
+// inflate decompresses the gzip data z. The data is embedded at build time
+// and every bundled font is inflated by the tests, so a failure here is a
+// broken build, not bad input, and panics.
+func inflate(z []byte) []byte {
+	r, err := gzip.NewReader(bytes.NewReader(z))
+	if err == nil {
+		var b []byte
+		if b, err = io.ReadAll(r); err == nil {
+			return b
+		}
+	}
+	panic("fontsubst: corrupt bundled font: " + err.Error())
+}
 
 // Face is a bundled Liberation face and the style it was picked for.
 type Face struct {
@@ -86,16 +123,16 @@ func Pick(desc pdf.PDFDict, baseFont string) Face {
 		bold = true
 	}
 
-	pick := func(regular, b, i, bi []byte) []byte {
+	pick := func(regular, b, i, bi func() []byte) []byte {
 		switch {
 		case bold && italic:
-			return bi
+			return bi()
 		case bold:
-			return b
+			return b()
 		case italic:
-			return i
+			return i()
 		default:
-			return regular
+			return regular()
 		}
 	}
 	var data []byte

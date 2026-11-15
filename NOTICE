@@ -7,6 +7,9 @@ zip.
 internal/fontsubst/fonts/
 -------------------------
 
+The fonts are stored gzip-compressed (name.ttf.gz) and are otherwise
+unmodified; gzip -d restores each original file byte for byte.
+
 Liberation Sans, Liberation Serif, Liberation Mono, version 2.1.5
     LiberationSans-Regular.ttf, LiberationSans-Bold.ttf,
     LiberationSans-Italic.ttf, LiberationSans-BoldItalic.ttf,

@@ -344,8 +344,8 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		family string
 	}{
 		{libFace.Data, liberationFamilyName(libFace)},
-		{fontsubst.NotoSymbols2, "NotoSansSymbols2"},
-		{fontsubst.NotoSymbols, "NotoSansSymbols"},
+		{fontsubst.NotoSymbols2(), "NotoSansSymbols2"},
+		{fontsubst.NotoSymbols(), "NotoSansSymbols"},
 	} {
 		// Every candidate is a bundled face (see
 		// TestBundledFacesSupportSubsetting), so the subsetter cannot
@@ -691,8 +691,8 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		family string
 	}{
 		{face.Data, liberationFamilyName(face)},
-		{fontsubst.NotoSymbols2, "NotoSansSymbols2"},
-		{fontsubst.NotoSymbols, "NotoSansSymbols"},
+		{fontsubst.NotoSymbols2(), "NotoSansSymbols2"},
+		{fontsubst.NotoSymbols(), "NotoSansSymbols"},
 	} {
 		// Every candidate is a bundled face with a format-4 (3,1) cmap (see
 		// TestBundledFacesSupportSubsetting).

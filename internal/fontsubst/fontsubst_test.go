@@ -2,6 +2,7 @@ package fontsubst
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -21,7 +22,7 @@ func TestPick(t *testing.T) {
 		desc                            pdf.PDFDict
 		baseFont                        string
 		serif, fixedPitch, italic, bold bool
-		data                            []byte
+		data                            func() []byte
 	}{
 		{"plain", empty, "Arial", false, false, false, false, LiberationSansRegular},
 		{"serif flag", flagsDict(0x2), "Foo", true, false, false, false, libSerifRegular},
@@ -49,9 +50,62 @@ func TestPick(t *testing.T) {
 				t.Errorf("Pick(%v, %q) = %+v, want serif=%v fixedPitch=%v italic=%v bold=%v",
 					c.desc.Entries, c.baseFont, got, c.serif, c.fixedPitch, c.italic, c.bold)
 			}
-			if !bytes.Equal(got.Data, c.data) {
+			if !bytes.Equal(got.Data, c.data()) {
 				t.Errorf("Pick(%v, %q) returned the wrong bundled face", c.desc.Entries, c.baseFont)
 			}
+		})
+	}
+}
+
+// TestBundledFonts inflates every bundled font, checks it is a TrueType or
+// OpenType program, and checks a second call returns the same bytes without
+// inflating again.
+func TestBundledFonts(t *testing.T) {
+	fonts := map[string]func() []byte{
+		"LiberationSans-Regular":            LiberationSansRegular,
+		"LiberationSans-Bold":               libSansBold,
+		"LiberationSans-Italic":             libSansItalic,
+		"LiberationSans-BoldItalic":         libSansBoldItalic,
+		"LiberationSerif-Regular":           libSerifRegular,
+		"LiberationSerif-Bold":              libSerifBold,
+		"LiberationSerif-Italic":            libSerifItalic,
+		"LiberationSerif-BoldItalic":        libSerifBoldItalic,
+		"LiberationMono-Regular":            libMonoRegular,
+		"LiberationMono-Bold":               libMonoBold,
+		"LiberationMono-Italic":             libMonoItalic,
+		"LiberationMono-BoldItalic":         libMonoBoldItalic,
+		"NotoSansSymbols2-Regular":          NotoSymbols2,
+		"NotoSansSymbols-VariableFont_wght": NotoSymbols,
+	}
+	for name, font := range fonts {
+		t.Run(name, func(t *testing.T) {
+			data := font()
+			if len(data) < 4 || !bytes.Equal(data[:4], []byte{0, 1, 0, 0}) {
+				t.Fatalf("%s does not start with the sfnt version 0x00010000", name)
+			}
+			if again := font(); &again[0] != &data[0] {
+				t.Errorf("%s was inflated again on its second call", name)
+			}
+		})
+	}
+}
+
+// TestInflateCorrupt checks that inflate panics, naming the cause, on data
+// that is not gzip at all and on a gzip stream cut short.
+func TestInflateCorrupt(t *testing.T) {
+	cases := map[string][]byte{
+		"not gzip":  []byte("not gzip"),
+		"truncated": libSansRegularGz[:len(libSansRegularGz)/2],
+	}
+	for name, z := range cases {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				msg, _ := recover().(string)
+				if !strings.HasPrefix(msg, "fontsubst: corrupt bundled font: ") {
+					t.Errorf("inflate panicked with %q, want a corrupt bundled font message", msg)
+				}
+			}()
+			inflate(z)
 		})
 	}
 }

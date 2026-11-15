@@ -2,8 +2,9 @@ package fontprog
 
 import (
 	"encoding/binary"
-	"os"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 )
 
 // TestScaledCapHeight covers the too-short-table and upm==0 fallbacks
@@ -44,10 +45,7 @@ func TestCmapSubtableCount(t *testing.T) {
 		t.Error("CmapSubtableCount(garbage) ok = true, want false")
 	}
 
-	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
-	if err != nil {
-		t.Skipf("bundled font not present: %v", err)
-	}
+	data := fontsubst.LiberationSansRegular()
 	n, ok := CmapSubtableCount(data)
 	if !ok || n <= 0 {
 		t.Errorf("CmapSubtableCount(Liberation Sans) = (%d,%v), want a positive count", n, ok)

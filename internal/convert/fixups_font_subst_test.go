@@ -1,7 +1,6 @@
 package convert
 
 import (
-	"os"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/fontedit"
@@ -274,10 +273,7 @@ func TestLiberationFamilyName(t *testing.T) {
 // trimmed to one, and re-running against that already-trimmed output (now
 // n==1) is a no-op.
 func TestTrimSymbolicCmap(t *testing.T) {
-	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
-	if err != nil {
-		t.Skipf("bundled font not present: %v", err)
-	}
+	data := fontsubst.LiberationSansRegular()
 	n, ok := fontprog.CmapSubtableCount(data)
 	if !ok || n < 2 {
 		t.Skip("bundled face already has a single cmap subtable; nothing to trim")
@@ -313,7 +309,7 @@ func TestTrimSymbolicCmap(t *testing.T) {
 // format-4 (3,1) cmap and full head/hhea tables, so the subsetters cannot fail
 // on them and their packed output parses back with a format-4 cmap.
 func TestBundledFacesSupportSubsetting(t *testing.T) {
-	faces := map[string][]byte{"NotoSymbols2": fontsubst.NotoSymbols2, "NotoSymbols": fontsubst.NotoSymbols}
+	faces := map[string][]byte{"NotoSymbols2": fontsubst.NotoSymbols2(), "NotoSymbols": fontsubst.NotoSymbols()}
 	for _, flags := range []int{0, 0x2, 0x1} {
 		for _, style := range []int{0, 0x40, 0x40000, 0x40 | 0x40000} {
 			face := fontsubst.Pick(dictOf(map[string]pdf.PDFValue{"Flags": pdf.PDFInteger(flags | style)}), "")
