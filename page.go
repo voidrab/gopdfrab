@@ -22,9 +22,9 @@ type pageEntry struct {
 }
 
 // catalogEntry returns the catalog entry at path, fully resolved, or nil when
-// the catalog has no such entry. Each entry is resolved when first asked for,
-// so the parts of the catalog a Document never reads, such as the structure
-// tree, are never parsed.
+// the catalog has no such entry. Entries are resolved only when requested, so
+// the parts of the catalog a Document never reads, such as the structure tree,
+// are never parsed.
 func (d *Document) catalogEntry(path ...string) (pdf.PDFValue, error) {
 	resolve := d.r.ResolveGraphByPath
 	if d.resolvePath != nil {

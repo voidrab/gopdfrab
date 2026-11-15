@@ -412,8 +412,8 @@ type Document struct {
 	oc    *content.OptionalContent
 	cache *raster.Cache // fonts and images kept between renders
 	index bool
-	// resolvePath replaces r.ResolveGraphByPath; tests use it to force
-	// failures.
+	// resolvePath, when set, is used in place of r.ResolveGraphByPath.
+	// Tests set it to force failures.
 	resolvePath func(path []string) (pdf.PDFValue, error)
 }
 

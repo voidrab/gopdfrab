@@ -184,7 +184,7 @@ func inf() float64 { var z float64; return 1 / z }
 
 func TestPageResolveFailure(t *testing.T) {
 	doc := pageDoc(t, "/Rotate 90")
-	// Either catalog entry Pages reads failing fails it.
+	// Pages fails when resolving either catalog entry it reads fails.
 	for _, failing := range []string{"Pages", "OCProperties"} {
 		doc.resolvePath = func(path []string) (pdf.PDFValue, error) {
 			if path[len(path)-1] == failing {
