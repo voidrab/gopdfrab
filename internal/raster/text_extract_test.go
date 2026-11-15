@@ -150,9 +150,9 @@ func TestExtractTextReportsErrors(t *testing.T) {
 	}
 }
 
-// TestExtractTextPaintsNothing checks that collecting text skips the operators
-// that only paint: paths, inline images and shadings, the last named after a
-// shading the resources do not even hold.
+// TestExtractTextPaintsNothing verifies that ExtractText skips the path, inline
+// image and shading operators, which paint and produce no glyphs. The sh
+// operator names /Sh0, which the empty resources do not define.
 func TestExtractTextPaintsNothing(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("0 g 0 0 10 10 re f BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI /Sh0 sh")),

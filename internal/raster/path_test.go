@@ -298,9 +298,8 @@ func TestFillSolidMatchesPerPixelFill(t *testing.T) {
 	}
 }
 
-// TestReleaseScratchDropsOversizedBuffers checks that a coverage whose buffers
-// grew past the limits is not returned to the pool, so the pool never holds on
-// to the memory of one huge path.
+// TestReleaseScratchDropsOversizedBuffers verifies that releaseScratch does not
+// return to scanScratch a coverage whose edge buffer exceeds maxScratchEdges.
 func TestReleaseScratchDropsOversizedBuffers(t *testing.T) {
 	f := &coverage{edges: make([]pathEdge, 0, maxScratchEdges+1)}
 	releaseScratch(f)
