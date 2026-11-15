@@ -96,7 +96,11 @@ func TestDecodeObjStm(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decodeObjStm: %v (a bad entry must fail only itself)", err)
 		}
-		if len(entries) != 1 || entries[0].err == nil {
+		if len(entries) != 1 || entries[0].err != nil {
+			t.Fatalf("entries = %+v, want one entry, not yet parsed", entries)
+		}
+		entries[0].parse(5)
+		if entries[0].err == nil {
 			t.Errorf("entries = %+v, want one entry carrying a parse error", entries)
 		}
 	})
@@ -106,6 +110,9 @@ func TestDecodeObjStm(t *testing.T) {
 		entries, err := d.decodeObjStm(5)
 		if err != nil {
 			t.Fatalf("decodeObjStm: %v", err)
+		}
+		for i := range entries {
+			entries[i].parse(5)
 		}
 		if len(entries) != 2 || entries[0].objNum != 1 || entries[0].value != PDFBoolean(true) {
 			t.Errorf("entries[0] = %+v, want {1 true}", entries[0])
@@ -127,6 +134,7 @@ func TestDecodeObjStm(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decodeObjStm: %v", err)
 		}
+		entries[0].parse(9)
 		got, ok := entries[0].value.(PDFDict)
 		if ref, hasRef := got.Ref(); !ok || !hasRef || ref != (PDFRef{ObjNum: 7}) {
 			t.Errorf("nested dict = %#v, want _ref stamped to 7", entries[0].value)

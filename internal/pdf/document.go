@@ -1113,6 +1113,35 @@ func (d *Reader) ResolveGraph() (PDFValue, error) {
 	return g, nil
 }
 
+// Catalog returns the document catalog (the effective trailer's /Root) with
+// the entries named by keys fully resolved in place. Its other entries are
+// left as they are and may still hold references: a viewer needs the page
+// tree, not the structure tree, which in a large tagged document can hold
+// millions of objects. A document without a catalog dictionary yields the
+// zero PDFDict.
+func (d *Reader) Catalog(keys ...string) (PDFDict, error) {
+	v, err := d.resolveShallow(d.EffectiveTrailer().Entries.Get("Root"))
+	if err != nil {
+		return PDFDict{}, err
+	}
+	root, ok := v.(PDFDict)
+	if !ok || root.Entries == nil {
+		return PDFDict{}, nil
+	}
+	for _, k := range keys {
+		val, found := root.Entries.Lookup(k)
+		if !found {
+			continue
+		}
+		r, err := d.resolveInPlace(val)
+		if err != nil {
+			return PDFDict{}, err
+		}
+		root.Entries.Set(k, r)
+	}
+	return root, nil
+}
+
 // SeedResolvedGraph pre-populates the Reader with an already-resolved graph
 // and object cache.
 func (d *Reader) SeedResolvedGraph(graph PDFDict, objs map[int]PDFValue) {
@@ -1122,41 +1151,58 @@ func (d *Reader) SeedResolvedGraph(graph PDFDict, objs map[int]PDFValue) {
 }
 
 // resolvePath walks a PDF object following path elements, which may be
-// dictionary keys or array indices. node must already be a resolved object.
+// dictionary keys or array indices, and returns the value reached, fully
+// resolved. Only the references on the path are followed on the way, so
+// reaching a small part of a large document, such as its information
+// dictionary, does not parse the rest of it.
 func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {
-	current, err := d.ResolveObject(node)
+	current, err := d.resolveShallow(node)
 	if err != nil {
 		return nil, err
 	}
-
-	// ResolveObject resolved the whole subtree in place, so no step of the walk
-	// can meet an unresolved reference.
 	for _, key := range path {
 		if arr, ok := current.(PDFArray); ok {
 			idx, err := strconv.Atoi(key)
 			if err != nil {
-				return arr, nil
+				return d.ResolveObject(arr)
 			}
 			if idx < 0 || idx >= len(arr) {
 				return nil, fmt.Errorf("array index out of range: %d", idx)
 			}
 			current = arr[idx]
-			continue
-		}
-
-		if dict, ok := current.(PDFDict); ok {
+		} else if dict, ok := current.(PDFDict); ok {
 			val, found := dict.Entries.Lookup(key)
 			if !found {
 				return nil, fmt.Errorf("key %q not found in dictionary", key)
 			}
 			current = val
-			continue
+		} else {
+			return current, nil
 		}
-
-		return current, nil
+		if current, err = d.resolveShallow(current); err != nil {
+			return nil, err
+		}
 	}
-
 	return d.ResolveObject(current)
+}
+
+// resolveShallow follows obj while it is a reference and returns the object
+// it ends at, whose own entries may still hold references.
+func (d *Reader) resolveShallow(obj PDFValue) (PDFValue, error) {
+	for depth := 0; ; depth++ {
+		ref, ok := obj.(PDFRef)
+		if !ok {
+			return obj, nil
+		}
+		if depth > maxResolveDepth {
+			return nil, fmt.Errorf("resolve depth limit exceeded")
+		}
+		target, err := d.ResolveReference(ref)
+		if err != nil {
+			return nil, err
+		}
+		obj = target
+	}
 }
 
 // resolveInPlace returns obj fully resolved.

@@ -413,8 +413,8 @@ type Document struct {
 	oc    *content.OptionalContent
 	cache *raster.Cache // fonts and images kept between renders
 	index bool
-	// resolveGraph replaces r.ResolveGraph; tests use it to force failures.
-	resolveGraph func() (pdf.PDFValue, error)
+	// catalog replaces r.Catalog; tests use it to force failures.
+	catalog func(keys ...string) (pdf.PDFDict, error)
 }
 
 // Open initializes the PDF document at path, decrypting an encrypted file with

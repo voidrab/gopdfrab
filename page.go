@@ -21,21 +21,25 @@ type pageEntry struct {
 	resources pdf.PDFDict
 }
 
+// catalogKeys are the catalog entries a Document reads: the page tree, the
+// named destinations links go to, and the optional content that decides what
+// is drawn. The rest of the catalog, the structure tree above all, is never
+// resolved for viewing.
+var catalogKeys = []string{"Pages", "Dests", "Names", "OCProperties"}
+
 // loadPages resolves the page tree once. The caller holds d.mu.
 func (d *Document) loadPages() error {
 	if d.index {
 		return nil
 	}
-	resolve := d.r.ResolveGraph
-	if d.resolveGraph != nil {
-		resolve = d.resolveGraph
+	catalog := d.r.Catalog
+	if d.catalog != nil {
+		catalog = d.catalog
 	}
-	graph, err := resolve()
+	root, err := catalog(catalogKeys...)
 	if err != nil {
 		return err
 	}
-	trailer, _ := graph.(pdf.PDFDict)
-	root, _ := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if tree, ok := root.Entries.Get("Pages").(pdf.PDFDict); ok {
 		pdf.WalkPages(tree, func(page, res pdf.PDFDict, _ [4]float64, _ int) {
 			d.pages = append(d.pages, pageEntry{dict: page, resources: res})
