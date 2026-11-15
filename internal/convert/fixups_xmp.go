@@ -55,7 +55,7 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 
 // stripEmbeddedMetadataVisitor is stripEmbeddedMetadata's per-dict visitor
 // for the shared pre-emptive walk; nil when there is no catalog to protect or
-// the level is not PDF/A. Under Part 2, metadata that objectXMPConforms
+// the level is not PDF/A. Under Part 2, metadata that keepObjectXMP
 // accepts is kept.
 func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
@@ -73,15 +73,19 @@ func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa
 		if !ok || pdf.ValuePointer(meta.Entries) == catalogMetaPtr {
 			return
 		}
-		if spec.Part >= 2 && conforms != nil {
-			if packet, ok := objectXMPConforms(meta, conforms); ok {
-				wrapXMPPacket(meta, packet)
-				return
-			}
+		if spec.Part >= 2 && conforms != nil && keepObjectXMP(meta, conforms) {
+			return
 		}
 		d.Entries.Del("Metadata")
 	}
 }
+
+// xpacketHeader and xpacketTrailer are the processing instructions that wrap
+// every XMP packet convert writes.
+const (
+	xpacketHeader  = "<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n"
+	xpacketTrailer = `<?xpacket end="w"?>`
+)
 
 // xmlDeclRe matches an XML declaration at the start of a packet.
 var xmlDeclRe = regexp.MustCompile(`^\s*<\?xml[^?]*\?>\s*`)
@@ -98,25 +102,30 @@ func wrapXMPPacket(meta pdf.PDFDict, packet []byte) {
 	decl := xmlDeclRe.Find(packet)
 	var b bytes.Buffer
 	b.Write(decl)
-	b.WriteString("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n")
+	b.WriteString(xpacketHeader)
 	b.Write(bytes.TrimSpace(packet[len(decl):]))
-	b.WriteString("\n<?xpacket end=\"w\"?>")
+	b.WriteString("\n" + xpacketTrailer)
 	setXMPPacket(meta, b.Bytes())
 }
 
-// objectXMPConforms returns the UTF-8 packet of meta, a metadata stream other
-// than the catalog's, and reports whether it passes conforms (see
-// verify.ObjectXMPChecker).
-func objectXMPConforms(meta pdf.PDFDict, conforms func(data []byte) bool) ([]byte, bool) {
+// keepObjectXMP reports whether meta, a metadata stream other than the
+// catalog's, holds a packet that passes conforms (see
+// verify.ObjectXMPChecker), and wraps a passing packet in xpacket processing
+// instructions.
+func keepObjectXMP(meta pdf.PDFDict, conforms func(data []byte) bool) bool {
 	if !meta.IsStream() {
-		return nil, false
+		return false
 	}
 	data, err := pdf.DecodeStream(meta)
 	if err != nil {
-		return nil, false
+		return false
 	}
 	packet := pdf.DecodeXMPEncoding(data)
-	return packet, conforms(packet)
+	if !conforms(packet) {
+		return false
+	}
+	wrapXMPPacket(meta, packet)
+	return true
 }
 
 // normalizeInfoDict coerces the Info dictionary's standard entries (Table
@@ -271,7 +280,7 @@ func buildXMPPacket(info pdf.PDFDict, spec pdfa.Spec) string {
 	modifyDate, _ := pdfDateToXMP(infoString(info, "ModDate"))
 
 	var b strings.Builder
-	b.WriteString("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n")
+	b.WriteString(xpacketHeader)
 	b.WriteString(`<x:xmpmeta xmlns:x="adobe:ns:meta/">` + "\n")
 	b.WriteString(`<rdf:RDF xmlns:rdf="` + pdf.RDFNamespace + `">` + "\n")
 
@@ -314,7 +323,7 @@ func buildXMPPacket(info pdf.PDFDict, spec pdfa.Spec) string {
 
 	b.WriteString("</rdf:RDF>\n")
 	b.WriteString("</x:xmpmeta>\n")
-	b.WriteString(`<?xpacket end="w"?>`)
+	b.WriteString(xpacketTrailer)
 	return b.String()
 }
 

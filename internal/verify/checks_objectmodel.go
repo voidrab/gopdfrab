@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/arlington"
@@ -155,7 +156,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// it is never flagged.
 	if ot.Wildcard == nil {
 		for k := range v.Entries.All() {
-			if stringInList(k, ot.LaterKeys) {
+			if slices.Contains(ot.LaterKeys, k) {
 				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
 					v, typeName, k,
@@ -321,8 +322,7 @@ func DisallowedEnum(val pdf.PDFValue, kd *arlington.KeyDef) bool {
 }
 
 // EnumString exposes the verifier's enum-literal formatting to object-model
-// fixers, keeping their PossibleValues membership tests in lockstep with the
-// DisallowedValue check.
+// fixers, so their pinned-value comparisons read a value as the checks do.
 func EnumString(val pdf.PDFValue) (string, bool) {
 	return scalarEnumString(val)
 }
@@ -583,7 +583,7 @@ func disallowedEnum(val pdf.PDFValue, kd *arlington.KeyDef) bool {
 		return false
 	}
 	s, ok := scalarEnumString(val)
-	if !ok || stringInList(s, kd.PossibleValues) {
+	if !ok || slices.Contains(kd.PossibleValues, s) {
 		return false
 	}
 	return len(kd.UnenumeratedTypes) == 0 || !matchesValueType(val, kd.UnenumeratedTypes)
@@ -606,16 +606,6 @@ func scalarEnumString(val pdf.PDFValue) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-// stringInList reports whether s appears in list.
-func stringInList(s string, list []string) bool {
-	for _, item := range list {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
 
 // matchesValueType reports whether val's PDF type is one of allowed. An empty allowed list
