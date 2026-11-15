@@ -1583,3 +1583,27 @@ func TestObjectModelNameTreeNode(t *testing.T) {
 		t.Errorf("issues = %v, want none", res.Issues)
 	}
 }
+
+func TestValidateAgainstSchema_UnenumeratedTypeNotFlagged(t *testing.T) {
+	// LineHeight is name;number with PossibleValues [Normal,Auto];[]: the
+	// enumeration covers names only, so any number is legal, whether it is
+	// written as a real or an integer.
+	for _, tc := range []struct {
+		val  pdf.PDFValue
+		want bool
+	}{
+		{pdf.PDFInteger(10), false},
+		{pdf.PDFReal(9.5), false},
+		{pdf.PDFName{Value: "Auto"}, false},
+		{pdf.PDFName{Value: "Bogus"}, true},
+	} {
+		attrs := pdf.NewPDFDict()
+		attrs.Entries.Set("O", pdf.PDFName{Value: "Layout"})
+		attrs.Entries.Set("LineHeight", tc.val)
+		ctx := &ValidationContext{Spec: a2bSpec}
+		validateAgainstSchema(attrs, "StructureAttributesDict", ctx)
+		if got := hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue); got != tc.want {
+			t.Errorf("LineHeight %v: DisallowedValue = %v, want %v (%v)", tc.val, got, tc.want, ctx.errs)
+		}
+	}
+}

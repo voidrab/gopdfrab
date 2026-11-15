@@ -89,6 +89,7 @@ type keyDef struct {
 	sinceVersion      string
 	deprecatedIn      string
 	possibleValues    []string
+	unenumeratedTypes []string // Go identifiers of the types whose PossibleValues group is empty
 	pinnedValues      []pinnedExpr
 	specialCase       *condExpr
 	linkGroups        []linkGroup
@@ -311,6 +312,7 @@ func toKeyDef(kd keyDef) arlington.KeyDef {
 		SinceVersion:      kd.sinceVersion,
 		DeprecatedIn:      kd.deprecatedIn,
 		PossibleValues:    nilIfEmpty(kd.possibleValues),
+		UnenumeratedTypes: toValueTypes(kd.unenumeratedTypes),
 		SpecialCase:       toCondPtr(kd.specialCase),
 		Inheritable:       kd.inheritable,
 		Predicated: arlington.Predication{
@@ -597,6 +599,9 @@ func buildKeyDef(r row) keyDef {
 	// runtime). Wildcard and offset-wildcard rows have no single position to resolve against.
 	values, pins, unresolved := parsePossibleValues(r.possibleValues)
 	kd.possibleValues = values
+	if len(values) > 0 {
+		kd.unenumeratedTypes = unenumeratedTypes(r.typ, r.possibleValues)
+	}
 	for _, p := range pins {
 		if cond := p.cond; condOperandsResolvable(&cond, kd.name) {
 			kd.pinnedValues = append(kd.pinnedValues, p)
@@ -703,6 +708,29 @@ func splitGroups(raw string) []string {
 		p = strings.TrimPrefix(p, "[")
 		p = strings.TrimSuffix(p, "]")
 		out[i] = p
+	}
+	return out
+}
+
+// unenumeratedTypes returns the Go identifiers of the types in typ whose group in the
+// per-type PossibleValues column raw is empty. parsePossibleValues flattens the groups into
+// one list, so without this a value of such a type would be checked against the other
+// types' values: an integer LineHeight against [Normal,Auto]. A column that is not grouped
+// per type, or whose group count does not match the type count, names no types.
+func unenumeratedTypes(typ, raw string) []string {
+	tokens := strings.Split(typ, ";")
+	groups := splitGroups(raw)
+	if len(groups) < 2 || len(groups) != len(tokens) {
+		return nil
+	}
+	var out []string
+	for i, g := range groups {
+		if strings.TrimSpace(g) != "" {
+			continue
+		}
+		if ident, ok := valueTypeIdent[tokens[i]]; ok {
+			out = append(out, ident)
+		}
 	}
 	return out
 }

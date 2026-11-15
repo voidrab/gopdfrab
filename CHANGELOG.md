@@ -22,6 +22,15 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
+## [Unreleased]
+
+### Fixed
+
+- Verify no longer reports an integer value of a key whose enumerated values
+  cover only its other types, such as an integer /LineHeight in a structure
+  attribute dictionary, as outside its legal values. A converted document that
+  stored such a value as a real no longer fails when it is verified again.
+
 ## [1.5.2] - 2026-11-15
 
 ### Changed

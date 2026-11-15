@@ -31,7 +31,7 @@ func TestModelRoundTrip(t *testing.T) {
 func TestModelCodecCoversEveryField(t *testing.T) {
 	for typ, want := range map[reflect.Type]int{
 		reflect.TypeOf(ObjectType{}):  5, // keyByName is rebuilt, not serialized
-		reflect.TypeOf(KeyDef{}):      14,
+		reflect.TypeOf(KeyDef{}):      15,
 		reflect.TypeOf(Cond{}):        13,
 		reflect.TypeOf(LinkGroup{}):   4,
 		reflect.TypeOf(PinnedValue{}): 2,
