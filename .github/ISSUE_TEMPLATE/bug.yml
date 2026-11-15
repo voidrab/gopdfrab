@@ -30,4 +30,4 @@ body:
     id: version
     attributes:
       label: gopdfrab version, Go version and OS
-      placeholder: "gopdfrab 1.5.1, go1.24.0, linux/amd64"
+      placeholder: "gopdfrab 1.5.2, go1.24.0, linux/amd64"

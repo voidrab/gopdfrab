@@ -22,7 +22,7 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
-## [Unreleased]
+## [1.5.2] - 2026-11-15
 
 ### Changed
 
