@@ -22,6 +22,14 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
+## [Unreleased]
+
+### Fixed
+
+- On Windows, a file open in a `Reader` can now be renamed, replaced or
+  deleted, as on unix, and `ConvertResult.Save` can write over it, as when a
+  document is converted in place while it is open.
+
 ## [1.4.0] - 2026-11-09
 
 ### Added

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -472,7 +471,7 @@ func Open(path string) (*Reader, error) { return OpenWithPassword(path, nil) }
 // (The root package reaches this path via gopdfrab.Options.Password on the
 // *Context entry points.)
 func OpenWithPassword(path string, password []byte) (*Reader, error) {
-	f, err := os.Open(path)
+	f, err := openFile(path)
 	if err != nil {
 		return nil, err
 	}
