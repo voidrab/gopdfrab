@@ -22,8 +22,8 @@ type pageEntry struct {
 }
 
 // catalogKeys are the catalog entries a Document reads: the page tree, the
-// named destinations links go to, and the optional content that decides what
-// is drawn. The rest of the catalog, the structure tree above all, is never
+// named destinations (Dests, Names), and the optional content properties
+// (OCProperties). Other catalog entries, such as the structure tree, are not
 // resolved for viewing.
 var catalogKeys = []string{"Pages", "Dests", "Names", "OCProperties"}
 

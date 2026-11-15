@@ -30,7 +30,7 @@ func TestCatalogResolvesOnlyTheNamedEntries(t *testing.T) {
 	if !ok || pages.Entries.Get("Count") != PDFInteger(0) {
 		t.Errorf("Pages = %#v, want the page tree fully resolved", got.Entries.Get("Pages"))
 	}
-	// Object 3 does not exist: resolving it would have failed.
+	// StructTreeRoot is not among the requested keys, so it is not resolved.
 	if got.Entries.Get("StructTreeRoot") != (PDFRef{ObjNum: 3}) {
 		t.Errorf("StructTreeRoot = %#v, want it left a reference", got.Entries.Get("StructTreeRoot"))
 	}
@@ -47,8 +47,7 @@ func TestCatalogWithoutACatalogDictionary(t *testing.T) {
 
 func TestCatalogResolveFailures(t *testing.T) {
 	defer SetMaxResolveDepth(1)()
-	// Missing objects resolve to null, so a reference chain longer than the
-	// limit is what fails to resolve.
+	// A chain of references longer than the depth limit fails to resolve.
 	chain := map[int]PDFValue{1: PDFRef{ObjNum: 2}, 2: PDFRef{ObjNum: 3}, 3: PDFRef{ObjNum: 4}, 4: PDFInteger(1)}
 	if _, err := catalogReader(PDFRef{ObjNum: 1}, chain).Catalog("Pages"); err == nil {
 		t.Error("an unresolvable /Root was not reported")

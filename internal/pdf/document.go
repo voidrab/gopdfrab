@@ -1115,10 +1115,9 @@ func (d *Reader) ResolveGraph() (PDFValue, error) {
 
 // Catalog returns the document catalog (the effective trailer's /Root) with
 // the entries named by keys fully resolved in place. Its other entries are
-// left as they are and may still hold references: a viewer needs the page
-// tree, not the structure tree, which in a large tagged document can hold
-// millions of objects. A document without a catalog dictionary yields the
-// zero PDFDict.
+// not resolved and may still hold references, so that a large structure tree
+// is not parsed. A document without a catalog dictionary yields the zero
+// PDFDict.
 func (d *Reader) Catalog(keys ...string) (PDFDict, error) {
 	v, err := d.resolveShallow(d.EffectiveTrailer().Entries.Get("Root"))
 	if err != nil {

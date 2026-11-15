@@ -48,9 +48,8 @@ func (e *objStmEntry) parse(streamObjNum int) {
 }
 
 // resolveCompressedObject returns the value of a compressed object recorded
-// in a type-2 cross-reference entry. Only that object of the stream is
-// parsed: a stream may hold thousands of objects, such as those of a large
-// structure tree, that the caller never asks for.
+// in a type-2 cross-reference entry. Only that object is parsed; the other
+// objects of the stream stay unparsed.
 func (d *Reader) resolveCompressedObject(ref PDFRef, entry compressedXrefEntry) (PDFValue, error) {
 	entries, err := d.decodeObjStm(entry.streamObjNum)
 	if err != nil {
