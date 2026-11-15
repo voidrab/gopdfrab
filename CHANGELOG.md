@@ -22,6 +22,27 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
+## [1.5.2] - 2026-11-15
+
+### Changed
+
+- Opening a large document for viewing is much faster. `Document.Pages` and
+  `Document.Page` resolve the page tree and the optional content instead of
+  the whole object graph, named destinations are resolved when a link first
+  needs one, and a big structure tree is never parsed. An object stored in
+  an object stream is parsed when it is first used, not with every other
+  object of its stream. `Document.Metadata`, `Document.XMPMetadata`,
+  `Document.ClaimedConformance` and `Document.PageCount` read only what they
+  return. On a 560-page tagged book, `Document.Pages` went from 0.71 s to
+  0.06 s, and `Document.Metadata` on a newly opened document from 0.69 s to
+  under a millisecond.
+
+### Fixed
+
+- A damaged object outside the parts a call reads, such as in the structure
+  tree, no longer makes `Document.Pages`, `Document.Page` or
+  `Document.Metadata` fail.
+
 ## [1.5.1] - 2026-11-15
 
 ### Changed

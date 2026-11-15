@@ -132,15 +132,15 @@ func destY(page pdf.PDFDict, dest pdf.PDFArray) float64 {
 // namedDest returns the destination called name, from the catalog's /Dests
 // dictionary or its /Names /Dests name tree, or nil.
 func (d *Document) namedDest(name string) pdf.PDFValue {
-	if dests, ok := d.root.Entries.Get("Dests").(pdf.PDFDict); ok {
+	dests, _ := d.catalogEntry("Dests")
+	if dests, ok := dests.(pdf.PDFDict); ok {
 		if v := dests.Entries.Get(name); v != nil {
 			return v
 		}
 	}
-	if names, ok := d.root.Entries.Get("Names").(pdf.PDFDict); ok {
-		if tree, ok := names.Entries.Get("Dests").(pdf.PDFDict); ok {
-			return nameTreeLookup(tree, name, 0)
-		}
+	tree, _ := d.catalogEntry("Names", "Dests")
+	if tree, ok := tree.(pdf.PDFDict); ok {
+		return nameTreeLookup(tree, name, 0)
 	}
 	return nil
 }

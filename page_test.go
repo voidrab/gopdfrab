@@ -184,14 +184,22 @@ func inf() float64 { var z float64; return 1 / z }
 
 func TestPageResolveFailure(t *testing.T) {
 	doc := pageDoc(t, "/Rotate 90")
-	doc.resolveGraph = func() (pdf.PDFValue, error) { return nil, errors.New("boom") }
-	if _, err := doc.Pages(); err == nil {
-		t.Error("Pages ignored the resolve error")
+	// Pages fails when resolving either catalog entry it reads fails.
+	for _, failing := range []string{"Pages", "OCProperties"} {
+		doc.resolvePath = func(path []string) (pdf.PDFValue, error) {
+			if path[len(path)-1] == failing {
+				return nil, errors.New("boom")
+			}
+			return doc.r.ResolveGraphByPath(path)
+		}
+		if _, err := doc.Pages(); err == nil {
+			t.Errorf("Pages ignored the error resolving %s", failing)
+		}
 	}
 	if _, err := doc.Page(0); err == nil {
 		t.Error("Page ignored the resolve error")
 	}
-	doc.resolveGraph = nil
+	doc.resolvePath = nil
 	p, err := doc.Page(0)
 	if err != nil {
 		t.Fatal(err)

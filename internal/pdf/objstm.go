@@ -12,47 +12,78 @@ type compressedXrefEntry struct {
 	index        int
 }
 
-// objStmEntry is one decoded object from a compressed object stream, paired
-// with the object number the stream's header declares it as. err is set when
-// that one object failed to parse; its neighbours are unaffected.
+// objStmEntry is one object of a compressed object stream, paired with the
+// object number the stream's header declares it as. Until it is first looked
+// up, raw holds its unparsed bytes; then value is set, or err when that one
+// object failed to parse, and its neighbours are unaffected.
 type objStmEntry struct {
 	objNum int
+	raw    []byte
 	value  PDFValue
 	err    error
 }
 
+// parse parses the entry's bytes, once, recording the object as declared
+// under its number in the stream streamObjNum.
+func (e *objStmEntry) parse(streamObjNum int) {
+	if e.raw == nil {
+		return
+	}
+	lex := NewLexerBytes(e.raw, 0)
+	e.raw = nil
+	val, err := parseObject(lex, lex.NextToken())
+	if err != nil {
+		e.err = fmt.Errorf("object stream %d: object %d: %w", streamObjNum, e.objNum, err)
+		return
+	}
+	// Compressed objects may not themselves be streams (ISO 32000-1 7.5.7),
+	// so there are no stream bytes to capture. Record the object's reference,
+	// which the rest of the package relies on, as parseClassicReference in
+	// resolver.go does for classic objects.
+	if dict, ok := val.(PDFDict); ok {
+		dict.SetRef(PDFRef{ObjNum: e.objNum})
+		val = dict
+	}
+	e.value = val
+}
+
 // resolveCompressedObject returns the value of a compressed object recorded
-// in a type-2 cross-reference entry.
+// in a type-2 cross-reference entry. Only that object is parsed; the other
+// objects of the stream stay unparsed.
 func (d *Reader) resolveCompressedObject(ref PDFRef, entry compressedXrefEntry) (PDFValue, error) {
 	entries, err := d.decodeObjStm(entry.streamObjNum)
 	if err != nil {
 		return nil, fmt.Errorf("object %d: %w", ref.ObjNum, err)
 	}
-	e, ok := findObjStmEntry(entries, entry.index, ref.ObjNum)
-	if !ok {
+	i := findObjStmEntry(entries, entry.index, ref.ObjNum)
+	if i < 0 {
 		return nil, fmt.Errorf("object %d: not in object stream %d", ref.ObjNum, entry.streamObjNum)
 	}
+	e := &entries[i]
+	e.parse(entry.streamObjNum)
 	return e.value, e.err
 }
 
-// findObjStmEntry returns the entry for objNum: the one at index when its
-// declared number agrees, else the first declaring objNum. A wrong xref index
-// must not return, or stamp its reference onto, a different object.
-func findObjStmEntry(entries []objStmEntry, index, objNum int) (objStmEntry, bool) {
+// findObjStmEntry returns the index of the entry for objNum, or -1: the one
+// at index when its declared number agrees, else the first declaring objNum.
+// A wrong xref index must not return, or stamp its reference onto, a
+// different object.
+func findObjStmEntry(entries []objStmEntry, index, objNum int) int {
 	if index >= 0 && index < len(entries) && entries[index].objNum == objNum {
-		return entries[index], true
+		return index
 	}
-	for _, e := range entries {
-		if e.objNum == objNum {
-			return e, true
+	for i := range entries {
+		if entries[i].objNum == objNum {
+			return i
 		}
 	}
-	return objStmEntry{}, false
+	return -1
 }
 
 // decodeObjStm decodes the object stream with object number streamObjNum
-// (ISO 32000-1 7.5.7), returning its contained objects in declaration order.
-// Results are cached per stream object number.
+// (ISO 32000-1 7.5.7), returning its contained objects in declaration order,
+// each still unparsed: objStmEntry.parse parses one. Results are cached per
+// stream object number.
 func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 	if cached, ok := d.objStmCache[streamObjNum]; ok {
 		return cached, nil
@@ -112,25 +143,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 			continue
 		}
 
-		objLex := NewLexerBytes(data[start:end], 0)
-		tok := objLex.NextToken()
-		val, err := parseObject(objLex, tok)
-		if err != nil {
-			entries = append(entries, objStmEntry{objNum: p.objNum,
-				err: fmt.Errorf("object stream %d: object %d: %w", streamObjNum, p.objNum, err)})
-			continue
-		}
-
-		// Compressed objects may not themselves be streams (ISO 32000-1
-		// 7.5.7), so there are no stream bytes to capture. Record the
-		// object's reference, which the rest of the package relies on, as
-		// parseClassicReference in resolver.go does for classic objects.
-		if dictVal, ok := val.(PDFDict); ok {
-			dictVal.SetRef(PDFRef{ObjNum: p.objNum})
-			val = dictVal
-		}
-
-		entries = append(entries, objStmEntry{objNum: p.objNum, value: val})
+		entries = append(entries, objStmEntry{objNum: p.objNum, raw: data[start:end:end]})
 	}
 
 	if d.objStmCache == nil {

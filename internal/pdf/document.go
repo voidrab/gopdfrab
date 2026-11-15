@@ -1121,42 +1121,66 @@ func (d *Reader) SeedResolvedGraph(graph PDFDict, objs map[int]PDFValue) {
 	d.objCache = objs
 }
 
+// ErrNoEntry reports that a path names a dictionary key or array index the
+// object graph does not have.
+var ErrNoEntry = errors.New("pdf: no such entry")
+
 // resolvePath walks a PDF object following path elements, which may be
-// dictionary keys or array indices. node must already be a resolved object.
+// dictionary keys or array indices, and returns the value reached, fully
+// resolved. Only the references on the path are followed on the way, so
+// reaching a small part of a large document, such as its information
+// dictionary, does not parse the rest of it. The walk stops early at a value
+// the next element cannot index: a scalar, or an array given a key.
 func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {
-	current, err := d.ResolveObject(node)
+	current, err := d.resolveShallow(node)
 	if err != nil {
 		return nil, err
 	}
-
-	// ResolveObject resolved the whole subtree in place, so no step of the walk
-	// can meet an unresolved reference.
+walk:
 	for _, key := range path {
-		if arr, ok := current.(PDFArray); ok {
+		switch v := current.(type) {
+		case PDFArray:
 			idx, err := strconv.Atoi(key)
 			if err != nil {
-				return arr, nil
+				break walk
 			}
-			if idx < 0 || idx >= len(arr) {
-				return nil, fmt.Errorf("array index out of range: %d", idx)
+			if idx < 0 || idx >= len(v) {
+				return nil, fmt.Errorf("%w: array index %d out of range", ErrNoEntry, idx)
 			}
-			current = arr[idx]
-			continue
-		}
-
-		if dict, ok := current.(PDFDict); ok {
-			val, found := dict.Entries.Lookup(key)
+			current = v[idx]
+		case PDFDict:
+			val, found := v.Entries.Lookup(key)
 			if !found {
-				return nil, fmt.Errorf("key %q not found in dictionary", key)
+				return nil, fmt.Errorf("%w: key %q not in dictionary", ErrNoEntry, key)
 			}
 			current = val
-			continue
+		default:
+			break walk
 		}
-
-		return current, nil
+		if current, err = d.resolveShallow(current); err != nil {
+			return nil, err
+		}
 	}
-
 	return d.ResolveObject(current)
+}
+
+// resolveShallow follows obj while it is a reference and returns the object
+// it ends at, whose own entries may still hold references.
+func (d *Reader) resolveShallow(obj PDFValue) (PDFValue, error) {
+	for depth := 0; ; depth++ {
+		ref, ok := obj.(PDFRef)
+		if !ok {
+			return obj, nil
+		}
+		if depth > maxResolveDepth {
+			return nil, fmt.Errorf("resolve depth limit exceeded")
+		}
+		target, err := d.ResolveReference(ref)
+		if err != nil {
+			return nil, err
+		}
+		obj = target
+	}
 }
 
 // resolveInPlace returns obj fully resolved.

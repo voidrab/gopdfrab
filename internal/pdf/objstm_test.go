@@ -92,7 +92,7 @@ func TestDecodeObjStm(t *testing.T) {
 		region := "[1 2" // unterminated array
 		dict := NewStreamDict(DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}), []byte(header+" "+region))
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
-		entries, err := d.decodeObjStm(5)
+		entries, err := decodeAndParse(d, 5)
 		if err != nil {
 			t.Fatalf("decodeObjStm: %v (a bad entry must fail only itself)", err)
 		}
@@ -103,7 +103,7 @@ func TestDecodeObjStm(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		d := &Reader{objCache: map[int]PDFValue{5: buildObjStmDict()}}
-		entries, err := d.decodeObjStm(5)
+		entries, err := decodeAndParse(d, 5)
 		if err != nil {
 			t.Fatalf("decodeObjStm: %v", err)
 		}
@@ -123,7 +123,7 @@ func TestDecodeObjStm(t *testing.T) {
 		region := "<< /K 1 >>"
 		dict := NewStreamDict(DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}), []byte(header+" "+region))
 		d := &Reader{objCache: map[int]PDFValue{9: dict}}
-		entries, err := d.decodeObjStm(9)
+		entries, err := decodeAndParse(d, 9)
 		if err != nil {
 			t.Fatalf("decodeObjStm: %v", err)
 		}
@@ -183,4 +183,14 @@ func TestResolveCompressedObject(t *testing.T) {
 			t.Errorf("resolveCompressedObject = %v, %v; want 42", got, err)
 		}
 	})
+}
+
+// decodeAndParse decodes the object stream streamObjNum and parses every
+// object it holds, as resolving each of them would.
+func decodeAndParse(d *Reader, streamObjNum int) ([]objStmEntry, error) {
+	entries, err := d.decodeObjStm(streamObjNum)
+	for i := range entries {
+		entries[i].parse(streamObjNum)
+	}
+	return entries, err
 }
