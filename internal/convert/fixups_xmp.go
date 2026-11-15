@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
@@ -72,21 +73,50 @@ func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa
 		if !ok || pdf.ValuePointer(meta.Entries) == catalogMetaPtr {
 			return
 		}
-		if spec.Part >= 2 && conforms != nil && objectXMPConforms(meta, conforms) {
-			return
+		if spec.Part >= 2 && conforms != nil {
+			if packet, ok := objectXMPConforms(meta, conforms); ok {
+				wrapXMPPacket(meta, packet)
+				return
+			}
 		}
 		d.Entries.Del("Metadata")
 	}
 }
 
-// objectXMPConforms reports whether the packet of meta, a metadata stream other
-// than the catalog's, passes conforms (see verify.ObjectXMPChecker).
-func objectXMPConforms(meta pdf.PDFDict, conforms func(data []byte) bool) bool {
+// xmlDeclRe matches an XML declaration at the start of a packet.
+var xmlDeclRe = regexp.MustCompile(`^\s*<\?xml[^?]*\?>\s*`)
+
+// wrapXMPPacket wraps packet, the UTF-8 XMP of meta, in xpacket processing
+// instructions when it has none. XMP writers emit the wrapper, and stricter
+// validators reject a bare x:xmpmeta element; the wrapper changes no
+// metadata. The header goes after an XML declaration, which must stay first.
+// The packet is rewritten as UTF-8, the encoding the header declares.
+func wrapXMPPacket(meta pdf.PDFDict, packet []byte) {
+	if bytes.Contains(packet, []byte("<?xpacket")) {
+		return
+	}
+	decl := xmlDeclRe.Find(packet)
+	var b bytes.Buffer
+	b.Write(decl)
+	b.WriteString("<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n")
+	b.Write(bytes.TrimSpace(packet[len(decl):]))
+	b.WriteString("\n<?xpacket end=\"w\"?>")
+	setXMPPacket(meta, b.Bytes())
+}
+
+// objectXMPConforms returns the UTF-8 packet of meta, a metadata stream other
+// than the catalog's, and reports whether it passes conforms (see
+// verify.ObjectXMPChecker).
+func objectXMPConforms(meta pdf.PDFDict, conforms func(data []byte) bool) ([]byte, bool) {
 	if !meta.IsStream() {
-		return false
+		return nil, false
 	}
 	data, err := pdf.DecodeStream(meta)
-	return err == nil && conforms(pdf.DecodeXMPEncoding(data))
+	if err != nil {
+		return nil, false
+	}
+	packet := pdf.DecodeXMPEncoding(data)
+	return packet, conforms(packet)
 }
 
 // normalizeInfoDict coerces the Info dictionary's standard entries (Table

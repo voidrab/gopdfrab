@@ -33,6 +33,9 @@ Everything under `internal/` may change in any release without notice.
 - Convert removes a /Lang entry that is not a language tag, such as one left
   encrypted by a tool that decrypted the rest of the document. Stricter
   validators reject such a value.
+- At PDF/A-2 and later, convert wraps a kept image or other object metadata
+  packet in xpacket processing instructions when it has none, as stricter
+  validators require.
 
 ## [1.5.2] - 2026-11-15
 
