@@ -313,8 +313,9 @@ func MatchesValueType(val pdf.PDFValue, allowed []arlington.ValueType) bool {
 	return matchesValueType(val, allowed)
 }
 
-// DisallowedEnum exposes the DisallowedValue check's membership test to
-// object-model fixers, so a fixer repairs exactly the values the check flags.
+// DisallowedEnum reports whether val breaks the enumeration of kd. Object-model
+// fixers call it so that they repair exactly the values the DisallowedValue
+// check flags.
 func DisallowedEnum(val pdf.PDFValue, kd *arlington.KeyDef) bool {
 	return disallowedEnum(val, kd)
 }
@@ -572,9 +573,10 @@ func isIndirect(val pdf.PDFValue) bool {
 	return ok
 }
 
-// disallowedEnum reports whether val breaks kd's enumeration: kd enumerates legal values,
-// val is a scalar of a type the enumeration covers, and val is not among them. A value of
-// one of kd.UnenumeratedTypes is never disallowed, since the enumeration holds only the
+// disallowedEnum reports whether val breaks the enumeration of kd. That requires
+// kd to enumerate legal values, val to be a scalar of a type the enumeration
+// covers, and val not to be among the legal values. A value of one of
+// kd.UnenumeratedTypes is never disallowed, since the enumeration holds only the
 // other types' values.
 func disallowedEnum(val pdf.PDFValue, kd *arlington.KeyDef) bool {
 	if kd.Predicated.Values || len(kd.PossibleValues) == 0 {

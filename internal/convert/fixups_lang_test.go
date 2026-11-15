@@ -6,8 +6,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// TestDropInvalidLang verifies that a /Lang that is not a language tag is
-// removed, and that a tag or the empty (unknown language) string is kept.
+// TestDropInvalidLang verifies that a string /Lang that is not a language tag
+// is removed, while a language tag, the empty (unknown language) string and a
+// non-string value are kept.
 func TestDropInvalidLang(t *testing.T) {
 	cases := []struct {
 		lang pdf.PDFValue

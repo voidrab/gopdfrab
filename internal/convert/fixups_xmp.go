@@ -87,10 +87,10 @@ func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa
 var xmlDeclRe = regexp.MustCompile(`^\s*<\?xml[^?]*\?>\s*`)
 
 // wrapXMPPacket wraps packet, the UTF-8 XMP of meta, in xpacket processing
-// instructions when it has none. XMP writers emit the wrapper, and stricter
-// validators reject a bare x:xmpmeta element; the wrapper changes no
-// metadata. The header goes after an XML declaration, which must stay first.
-// The packet is rewritten as UTF-8, the encoding the header declares.
+// instructions unless it already has them. The wrapper does not change the
+// metadata. The header is placed after an XML declaration, which must remain
+// the first thing in the packet. The header carries a UTF-8 byte order mark,
+// so packet must be UTF-8.
 func wrapXMPPacket(meta pdf.PDFDict, packet []byte) {
 	if bytes.Contains(packet, []byte("<?xpacket")) {
 		return

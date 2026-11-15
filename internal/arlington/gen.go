@@ -712,11 +712,11 @@ func splitGroups(raw string) []string {
 	return out
 }
 
-// unenumeratedTypes returns the Go identifiers of the types in typ whose group in the
-// per-type PossibleValues column raw is empty. parsePossibleValues flattens the groups into
-// one list, so without this a value of such a type would be checked against the other
-// types' values: an integer LineHeight against [Normal,Auto]. A column that is not grouped
-// per type, or whose group count does not match the type count, names no types.
+// unenumeratedTypes returns the Go identifiers of the types in typ whose group in
+// the per-type PossibleValues column raw is empty. parsePossibleValues flattens
+// the groups into one list, so a value of such a type would otherwise be checked
+// against the other types' values. A column with fewer than two groups, or whose
+// group count differs from the type count, names no types and yields nil.
 func unenumeratedTypes(typ, raw string) []string {
 	tokens := strings.Split(typ, ";")
 	groups := splitGroups(raw)
