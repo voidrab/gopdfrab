@@ -117,6 +117,10 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 		}
 	}
 
+	if !isMask && ncomp == 1 && bpc <= 8 {
+		return unpackPalette(cs, resources, decode, data, width, height, bpc), nil
+	}
+
 	maxVal := float64((uint64(1) << bpc) - 1)
 	rowBits := width * ncomp * bpc
 	rowBytes := (rowBits + 7) / 8
@@ -148,6 +152,48 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 		}
 	}
 	return img, nil
+}
+
+// unpackPalette reads an image of one component of at most 8 bits, which has
+// at most 256 distinct colours: an indexed palette, a tint, a gray ramp. Each
+// colour that occurs is resolved once, and the pixels are then table lookups.
+// Resolving an Indexed colour decodes its lookup table's stream, which is far
+// too dear to repeat for every pixel.
+func unpackPalette(cs pdf.PDFValue, resources pdf.PDFDict, decode []float64, data []byte, width, height, bpc int) *image.RGBA {
+	maxVal := float64((uint64(1) << bpc) - 1)
+	rowBytes := (width*bpc + 7) / 8
+	var table [256][4]byte
+	var known [256]bool
+	comps := make([]float64, 1)
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		// Samples missing from short data read as zero, as ReadBits has them.
+		row := data[min(y*rowBytes, len(data)):]
+		out := img.Pix[img.PixOffset(0, y):][:4*width]
+		for x := 0; x < width; x++ {
+			var raw int
+			switch bpc {
+			case 8:
+				if x < len(row) {
+					raw = int(row[x])
+				}
+			case 1, 2, 4: // the sample lies within one byte
+				if bit := x * bpc; bit>>3 < len(row) {
+					raw = int(row[bit>>3]>>(8-bpc-bit&7)) & (1<<bpc - 1)
+				}
+			default:
+				raw = int(pdf.ReadBits(row, x*bpc, bpc))
+			}
+			if !known[raw] {
+				comps[0] = decode[0] + (float64(raw)/maxVal)*(decode[1]-decode[0])
+				r, g, b := pdf.ResolveColor(cs, comps, resources)
+				storeRGBA64(table[raw][:], 0, r, g, b, 1)
+				known[raw] = true
+			}
+			copy(out[4*x:], table[raw][:])
+		}
+	}
+	return img
 }
 
 // samplesBackSize reports whether n bytes of samples may be unpacked into a

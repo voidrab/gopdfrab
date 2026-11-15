@@ -95,26 +95,6 @@ func TestFillWithMeshShadingPattern(t *testing.T) {
 	}
 }
 
-// TestTilingPatternReportsDrop verifies that a tiling pattern is not rendered,
-// and must be reported rather than painting the flat black that a Pattern
-// colour space leaves behind.
-func TestTilingPatternReportsDrop(t *testing.T) {
-	pattern := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
-		"PatternType": pdf.PDFInteger(1),
-		"PaintType":   pdf.PDFInteger(1),
-		"TilingType":  pdf.PDFInteger(1),
-		"BBox":        numArray(0, 0, 4, 4),
-		"XStep":       pdf.PDFInteger(4),
-		"YStep":       pdf.PDFInteger(4),
-	}), []byte("1 0 0 rg 0 0 4 4 re f"))
-
-	img, drops := renderPattern(t, "/Pattern cs /P1 scn 5 5 10 10 re f", pattern)
-	if !hasDrop(drops, dropTilingPattern) {
-		t.Errorf("drops = %v, want %q", drops, dropTilingPattern)
-	}
-	assertUnpainted(t, img, 10, 10, "tiling pattern fill")
-}
-
 // TestUnusablePatternReportsDrop verifies that a pattern name that resolves to
 // nothing, or to a shading the rasterizer cannot use, paints nothing and says
 // so.

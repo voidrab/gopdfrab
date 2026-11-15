@@ -210,3 +210,32 @@ func TestInitialColour(t *testing.T) {
 		}
 	}
 }
+
+// TestUncolouredPatternTakesItsUnderlyingColour verifies that the components
+// before a pattern name set the colour an uncoloured pattern paints with.
+func TestUncolouredPatternTakesItsUnderlyingColour(t *testing.T) {
+	space := pdf.PDFArray{name("Pattern"), name("DeviceRGB")}
+	g := NewGState()
+	g.Apply("cs", []pdf.PDFValue{space}, pdf.PDFDict{})
+	g.Apply("scn", []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0.5), pdf.PDFReal(0), name("P1")}, pdf.PDFDict{})
+	if g.Fill.Pattern != "P1" || g.Fill.RGB != [3]float64{1, 0.5, 0} {
+		t.Errorf("fill = %+v, want pattern P1 over (1, 0.5, 0)", g.Fill)
+	}
+	// A coloured pattern has no underlying colour and a bare name leaves RGB alone.
+	g.Apply("CS", []pdf.PDFValue{name("Pattern")}, pdf.PDFDict{})
+	g.Apply("SCN", []pdf.PDFValue{pdf.PDFReal(1), name("P2")}, pdf.PDFDict{})
+	if g.Stroke.Pattern != "P2" || g.Stroke.RGB != [3]float64{} {
+		t.Errorf("stroke = %+v", g.Stroke)
+	}
+	g.Apply("scn", []pdf.PDFValue{name("P3")}, pdf.PDFDict{})
+	if g.Fill.Pattern != "P3" || g.Fill.RGB != [3]float64{1, 0.5, 0} {
+		t.Errorf("fill after a bare name = %+v", g.Fill)
+	}
+	// An uncoloured space without a base space cannot give a colour.
+	if _, ok := patternBase(pdf.PDFArray{name("Pattern")}); ok {
+		t.Error("patternBase accepted a space with no base")
+	}
+	if _, ok := patternBase(name("Pattern")); ok {
+		t.Error("patternBase accepted the plain name")
+	}
+}

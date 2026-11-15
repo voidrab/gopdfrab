@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"context"
 	"image"
 	"math"
 	"testing"
@@ -18,7 +19,7 @@ func dictOf(m map[string]pdf.PDFValue) pdf.PDFDict { return pdf.PDFDict{Entries:
 func renderEffects(t *testing.T, src string, states map[string]pdf.PDFValue) [3]uint8 {
 	t.Helper()
 	res := dictOf(map[string]pdf.PDFValue{"ExtGState": dictOf(states)})
-	canvas, _, err := renderContent([]byte(src), res, [4]float64{0, 0, 10, 10}, 72, InheritedPaint{}, paperBackdrop, nil)
+	canvas, _, err := renderContent(context.Background(), []byte(src), res, [4]float64{0, 0, 10, 10}, 72, InheritedPaint{}, paperBackdrop, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +295,7 @@ func TestDeepSoftMaskIsNotRendered(t *testing.T) {
 func renderForm(t *testing.T, src string, form pdf.PDFDict, states map[string]pdf.PDFValue) [3]uint8 {
 	t.Helper()
 	res := dictOf(map[string]pdf.PDFValue{"ExtGState": dictOf(states), "XObject": dictOf(map[string]pdf.PDFValue{"Fm": form})})
-	canvas, _, err := renderContent([]byte(src), res, [4]float64{0, 0, 10, 10}, 72, InheritedPaint{}, paperBackdrop, nil)
+	canvas, _, err := renderContent(context.Background(), []byte(src), res, [4]float64{0, 0, 10, 10}, 72, InheritedPaint{}, paperBackdrop, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,5 +477,20 @@ func TestEffectLayerStaysWithinAMaskThatHidesTheRest(t *testing.T) {
 	r.withEffects(gs, nil, func() { got = r.canvas.Bounds() })
 	if got != image.Rect(1, 1, 3, 3) {
 		t.Errorf("layer = %v", got)
+	}
+}
+
+func TestRenderStopsOnceTheContextIsDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// With the context done, no operator paints, and the render reports why.
+	canvas, _, err := renderContent(ctx, []byte("0 0 0 rg 0 0 10 10 re f"), dictOf(nil), [4]float64{0, 0, 10, 10}, 72, InheritedPaint{}, paperBackdrop, nil)
+	if err != context.Canceled || canvas != nil {
+		t.Fatalf("got %v, %v; want nil, context canceled", canvas, err)
+	}
+	// Without a cancelled context the same content paints.
+	canvas, _, err = renderContent(context.Background(), []byte("0 0 0 rg 0 0 10 10 re f"), dictOf(nil), [4]float64{0, 0, 10, 10}, 72, InheritedPaint{}, paperBackdrop, nil)
+	if err != nil || canvas.Pix[0] != 0 {
+		t.Fatalf("uncancelled render did not paint: %v", err)
 	}
 }

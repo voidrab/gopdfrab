@@ -3,9 +3,12 @@ package raster
 import (
 	"bytes"
 	"errors"
+	"image"
+	"math/rand"
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -151,5 +154,145 @@ func TestInlineImageDictSkipsNonNameKeys(t *testing.T) {
 	}
 	if w, h := pdf.DictInt(dict, "Width", 0), pdf.DictInt(dict, "Height", 0); w != 2 || h != 3 {
 		t.Errorf("size = %dx%d, want 2x3", w, h)
+	}
+}
+
+// TestDecodeImageRGBAIndexed8BitRepeatsEntries checks that pixels sharing a
+// palette index get that entry's colour however often the index recurs.
+func TestDecodeImageRGBAIndexed8BitRepeatsEntries(t *testing.T) {
+	dict := imageDict(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(4), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFArray{
+			pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(2),
+			pdf.PDFString{Value: "\xff\x00\x00\x00\xff\x00\x00\x00\xff"},
+		},
+	}, []byte{1, 2, 1, 0})
+	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("DecodeImageRGBA: %v", err)
+	}
+	want := [][3]uint8{{0, 255, 0}, {0, 0, 255}, {0, 255, 0}, {255, 0, 0}}
+	for x, w := range want {
+		if r, g, b := pixelAt(t, img, x, 0); [3]uint8{uint8(r), uint8(g), uint8(b)} != w {
+			t.Errorf("pixel %d = (%d,%d,%d), want %v", x, r, g, b, w)
+		}
+	}
+}
+
+// TestAlignedImageMatchesGeneralLoop draws random images, scales and offsets
+// through the aligned fast path and through the general loop (forced by a
+// clip mask that lets everything through) and compares the canvases.
+func TestAlignedImageMatchesGeneralLoop(t *testing.T) {
+	rng := rand.New(rand.NewSource(11))
+	for iter := 0; iter < 150; iter++ {
+		w, h := 1+rng.Intn(12), 1+rng.Intn(12)
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		for i := 0; i < len(img.Pix); i += 4 {
+			img.Pix[i], img.Pix[i+1], img.Pix[i+2] = uint8(rng.Intn(256)), uint8(rng.Intn(256)), uint8(rng.Intn(256))
+			img.Pix[i+3] = []uint8{255, 255, 255, 0, uint8(rng.Intn(256))}[rng.Intn(5)]
+		}
+		sx, sy := 3+rng.Float64()*50, 3+rng.Float64()*50
+		if rng.Intn(3) == 0 {
+			sy = -sy // upside down
+		}
+		ctm := content.Matrix{A: sx, D: sy, E: rng.Float64()*20 - 10, F: rng.Float64()*20 - 10}
+		draw := func(mask *clipMask) *image.RGBA {
+			canvas := image.NewRGBA(image.Rect(0, 0, 40, 40))
+			for i := range canvas.Pix {
+				canvas.Pix[i] = 200
+			}
+			gs := newRenderState(ctm, [4]float64{0, 0, 40, 40})
+			gs.mask = mask
+			r := &renderer{canvas: canvas}
+			r.compositeImage(img, nil, false, false, &gs)
+			return canvas
+		}
+		all := newClipMask(image.Rect(0, 0, 40, 40), [][]content.Point{{{X: -1, Y: -1}, {X: 41, Y: -1}, {X: 41, Y: 41}, {X: -1, Y: 41}}}, false, nil)
+		if got, want := draw(nil), draw(all); !bytes.Equal(got.Pix, want.Pix) {
+			t.Fatalf("iteration %d: aligned image differs from the general loop (ctm %+v, %dx%d)", iter, ctm, w, h)
+		}
+	}
+}
+
+// TestSmoothAlignedImageMatchesGeneralLoop verifies that smoothed images,
+// enlarged with /Interpolate or shrunk, drawn on the aligned path differ from
+// the general loop by at most one level per channel. Translucent smoothed
+// images take the general loop, because the smooth aligned path needs opaque
+// pixels.
+func TestSmoothAlignedImageMatchesGeneralLoop(t *testing.T) {
+	rng := rand.New(rand.NewSource(13))
+	for iter := 0; iter < 150; iter++ {
+		w, h := 1+rng.Intn(40), 1+rng.Intn(40)
+		translucent := iter%5 == 0
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		for i := 0; i < len(img.Pix); i += 4 {
+			img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = uint8(rng.Intn(256)), uint8(rng.Intn(256)), uint8(rng.Intn(256)), 255
+			if translucent {
+				img.Pix[i+3] = uint8(rng.Intn(256))
+			}
+		}
+		sx, sy := 2+rng.Float64()*45, 2+rng.Float64()*45
+		if rng.Intn(3) == 0 {
+			sy = -sy
+		}
+		ctm := content.Matrix{A: sx, D: sy, E: rng.Float64()*20 - 10, F: rng.Float64()*20 - 10}
+		draw := func(mask *clipMask) *image.RGBA {
+			canvas := image.NewRGBA(image.Rect(0, 0, 40, 40))
+			for i := range canvas.Pix {
+				canvas.Pix[i] = 200
+			}
+			gs := newRenderState(ctm, [4]float64{0, 0, 40, 40})
+			gs.mask = mask
+			r := &renderer{canvas: canvas}
+			r.compositeImage(img, nil, false, true, &gs)
+			return canvas
+		}
+		all := newClipMask(image.Rect(0, 0, 40, 40), [][]content.Point{{{X: -1, Y: -1}, {X: 41, Y: -1}, {X: 41, Y: 41}, {X: -1, Y: 41}}}, false, nil)
+		got, want := draw(nil), draw(all)
+		for i := range got.Pix {
+			if d := int(got.Pix[i]) - int(want.Pix[i]); d < -1 || d > 1 {
+				t.Fatalf("iteration %d: byte %d is %d, the general loop has %d (ctm %+v, %dx%d)", iter, i, got.Pix[i], want.Pix[i], ctm, w, h)
+			}
+		}
+	}
+}
+
+// TestPaletteUnpackMatchesPerPixelResolution reads random one-component
+// images of every bit depth, indexed and gray, straight and inverted, and
+// compares each pixel with resolving its sample on its own.
+func TestPaletteUnpackMatchesPerPixelResolution(t *testing.T) {
+	rng := rand.New(rand.NewSource(17))
+	for bpc := 1; bpc <= 8; bpc++ {
+		for _, mode := range []string{"indexed", "gray", "inverted gray"} {
+			w, h := 1+rng.Intn(13), 1+rng.Intn(5)
+			rowBytes := (w*bpc + 7) / 8
+			data := make([]byte, rowBytes*h)
+			rng.Read(data)
+			var cs pdf.PDFValue = pdf.PDFName{Value: "DeviceGray"}
+			decode := []float64{0, 1}
+			switch mode {
+			case "indexed":
+				palette := make([]byte, 3*(1<<bpc))
+				rng.Read(palette)
+				cs = pdf.PDFArray{pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(1<<bpc - 1), pdf.PDFString{Value: string(palette)}}
+				decode = []float64{0, float64(int(1)<<bpc - 1)}
+			case "inverted gray":
+				decode = []float64{1, 0}
+			}
+			got := unpackPalette(cs, pdf.PDFDict{}, decode, data, w, h, bpc)
+			for y := 0; y < h; y++ {
+				for x := 0; x < w; x++ {
+					raw := float64(pdf.ReadBits(data[y*rowBytes:], x*bpc, bpc))
+					comps := []float64{decode[0] + raw/float64(int(1)<<bpc-1)*(decode[1]-decode[0])}
+					r, g, b := pdf.ResolveColor(cs, comps, pdf.PDFDict{})
+					want := make([]byte, 4)
+					storeRGBA64(want, 0, r, g, b, 1)
+					if gp := got.Pix[got.PixOffset(x, y):][:4]; !bytes.Equal(gp, want) {
+						t.Fatalf("%d bpc %s: pixel (%d,%d) = %v, want %v", bpc, mode, x, y, gp, want)
+					}
+				}
+			}
+		}
 	}
 }

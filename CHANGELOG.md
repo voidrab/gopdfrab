@@ -22,6 +22,39 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
+## [1.5.0] - 2026-11-15
+
+### Added
+
+- A page API for viewers: `Document.Pages` and `Document.Page` give random
+  access to pages, and a `Page` reports its `Size` and `Rotation` and renders
+  with `Render`, onto white and rotated for display, at a `RenderOptions.Scale`
+  and, with `RenderOptions.Region`, only the part of the page asked for.
+  `ErrPageRange` reports an index outside the document.
+- `Page.Glyphs` returns each character a page shows with its box, and
+  `Page.Links` its URI links and links to pages, named destinations resolved.
+  Both give positions as `Rect`s in points on the displayed page.
+
+### Changed
+
+- The renderer anti-aliases fills and clips, strokes with caps, joins, miter
+  limits and dashes, filters images when it scales them, and draws text render
+  modes 0 to 7, uncoloured patterns and tiling patterns. The raster fallback
+  and fidelity checks of conversion render with it too.
+- Rendering is faster and needs less memory: decoded images, image pyramids
+  and glyph outlines are kept between renders, clip masks are stored as runs,
+  and a render stops soon after its context is done.
+
+### Fixed
+
+- CFF and Type 1 outlines are scaled by the program's FontMatrix, and a CID in
+  a CID-keyed CFF program finds its glyph through the charset.
+- Unlisted standard fonts take their advances from the substitute face, and a
+  tiling pattern with a non-finite bounding box is rejected.
+- On Windows, a file open in a `Reader` can be renamed or deleted, as on unix,
+  and `ConvertResult.Save` can write over it, as when a document is converted
+  in place while it is open.
+
 ## [1.4.0] - 2026-11-09
 
 ### Added

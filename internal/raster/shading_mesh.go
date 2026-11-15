@@ -78,6 +78,7 @@ type meshPainter struct {
 	canvas    *image.RGBA
 	toDevice  content.Matrix
 	alpha     float64
+	mask      *clipMask // what the clip lets through; nil for all
 	primitive int
 	overflow  bool
 }
@@ -130,7 +131,9 @@ func (mp *meshPainter) flat(a, b, c meshVertex, u, v, d float64, flipped bool) {
 			rgb[k] += (wa*a.rgb[k] + wb*b.rgb[k] + wc*c.rgb[k]) / 3
 		}
 	}
-	FillPath(mp.canvas, [][]content.Point{pts}, rgb, mp.alpha, false)
+	if mp.alpha > 0 {
+		fillPathAliased(mp.canvas, [][]content.Point{pts}, false, mp.mask.wrap(constant(rgb, mp.alpha)))
+	}
 }
 
 // quad paints one grid cell of a patch as two triangles.

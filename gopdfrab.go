@@ -2,10 +2,13 @@ package gopdfrab
 
 import (
 	"context"
+	"sync"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/convert"
 	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
@@ -394,12 +397,24 @@ func ConvertObjectModelBytes(data []byte) (ConvertResult, error) {
 
 // Document represents an open PDF file.
 //
-// A Document is not safe for concurrent use: it holds parse and stream-decode
-// caches that its methods fill without synchronization. Open one per goroutine
-// rather than sharing one. The package-level Verify and Convert functions each
-// open their own document, so those are safe to call concurrently.
+// A Document is not safe for concurrent use, except for Page and the Page
+// methods, which serialize on an internal lock: its other methods fill parse
+// and stream-decode caches without synchronization. Open one per goroutine
+// rather than sharing one for those. The package-level Verify and Convert
+// functions each open their own document, so those are safe to call
+// concurrently.
 type Document struct {
 	r *pdf.Reader
+
+	// mu serializes page access and rendering, which share r's caches.
+	mu    sync.Mutex
+	pages []pageEntry
+	root  pdf.PDFDict // the catalog, once the pages are loaded
+	oc    *content.OptionalContent
+	cache *raster.Cache // fonts and images kept between renders
+	index bool
+	// resolveGraph replaces r.ResolveGraph; tests use it to force failures.
+	resolveGraph func() (pdf.PDFValue, error)
 }
 
 // Open initializes the PDF document at path, decrypting an encrypted file with
@@ -434,7 +449,12 @@ func OpenBytesWithPassword(data, password []byte) (*Document, error) {
 
 // Close releases the file handle and any memory mapping. Calls after the
 // first return nil.
-func (d *Document) Close() error { return d.r.Close() }
+func (d *Document) Close() error {
+	d.mu.Lock()
+	d.cache = nil
+	d.mu.Unlock()
+	return d.r.Close()
+}
 
 // Verify verifies d against the checks enabled in profile p.
 func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r, p) }

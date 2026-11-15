@@ -13,11 +13,14 @@ import (
 	"github.com/voidrab/gopdfrab/verify"
 )
 
-// isConvertOnly reports whether a root identifier belongs to conversion, and
-// so has no counterpart in the verify package.
+// isConvertOnly reports whether a root identifier belongs to conversion or to
+// page viewing (Page, Pages, RenderOptions, ErrPageRange, and the text and
+// link types Rect, Glyph and Link), and so has no counterpart in the verify
+// package.
 func isConvertOnly(name string) bool {
 	switch name {
-	case "PageFidelity", "RasterDrop", "ErrUnresolvableGraph":
+	case "PageFidelity", "RasterDrop", "ErrUnresolvableGraph",
+		"Page", "Pages", "RenderOptions", "ErrPageRange", "Rect", "Glyph", "Link":
 		return true
 	}
 	return strings.Contains(name, "Convert")

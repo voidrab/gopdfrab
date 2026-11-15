@@ -1,9 +1,11 @@
 package raster
 
 import (
+	"cmp"
 	"image"
 	"math"
-	"sort"
+	"slices"
+	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/content"
 )
@@ -13,12 +15,52 @@ import (
 // fill, with nonzero or even-odd winding per the f/f* operator, blending
 // rgb at alpha over the existing pixels.
 func FillPath(canvas *image.RGBA, contours [][]content.Point, rgb [3]float64, alpha float64, evenOdd bool) {
+	fillSolid(canvas, contours, evenOdd, rgb, alpha, nil)
+}
+
+// fillSolid is FillPath within a clip mask, which may be nil. It works a run
+// of equally covered pixels at a time: the interior of a shape is a few long
+// runs, written as bytes when opaque, and only edge pixels and translucent
+// ones are blended one by one.
+func fillSolid(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, rgb [3]float64, alpha float64, mask *clipMask) {
 	if alpha <= 0 {
 		return
 	}
-	fillPathFunc(canvas, contours, evenOdd, func(x, y int) ([3]float64, float64) {
-		return rgb, alpha
+	var opaque [4]byte
+	storeRGBA64(opaque[:], 0, rgb[0], rgb[1], rgb[2], 1)
+	// Runs and mask spans are never empty, so the byte slice passed to
+	// fillBytes is never empty.
+	paint := func(y, x0, x1 int, a float64) {
+		if a < 1 {
+			for x := x0; x < x1; x++ {
+				blendPixel(canvas, x, y, rgb, a)
+			}
+			return
+		}
+		fillBytes(canvas.Pix[canvas.PixOffset(x0, y):canvas.PixOffset(x1, y)], opaque)
+	}
+	scanRuns(canvas.Bounds(), contours, evenOdd, true, func(y, x0, x1 int, cov float32) {
+		if mask == nil {
+			paint(y, x0, x1, alpha*float64(cov))
+			return
+		}
+		mask.eachSpan(y, x0, x1, func(sx0, sx1 int, mc float64) {
+			if a := alpha * mc; a > 0 {
+				paint(y, sx0, sx1, a*float64(cov))
+			}
+		})
 	})
+}
+
+// fillBytes sets every pixel of row, a non-empty whole number of four-byte
+// pixels, to px.
+func fillBytes(row []byte, px [4]byte) {
+	copy(row, px[:])
+	// Doubling copies move the bytes written so far, rather than one pixel at
+	// a time.
+	for filled := 4; filled < len(row); filled *= 2 {
+		copy(row[filled:], row[:filled])
+	}
 }
 
 // FillPathShaded fills contours the same way as FillPath, but asks colorAt
@@ -29,50 +71,268 @@ func FillPathShaded(canvas *image.RGBA, contours [][]content.Point, evenOdd bool
 	fillPathFunc(canvas, contours, evenOdd, colorAt)
 }
 
+// aaSamples is the number of sub-scanlines each pixel row is sampled at; the
+// coverage of a pixel is exact across x and quantized to 1/aaSamples in y.
+const aaSamples = 8
+
+// fillPathFunc rasterizes contours with anti-aliasing. A pixel's coverage
+// scales the alpha that colorAt returns for it, so a fully covered pixel keeps
+// colorAt's alpha and only edge pixels are blended at reduced alpha.
 func fillPathFunc(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
+	fillPathMode(canvas, contours, evenOdd, true, colorAt)
+}
+
+// fillPathAliased is fillPathFunc without anti-aliasing: a pixel is painted
+// whole when its centre is inside. Shapes that must tile without seams, such
+// as the triangles of a mesh shading, use it, because two anti-aliased
+// neighbours each cover only part of the pixels along their shared edge and
+// let the backdrop show through.
+func fillPathAliased(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
+	fillPathMode(canvas, contours, evenOdd, false, colorAt)
+}
+
+func fillPathMode(canvas *image.RGBA, contours [][]content.Point, evenOdd, aa bool, colorAt func(x, y int) ([3]float64, float64)) {
+	scanCoverage(canvas.Bounds(), contours, evenOdd, aa, func(x, y int, cov float32) {
+		rgb, alpha := colorAt(x, y)
+		if alpha <= 0 {
+			return
+		}
+		blendPixel(canvas, x, y, rgb, alpha*float64(cov))
+	})
+}
+
+// scanCoverage rasterizes contours within bounds and calls emit for each pixel
+// they cover, with the covered fraction in (0, 1]. Pixels whose coverage rounds
+// to zero are skipped. Pixels are visited row by row, left to right. With aa
+// false a pixel is covered whole or not at all, by whether its centre is
+// inside.
+func scanCoverage(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bool, emit func(x, y int, cov float32)) {
+	scanRuns(bounds, contours, evenOdd, aa, func(y, x0, x1 int, cov float32) {
+		for x := x0; x < x1; x++ {
+			emit(x, y, cov)
+		}
+	})
+}
+
+// scanRuns is scanCoverage reporting runs: emit is called for each stretch
+// [x0, x1) of row y over which the covered fraction is the constant cov, in
+// (0, 1]. A shape's interior is a few long runs and its edges short ones, so
+// the work done is proportional to the outline, not the area.
+func scanRuns(bounds image.Rectangle, contours [][]content.Point, evenOdd, aa bool, emit func(y, x0, x1 int, cov float32)) {
 	if len(contours) == 0 {
 		return
 	}
-	edges := buildEdges(contours)
+	f := scanScratch.Get().(*coverage)
+	defer releaseScratch(f)
+	edges := buildEdges(f.edges[:0], contours)
+	f.edges = edges // kept, however this ends, for the next fill to reuse
+	// An edge wholly above or below the rows scanned changes none of them. A
+	// glyph far outside a tile or a clip then costs nothing but this pass.
+	keep := edges[:0]
+	for _, e := range edges {
+		if e.y1 > float64(bounds.Min.Y) && e.y0 < float64(bounds.Max.Y) {
+			keep = append(keep, e)
+		}
+	}
+	edges = keep
 	if len(edges) == 0 {
 		return
 	}
+	slices.SortFunc(edges, func(a, b pathEdge) int { return cmp.Compare(a.y0, b.y0) })
 
-	// Clamp the scan loop to the edges' y-extent: a scanline outside it has
-	// no crossings, so skipping it is pixel-identical. This matters because
-	// showText issues one FillPath per glyph, so without the clamp every
-	// glyph would scan the full page height.
+	// The scan loop is limited to the edges' y-extent. showText issues one fill
+	// per glyph, so without this limit every glyph would scan the full page
+	// height.
 	edgeMinY, edgeMaxY := edges[0].y0, edges[0].y1
 	for _, e := range edges[1:] {
-		edgeMinY = math.Min(edgeMinY, e.y0)
 		edgeMaxY = math.Max(edgeMaxY, e.y1)
 	}
+	minY := max(bounds.Min.Y, int(math.Floor(edgeMinY)))
+	maxY := min(bounds.Max.Y, int(math.Ceil(edgeMaxY)))
+	// The pixel columns are limited to the edges' x-extent plus one pixel on
+	// each side, so the per-row buffers are as wide as the shape, not the
+	// canvas.
+	edgeMinX, edgeMaxX := math.Inf(1), math.Inf(-1)
+	for _, e := range edges {
+		x1 := e.x0 + (e.y1-e.y0)*e.dxdy
+		edgeMinX = math.Min(edgeMinX, math.Min(e.x0, x1))
+		edgeMaxX = math.Max(edgeMaxX, math.Max(e.x0, x1))
+	}
+	minX := max(bounds.Min.X, int(math.Floor(edgeMinX))-1)
+	maxX := min(bounds.Max.X, int(math.Ceil(edgeMaxX))+1)
+	w := maxX - minX
+	if minY >= maxY || w <= 0 {
+		return
+	}
 
-	bounds := canvas.Bounds()
-	// A scanline samples at y+0.5 and an edge is active for y0 <= y+0.5 < y1.
-	minY := max(bounds.Min.Y, int(math.Ceil(edgeMinY-0.5)))
-	maxY := min(bounds.Max.Y, int(math.Ceil(edgeMaxY-0.5))+1)
-
-	var scratch scanScratch
+	samples := 1
+	if aa {
+		samples = aaSamples
+	}
+	f.edges, f.evenOdd, f.aa, f.samples, f.w, f.minX = edges, evenOdd, aa, samples, w, float64(minX)
+	f.next, f.active, f.cross, f.marks = 0, f.active[:0], f.cross[:0], f.marks[:0]
+	f.partial, f.runs = zeroed(f.partial, w+1), zeroed(f.runs, w+2)
 	for y := minY; y < maxY; y++ {
-		scanY := float64(y) + 0.5
-		spans := scanlineSpans(edges, scanY, evenOdd, &scratch)
-		for _, sp := range spans {
-			x0 := int(math.Floor(sp[0] + 0.5))
-			x1 := int(math.Ceil(sp[1] - 0.5))
-			if x0 < bounds.Min.X {
-				x0 = bounds.Min.X
+		f.row(y)
+		f.flush(minX, y, emit)
+	}
+}
+
+// scanScratch holds the buffers of finished fills for the next ones: showText
+// fills every glyph on its own, and allocating them afresh for each was most
+// of what rendering a page of text allocated.
+var scanScratch = sync.Pool{New: func() any { return new(coverage) }}
+
+// maxScratchEdges and maxScratchWidth bound the buffers kept in scanScratch, so
+// that one huge path does not hold its memory for the fills after it.
+const (
+	maxScratchEdges = 1 << 16
+	maxScratchWidth = 1 << 14
+)
+
+// releaseScratch returns f to scanScratch unless its buffers grew too large.
+func releaseScratch(f *coverage) {
+	if cap(f.edges) > maxScratchEdges || cap(f.partial) > maxScratchWidth+2 || cap(f.runs) > maxScratchWidth+2 {
+		return
+	}
+	scanScratch.Put(f)
+}
+
+// zeroed returns s resized to n with every element zero, reusing its memory
+// when it is large enough.
+func zeroed(s []float32, n int) []float32 {
+	if cap(s) < n {
+		return make([]float32, n)
+	}
+	s = s[:n]
+	clear(s)
+	return s
+}
+
+// coverage accumulates the coverage of one pixel row. A span adds its
+// partially covered end pixels to partial and its fully covered interior as a
+// +1/-1 pair in runs, so the cost of a span does not grow with its width.
+type coverage struct {
+	edges   []pathEdge // sorted by y0
+	evenOdd bool
+	aa      bool // whether to sample aaSamples sub-scanlines and keep fractional x
+	samples int  // sub-scanlines per row: aaSamples, or 1 when aliased
+	w       int
+	minX    float64
+
+	next   int   // first edge not yet activated
+	active []int // indices of the edges crossing the current sub-scanline
+	cross  []crossing
+
+	partial []float32 // coverage in units of sub-scanlines, per pixel
+	runs    []float32 // difference array of fully covered sub-scanlines
+	marks   []int     // the pixels of the current row where partial or runs is set
+}
+
+// row samples the sub-scanlines of pixel row y.
+func (f *coverage) row(y int) {
+	f.marks = f.marks[:0]
+	for k := range f.samples {
+		sy := float64(y) + (float64(k)+0.5)/float64(f.samples)
+		for f.next < len(f.edges) && f.edges[f.next].y0 <= sy {
+			f.active = append(f.active, f.next)
+			f.next++
+		}
+		f.cross = f.cross[:0]
+		kept := f.active[:0]
+		for _, ei := range f.active {
+			e := &f.edges[ei]
+			if e.y1 <= sy {
+				continue
 			}
-			if x1 > bounds.Max.X-1 {
-				x1 = bounds.Max.X - 1
+			kept = append(kept, ei)
+			f.cross = append(f.cross, crossing{x: e.x0 + (sy-e.y0)*e.dxdy - f.minX, dir: e.dir})
+		}
+		f.active = kept
+		sortCrossings(f.cross)
+
+		winding := 0
+		var start float64
+		for _, c := range f.cross {
+			was := isInside(winding, f.evenOdd)
+			winding += c.dir
+			now := isInside(winding, f.evenOdd)
+			if !was && now {
+				start = c.x
+			} else if was && !now {
+				f.addSpan(start, c.x)
 			}
-			for x := x0; x <= x1; x++ {
-				rgb, alpha := colorAt(x, y)
-				if alpha <= 0 {
-					continue
-				}
-				blendPixel(canvas, x, y, rgb, alpha)
-			}
+		}
+	}
+}
+
+// addSpan adds the filled interval [xa, xb) of one sub-scanline, in pixels
+// from the canvas's left edge.
+func (f *coverage) addSpan(xa, xb float64) {
+	if !f.aa {
+		// A pixel counts when its centre lies in the half-open [xa, xb), so
+		// neighbouring spans tile with neither gap nor overlap.
+		xa, xb = math.Ceil(xa-0.5), math.Ceil(xb-0.5)
+	}
+	xa = math.Max(xa, 0)
+	xb = math.Min(xb, float64(f.w))
+	if xb <= xa {
+		return
+	}
+	ia, ib := int(xa), int(xb)
+	if ia == ib {
+		f.partial[ia] += float32(xb - xa)
+	} else {
+		f.partial[ia] += float32(float64(ia+1) - xa)
+		if ib > ia+1 {
+			f.runs[ia+1]++
+			f.runs[ib]--
+		}
+		f.partial[ib] += float32(xb - float64(ib))
+	}
+	f.marks = append(f.marks, ia)
+	if ib > ia {
+		f.marks = append(f.marks, ib)
+		if ib > ia+1 {
+			f.marks = append(f.marks, ia+1)
+		}
+	}
+}
+
+// flush reports the accumulated row as runs and clears it for the next one.
+// Coverage only changes at the marked pixels, so between two of them it is
+// the constant that the difference array has summed to.
+func (f *coverage) flush(x0, y int, emit func(y, x0, x1 int, cov float32)) {
+	if len(f.marks) == 0 {
+		return
+	}
+	slices.Sort(f.marks)
+	marks := slices.Compact(f.marks)
+	thr := 0.5 / float32(f.samples)
+	var run float32
+	for k, m := range marks {
+		run += f.runs[m]
+		cov := (f.partial[m] + run) / float32(f.samples)
+		f.partial[m], f.runs[m] = 0, 0
+		if m < f.w && cov >= thr {
+			emit(y, x0+m, x0+m+1, min(cov, 1))
+		}
+		end := f.w
+		if k+1 < len(marks) {
+			end = marks[k+1]
+		}
+		if between := run / float32(f.samples); end > m+1 && between >= thr {
+			emit(y, x0+m+1, x0+end, min(between, 1))
+		}
+	}
+}
+
+// sortCrossings sorts c by x in place. A sub-scanline has few crossings, so an
+// insertion sort is cheaper than the general-purpose sort.
+func sortCrossings(c []crossing) {
+	for i := 1; i < len(c); i++ {
+		for j := i; j > 0 && c[j].x < c[j-1].x; j-- {
+			c[j], c[j-1] = c[j-1], c[j]
 		}
 	}
 }
@@ -86,8 +346,14 @@ type pathEdge struct {
 	dir    int // +1 if the original segment went upward in y, -1 otherwise
 }
 
-func buildEdges(contours [][]content.Point) []pathEdge {
-	var edges []pathEdge
+// buildEdges appends the non-horizontal edges of contours to edges, growing it
+// once for all of them, and returns it.
+func buildEdges(edges []pathEdge, contours [][]content.Point) []pathEdge {
+	n := 0
+	for _, c := range contours {
+		n += len(c)
+	}
+	edges = slices.Grow(edges, n)
 	for _, contour := range contours {
 		n := len(contour)
 		for i := 0; i < n; i++ {
@@ -116,50 +382,6 @@ type crossing struct {
 	dir int
 }
 
-// scanScratch holds one FillPath call's reusable crossing/span buffers so
-// scanning costs no allocation per scanline.
-type scanScratch struct {
-	crossings []crossing
-	spans     [][2]float64
-}
-
-// scanlineSpans returns the filled [xStart,xEnd] intervals at height y. The
-// returned slice aliases scratch and is only valid until the next call.
-func scanlineSpans(edges []pathEdge, y float64, evenOdd bool, scratch *scanScratch) [][2]float64 {
-	crossings := scratch.crossings[:0]
-	for _, e := range edges {
-		if y < e.y0 || y >= e.y1 {
-			continue
-		}
-		x := e.x0 + (y-e.y0)*e.dxdy
-		crossings = append(crossings, crossing{x: x, dir: e.dir})
-	}
-	scratch.crossings = crossings
-	if len(crossings) == 0 {
-		return nil
-	}
-	sort.Slice(crossings, func(i, j int) bool { return crossings[i].x < crossings[j].x })
-
-	spans := scratch.spans[:0]
-	winding := 0
-	var spanStart float64
-	inSpan := false
-	for _, c := range crossings {
-		wasInside := isInside(winding, evenOdd)
-		winding += c.dir
-		isInsideNow := isInside(winding, evenOdd)
-		if !wasInside && isInsideNow {
-			spanStart = c.x
-			inSpan = true
-		} else if wasInside && !isInsideNow && inSpan {
-			spans = append(spans, [2]float64{spanStart, c.x})
-			inSpan = false
-		}
-	}
-	scratch.spans = spans
-	return spans
-}
-
 func isInside(winding int, evenOdd bool) bool {
 	if evenOdd {
 		return winding%2 != 0
@@ -181,45 +403,28 @@ func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
 	storeRGBA64(pix, off, blend(rgb[0], er), blend(rgb[1], eg), blend(rgb[2], eb), outA)
 }
 
-// StrokePath flattens contours as open polylines and fills the quad swept
-// by each segment at lineWidth/2 half-width (device space), with bevelled
-// joins rather than mitered or rounded joins. This is an approximation: the
-// rasterizer only produces flattened pages.
+// StrokePath strokes contours, which are flattened subpaths in device space,
+// with a solid line lineWidth pixels wide (at least one pixel), butt caps and
+// mitered joins, the PDF defaults. See StrokePathStyled for the other styles.
 func StrokePath(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, rgb [3]float64, alpha float64) {
+	StrokePathStyled(canvas, contours, StrokeStyle{Width: lineWidth}, rgb, alpha)
+}
+
+// StrokePathStyled strokes contours as st describes, blending rgb at alpha.
+func StrokePathStyled(canvas *image.RGBA, contours [][]content.Point, st StrokeStyle, rgb [3]float64, alpha float64) {
 	if alpha <= 0 {
 		return
 	}
-	StrokePathShaded(canvas, contours, lineWidth, func(x, y int) ([3]float64, float64) {
+	StrokePathStyledShaded(canvas, contours, st, func(x, y int) ([3]float64, float64) {
 		return rgb, alpha
 	})
 }
 
-// StrokePathShaded strokes as StrokePath does, taking each pixel's colour
-// from colorAt so a shading pattern can stroke as well as fill.
-func StrokePathShaded(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, colorAt func(x, y int) ([3]float64, float64)) {
-	half := max(lineWidth/2, 0.5)
-	for _, contour := range contours {
-		for i := 0; i+1 < len(contour); i++ {
-			quad := segmentQuad(contour[i], contour[i+1], half)
-			fillPathFunc(canvas, [][]content.Point{quad}, false, colorAt)
-		}
-	}
-}
-
-// segmentQuad returns the four corners of the rectangle covering segment
-// p0-p1 at the given half-width, perpendicular to the segment direction.
-func segmentQuad(p0, p1 content.Point, half float64) []content.Point {
-	dx, dy := p1.X-p0.X, p1.Y-p0.Y
-	length := math.Hypot(dx, dy)
-	if length == 0 {
-		return []content.Point{
-			{X: p0.X - half, Y: p0.Y - half}, {X: p0.X + half, Y: p0.Y - half},
-			{X: p0.X + half, Y: p0.Y + half}, {X: p0.X - half, Y: p0.Y + half},
-		}
-	}
-	nx, ny := -dy/length*half, dx/length*half
-	return []content.Point{
-		{X: p0.X + nx, Y: p0.Y + ny}, {X: p1.X + nx, Y: p1.Y + ny},
-		{X: p1.X - nx, Y: p1.Y - ny}, {X: p0.X - nx, Y: p0.Y - ny},
-	}
+// StrokePathStyledShaded strokes as StrokePathStyled does, taking each
+// pixel's colour from colorAt.
+func StrokePathStyledShaded(canvas *image.RGBA, contours [][]content.Point, st StrokeStyle, colorAt func(x, y int) ([3]float64, float64)) {
+	// The pieces of the stroke are filled in one call, so each pixel is
+	// blended once and a translucent stroke does not darken where they
+	// overlap.
+	fillPathFunc(canvas, strokeOutline(contours, st), false, colorAt)
 }

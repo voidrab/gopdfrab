@@ -78,6 +78,13 @@ func (g *GState) Apply(op string, operands []pdf.PDFValue, resources pdf.PDFDict
 		if len(operands) > 0 {
 			if name, ok := operands[len(operands)-1].(pdf.PDFName); ok {
 				c.Pattern = name.Value
+				// An uncoloured pattern is painted in the colour the preceding
+				// components give in the Pattern space's base space.
+				if base, ok := patternBase(c.Space); ok {
+					if comps := pdf.NumericOperands(operands); len(comps) > 0 {
+						c.RGB[0], c.RGB[1], c.RGB[2] = pdf.ResolveColor(base, comps, resources)
+					}
+				}
 				return true
 			}
 		}
@@ -190,6 +197,16 @@ func IsPatternSpace(cs pdf.PDFValue) bool {
 		return ok && name.Value == "Pattern"
 	}
 	return false
+}
+
+// patternBase returns the base colour space of an uncoloured pattern space,
+// [/Pattern base]. It reports false for a plain Pattern space.
+func patternBase(cs pdf.PDFValue) (pdf.PDFValue, bool) {
+	arr, ok := cs.(pdf.PDFArray)
+	if !ok || !IsPatternSpace(cs) || len(arr) < 2 {
+		return nil, false
+	}
+	return arr[1], true
 }
 
 // Tracker follows a GState through a content stream, saving it at q and

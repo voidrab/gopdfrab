@@ -1,7 +1,9 @@
 package fontprog
 
 import (
+	"cmp"
 	"encoding/binary"
+	"math"
 	"strconv"
 )
 
@@ -54,6 +56,10 @@ func charstringNumber(b []byte, div255 float64) (float64, int, bool) {
 type Type1Charstrings struct {
 	glyphs map[string][]byte
 	subrs  [][]byte
+	// sx and sy take outline coordinates out of the glyph space the program's
+	// FontMatrix declares and into the 1/1000 em space glyphs are drawn in;
+	// zero means no scaling.
+	sx, sy float64
 }
 
 // ParseType1Charstrings decrypts a Type 1 font program's charstrings. ok is
@@ -71,7 +77,13 @@ func ParseType1Charstrings(fontData []byte) (*Type1Charstrings, bool) {
 		}
 		glyphs[string(cs[m[2]:m[3]])] = DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
 	}
-	return &Type1Charstrings{glyphs: glyphs, subrs: subrs}, true
+	p := &Type1Charstrings{glyphs: glyphs, subrs: subrs}
+	// A program in a glyph space other than 1/1000 em, such as one with 2000
+	// units to the em, declares it in its FontMatrix.
+	if scale, ok := Type1WidthScale(fontData); ok && scale != 1 {
+		p.sx, p.sy = scale, scale
+	}
+	return p, true
 }
 
 // Outline draws the named glyph into sink and reports whether the program
@@ -80,6 +92,9 @@ func (p *Type1Charstrings) Outline(name string, sink PathSink) bool {
 	cs, ok := p.glyphs[name]
 	if !ok {
 		return false
+	}
+	if p.sx != 0 || p.sy != 0 {
+		sink = scaleSink{sink: sink, sx: cmp.Or(p.sx, 1), sy: cmp.Or(p.sy, 1)}
 	}
 	in := type1Interp{subrs: p.subrs, sink: sink, glyphs: p.glyphs}
 	in.run(cs, 0)
@@ -91,6 +106,10 @@ func (p *Type1Charstrings) Outline(name string, sink PathSink) bool {
 type CFFCharstrings struct {
 	charStrings [][]byte
 	subrs       CFFSubrs
+	// sx and sy take outline coordinates out of the glyph space the Top DICT's
+	// FontMatrix declares and into the 1/1000 em space glyphs are drawn in;
+	// zero means no scaling.
+	sx, sy float64
 }
 
 // ParseCFFCharstrings reads a CFF program's charstrings. ok is false when it
@@ -101,7 +120,19 @@ func ParseCFFCharstrings(cff []byte) (*CFFCharstrings, bool) {
 		return nil, false
 	}
 	entries, _ := ParseCFFIndex(cff, td.CSOffset)
-	return &CFFCharstrings{charStrings: entries, subrs: ParseCFFSubrs(cff, td, len(entries))}, true
+	p := &CFFCharstrings{charStrings: entries, subrs: ParseCFFSubrs(cff, td, len(entries))}
+	// A program in a glyph space other than 1/1000 em, such as one with 2000
+	// units to the em, declares it in its FontMatrix.
+	// A matrix that shears or rotates is left unapplied altogether.
+	if td.HasFontMatrix {
+		if sx, ok := fontMatrixWidthScale(td.FontMatrix[0], td.FontMatrix[1]); ok && td.FontMatrix[2] == 0 {
+			p.sx, p.sy = sx, sx
+			if d := td.FontMatrix[3]; d > 0 && !math.IsInf(d, 0) {
+				p.sy = d * 1000
+			}
+		}
+	}
+	return p, true
 }
 
 // Outline draws glyph gid into sink and reports whether the program has that
@@ -110,8 +141,23 @@ func (p *CFFCharstrings) Outline(gid int, sink PathSink) bool {
 	if gid < 0 || gid >= len(p.charStrings) {
 		return false
 	}
+	if p.sx != 0 || p.sy != 0 {
+		sink = scaleSink{sink: sink, sx: cmp.Or(p.sx, 1), sy: cmp.Or(p.sy, 1)}
+	}
 	Type2Outline(p.charStrings[gid], p.subrs.Global, p.subrs.Local(gid), sink)
 	return true
+}
+
+// scaleSink scales the coordinates drawn into it before passing them on.
+type scaleSink struct {
+	sink   PathSink
+	sx, sy float64
+}
+
+func (s scaleSink) MoveTo(x, y float64) { s.sink.MoveTo(x*s.sx, y*s.sy) }
+func (s scaleSink) LineTo(x, y float64) { s.sink.LineTo(x*s.sx, y*s.sy) }
+func (s scaleSink) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
+	s.sink.CurveTo(x1*s.sx, y1*s.sy, x2*s.sx, y2*s.sy, x3*s.sx, y3*s.sy)
 }
 
 // CFFSubrs holds the subroutines a CFF program's Type2 charstrings call: the
@@ -197,4 +243,28 @@ func cffFontDictPrivates(cff []byte, fds [][]byte) []cffPrivate {
 		out[i] = cffPrivate{d, n, ls, ok, hasMatrix}
 	}
 	return out
+}
+
+// CFFCIDToGID returns the glyph ID of each CID in a CID-keyed CFF program,
+// read from its charset, which lists the CID of every glyph. A subset keeps
+// the CIDs of the glyphs it holds, so they are not glyph IDs. ok is false for
+// a program that is not CID-keyed, whose glyph IDs are its CIDs, or whose
+// charset cannot be read.
+func CFFCIDToGID(cff []byte) (gids map[int]int, ok bool) {
+	td, ok := ParseCFFTopDict(cff)
+	if !ok || !td.IsCIDKeyed || td.CSOffset < 0 {
+		return nil, false
+	}
+	entries, _ := ParseCFFIndex(cff, td.CSOffset)
+	cids := ParseCFFCharsetCIDs(cff, td.CharsetOffset, len(entries))
+	if cids == nil {
+		return nil, false
+	}
+	gids = make(map[int]int, len(cids))
+	for gid, cid := range cids {
+		if _, dup := gids[cid]; !dup {
+			gids[cid] = gid
+		}
+	}
+	return gids, true
 }

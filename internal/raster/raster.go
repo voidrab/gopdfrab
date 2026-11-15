@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -20,14 +21,22 @@ import (
 // f/F/f*/S/s/B/B*/b/b*/n), colour (g/G/rg/RG/k/K/cs/CS/sc/SC/scn/SCN), alpha
 // (gs ExtGState ca/CA), Form/Image XObjects (Do, recursing into Forms and
 // compositing Images including their own /SMask), and text (BT/ET/Tf/Td/TD/
-// Tm/T*/Tj/TJ/'/"). Clipping (W/W*) is approximated as a bounding box.
+// Tm/T*/Tj/TJ/'/"). Clipping (W/W*) confines painting to the clip path: a
+// rectangle exactly, to whole pixels, and any other shape by its anti-aliased
+// coverage.
 // Content that oc hides is not drawn; a nil oc hides nothing.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+	return RenderPageContext(context.Background(), page, resources, mediaBox, dpi, oc, nil)
+}
+
+// RenderPageContext is RenderPage that stops painting soon after ctx is done,
+// and then returns ctx.Err().
+func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(src, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop, oc)
+	return renderArea(ctx, src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, cache, nil)
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -49,7 +58,7 @@ func RenderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherit
 	// A form is drawn onto whatever the page already has, so it renders on
 	// nothing: what its content does not paint stays unpainted, and the caller
 	// keeps that as the mask of what it may cover.
-	canvas, drops, err := renderContent(src, resources, box, dpi, inherited, clearBackdrop, nil)
+	canvas, drops, err := renderContent(context.Background(), src, resources, box, dpi, inherited, clearBackdrop, nil)
 	return canvas, box, drops, err
 }
 
@@ -74,13 +83,99 @@ const (
 // renderContent is the shared core behind RenderPage and RenderFormContent:
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	dpi = dpiWithin(bounds, dpi)
-	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
-	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
-	if width <= 0 || height <= 0 || width > 20000 || height > 20000 {
+func renderContent(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
+	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc, nil, nil)
+}
+
+// PixelSize returns the size in pixels of a page whose crop box is bounds
+// when rendered at dpi, which is the extent that RenderPageRegion's regions
+// are within.
+func PixelSize(bounds [4]float64, dpi int) (width, height int) {
+	return int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72)), int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
+}
+
+// RenderPageRegion renders region of the page, in pixels of the unrotated page
+// at dpi counted from its top-left corner, cut to the page. The result is as
+// large as the region and equals that part of the whole page at dpi. Unlike a
+// whole-page render, dpi is not lowered to fit the pixel budget. An empty
+// region, or one that misses the page, is an error.
+func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, region image.Rectangle, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
+	src, err := PageContentBytes(page)
+	if err != nil {
+		return nil, nil, err
+	}
+	w, h := PixelSize(mediaBox, dpi)
+	region = region.Intersect(image.Rect(0, 0, w, h))
+	if region.Empty() {
+		return nil, nil, fmt.Errorf("raster: empty render region")
+	}
+	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache, nil)
+}
+
+// TextGlyph is one character shown on a page: its Unicode value, zero if the
+// font does not say, and the box it occupies, in points from the top-left
+// corner of the unrotated crop box.
+type TextGlyph struct {
+	R   rune
+	Box [4]float64 // x0, y0, x1, y1
+}
+
+// ExtractText returns the glyphs a page shows, in the order its content shows
+// them, each with the box of its em square from the descender to the ascender.
+// It runs the page's content without painting or decoding images.
+func ExtractText(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, oc *content.OptionalContent, cache *Cache) ([]TextGlyph, error) {
+	src, err := PageContentBytes(page)
+	if err != nil {
+		return nil, err
+	}
+	var glyphs []TextGlyph
+	// The canvas is one pixel at 72 dpi, so painting has no visible effect.
+	// At 72 dpi one device unit is one point, which the glyph boxes rely on.
+	_, _, err = renderArea(ctx, src, resources, mediaBox, 72, image.Rect(0, 0, 1, 1), InheritedPaint{}, paperBackdrop, oc, cache, &glyphs)
+	if err != nil {
+		return nil, err
+	}
+	return glyphs, nil
+}
+
+// recordGlyph notes a glyph being shown, whose advance is w1000 thousandths of
+// an em, if text is being collected.
+func (r *renderer) recordGlyph(fi *fontInfo, code int, w1000 float64, gs *renderState) {
+	if r.glyphs == nil {
+		return
+	}
+	// The em square from the descender to the ascender, in glyph space.
+	const descent, ascent = -200, 800
+	glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
+	m := glyphToText.Mul(gs.tm).Mul(gs.CTM)
+	box := [4]float64{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
+	for _, c := range []content.Point{{X: 0, Y: descent}, {X: w1000, Y: descent}, {X: w1000, Y: ascent}, {X: 0, Y: ascent}} {
+		p := m.Apply(c)
+		box[0], box[1] = math.Min(box[0], p.X), math.Min(box[1], p.Y)
+		box[2], box[3] = math.Max(box[2], p.X), math.Max(box[3], p.Y)
+	}
+	*r.glyphs = append(*r.glyphs, TextGlyph{R: fi.unicode(code), Box: box})
+}
+
+// textOnly reports whether the renderer only collects text, as ExtractText
+// runs it. Its canvas is then never looked at, so nothing needs painting: the
+// glyph boxes come from the advances, not the outlines.
+func (r *renderer) textOnly() bool { return r.glyphs != nil }
+
+// renderArea renders the content within bounds at dpi. A non-empty region, in
+// pixels of the whole page, limits the canvas to that part and keeps dpi as given.
+func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache, glyphs *[]TextGlyph) (*image.RGBA, []string, error) {
+	if region.Empty() {
+		dpi = dpiWithin(bounds, dpi)
+	}
+	width, height := PixelSize(bounds, dpi)
+	if region.Empty() {
+		region = image.Rect(0, 0, width, height)
+	}
+	if width <= 0 || height <= 0 || region.Dx() > 20000 || region.Dy() > 20000 {
 		return nil, nil, fmt.Errorf("raster: degenerate or oversized bounds")
 	}
+	width, height = region.Dx(), region.Dy()
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	// Opaque white backdrop via doubling copies (memmove) instead of a
 	// per-byte loop -- the canvas fill was a measurable share of small
@@ -94,15 +189,21 @@ func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int
 
 	scale := float64(dpi) / 72
 	// Device CTM: PDF user space origin bottom-left Y-up -> image space origin top-left Y-down.
-	base := content.Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
+	base := content.Matrix{A: scale, D: -scale, E: -bounds[0]*scale - float64(region.Min.X), F: bounds[3]*scale - float64(region.Min.Y)}
 	// The colour a drawing starts in is black in DeviceGray, so "1 sc"
 	// without a preceding cs selects white.
 	gs := newRenderState(base, [4]float64{0, 0, float64(width), float64(height)})
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
-	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc}
+	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc, ctx: ctx, cache: cache, glyphs: glyphs}
+	if cache != nil {
+		r.fontCache = cache.fonts
+	}
 	r.execContent(src, resources, gs)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	return canvas, sortedDrops(r.dropped), nil
 }
 
@@ -162,7 +263,17 @@ type renderState struct {
 	// black a bare Pattern cs leaves in its RGB. See selectPattern.
 	fillPattern, strokePattern pdf.PDFDict
 	lineWidth                  float64
-	clip                       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
+	// lineCap, lineJoin, miterLimit and dash are the stroke style in user
+	// space (J, j, M, d); strokeStyle converts them to device space.
+	lineCap    LineCap
+	lineJoin   LineJoin
+	miterLimit float64
+	dash       []float64
+	dashPhase  float64
+	clip       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
+	// mask holds the coverage of the non-rectangular clipping paths in force.
+	// It is nil when no such path has been applied.
+	mask *clipMask
 
 	font       pdf.PDFDict
 	fontSize   float64
@@ -178,7 +289,7 @@ type renderState struct {
 // newRenderState is the graphics state a drawing starts in.
 func newRenderState(ctm content.Matrix, clip [4]float64) renderState {
 	gs := renderState{
-		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1, clip: clip,
+		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, miterLimit: 10, hScale: 1, clip: clip,
 	}
 	gs.CTM = ctm
 	return gs
@@ -188,7 +299,14 @@ func newRenderState(ctm content.Matrix, clip [4]float64) renderState {
 // output canvas, a font-info cache keyed by font dict identity, and a
 // recursion-depth guard against pathological/cyclic Form XObject graphs.
 type renderer struct {
-	canvas    *image.RGBA
+	canvas *image.RGBA
+	// ctx, when set, ends the render: once it is done, operators paint nothing.
+	ctx context.Context
+	// cache, when set, keeps decoded images and fonts for the next render.
+	cache *Cache
+	// glyphs, when set, receives every glyph shown. The render then skips
+	// images.
+	glyphs    *[]TextGlyph
 	fontCache map[uintptr]*fontInfo
 	// shadingCache holds parsed shadings keyed by pattern dict identity; a nil
 	// value records a pattern already found unusable.
@@ -210,6 +328,13 @@ type renderer struct {
 	// effectPixels counts what blend modes and soft masks have composited, for
 	// effectPixelBudget.
 	effectPixels int64
+	// textClip collects the glyph outlines, in device space, that text render
+	// modes 4 to 7 add to the clipping path. The ET operator applies them.
+	textClip [][]content.Point
+	// tiles caches rendered tiling-pattern cells. tileBytes is the total size
+	// of their pixel data, which is bounded by maxTileCacheBytes.
+	tiles     map[tileKey]*image.RGBA
+	tileBytes int
 }
 
 // maxFormDepth bounds the nesting of forms and soft-mask groups, against
@@ -305,6 +430,12 @@ func (p *pathBuilder) reset() {
 // execContent interprets one content stream's operators against gs (passed
 // by value, so callee-local q/Q changes never leak to the caller).
 func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderState) {
+	// A text object's clip belongs to its own stream: a Type 3 glyph procedure
+	// or a form must not apply, or lose, the clip of the text that invoked it.
+	outerTextClip := r.textClip
+	r.textClip = nil
+	defer func() { r.textClip = outerTextClip }()
+
 	var gsStack []renderState
 	var path pathBuilder
 	pendingClip := false
@@ -316,12 +447,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			return
 		}
 		pendingClip = false
-		contours := path.deviceContours(gs.CTM)
-		if len(contours) == 0 {
-			return
-		}
-		minX, minY, maxX, maxY := boundsOfContours(contours)
-		gs.clip = intersectRect(gs.clip, [4]float64{minX, minY, maxX, maxY})
+		r.intersectClip(&gs, path.deviceContours(gs.CTM), pendingClipEvenOdd)
 	}
 
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
@@ -339,6 +465,9 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 
 		// Hidden content still changes the graphics state, sets the clip and
 		// moves the text position; it only marks nothing.
+		if r.ctx != nil && r.ctx.Err() != nil {
+			return
+		}
 		marked.Step(op, operands, resources)
 		if marked.Hidden() {
 			switch op {
@@ -366,6 +495,17 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "w":
 			a := nums(1)
 			gs.lineWidth = a[0]
+		case "J":
+			gs.lineCap = lineCapOf(nums(1)[0])
+		case "j":
+			gs.lineJoin = lineJoinOf(nums(1)[0])
+		case "M":
+			gs.miterLimit = nums(1)[0]
+		case "d":
+			if len(operands) >= 2 {
+				phase, _ := pdf.PDFNumberToFloat(operands[len(operands)-1])
+				gs.dash, gs.dashPhase = dashArray(operands[len(operands)-2]), phase
+			}
 		case "m":
 			a := nums(2)
 			path.moveTo(content.Point{X: a[0], Y: a[1]})
@@ -398,7 +538,6 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 				r.withEffects(&gs, func() image.Rectangle { return pathReach(&path, &gs) }, func() { r.paintPath(&path, &gs, op) })
 			}
 			applyPendingClip()
-			_ = pendingClipEvenOdd
 			path.reset()
 		case "g", "G", "rg", "RG", "k", "K", "cs", "CS", "sc", "scn", "SC", "SCN":
 			fill, stroke := gs.Fill.Pattern, gs.Stroke.Pattern
@@ -411,6 +550,11 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			r.paintDo(operands, resources, &gs)
 		case "BT":
 			gs.tm, gs.tlm = content.IdentityMatrix, content.IdentityMatrix
+		case "ET":
+			// Text render modes 4 to 7 clip to the outlines of the glyphs shown
+			// in the text object.
+			r.intersectClip(&gs, r.textClip, false)
+			r.textClip = nil
 		case "Tf":
 			r.applyTf(operands, resources, &gs)
 		case "Tc":
@@ -458,7 +602,11 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "Ts":
 			gs.rise = nums(1)[0]
 		case "Tr":
-			gs.renderMode = int(nums(1)[0])
+			// Only modes 0 to 7 exist; anything else is read as plain fill.
+			gs.renderMode = 0
+			if m := int(nums(1)[0]); m >= 0 && m <= 7 {
+				gs.renderMode = m
+			}
 		case "sh":
 			r.withEffects(&gs, nil, func() { r.paintShadingOp(operands, resources, &gs) })
 		case "INLINEIMAGE":
@@ -490,44 +638,97 @@ func intersectRect(a, b [4]float64) [4]float64 {
 	}
 }
 
-// clipContours intersects each contour's device-space points against gs's
-// bounding-box clip by intersecting the path's own bbox; since FillPath/
-// StrokePath only paint within canvas.Bounds(), the clip is applied by
-// further restricting the canvas rect passed to a scratch sub-image.
+// intersectClip narrows gs's clip to the area contours enclose, by the
+// even-odd rule or else the nonzero rule. An axis-aligned rectangle narrows
+// the clip rectangle exactly; any other shape also narrows the clip mask.
+// Without contours the clip is left as it is.
+func (r *renderer) intersectClip(gs *renderState, contours [][]content.Point, evenOdd bool) {
+	if len(contours) == 0 {
+		return
+	}
+	if rect, ok := axisAlignedRect(contours); ok {
+		gs.clip = intersectRect(gs.clip, rect)
+		return
+	}
+	minX, minY, maxX, maxY := boundsOfContours(contours)
+	gs.clip = intersectRect(gs.clip, [4]float64{minX, minY, maxX, maxY})
+	gs.mask = newClipMask(r.canvas.Bounds(), contours, evenOdd, gs.mask)
+}
+
+// paintPath fills and/or strokes path, as selected by the paint operator op,
+// within the clip in gs. The clip rectangle limits drawing to a sub-image of
+// the canvas, and a non-rectangular clip scales the alpha of each pixel.
 func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
+	if r.textOnly() {
+		return
+	}
 	contours := path.deviceContours(gs.CTM)
 	if len(contours) == 0 {
 		return
 	}
-	target := r.clipTarget(gs)
-
-	evenOdd := op == "f*" || op == "B*" || op == "b*"
-	// Under a Pattern colour space there is no numeric fill colour, so an
-	// unusable pattern paints nothing rather than the black Fill.RGB holds.
-	fill := func() {
-		if gs.Fill.IsPattern() {
-			r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
-			return
-		}
-		FillPath(target, contours, gs.Fill.RGB, gs.fillAlpha, evenOdd)
-	}
-	stroke := func() {
-		if gs.Stroke.IsPattern() {
-			r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
-			return
-		}
-		StrokePath(target, contours, gs.lineWidth*ctmScale(gs.CTM), gs.Stroke.RGB, gs.strokeAlpha)
-	}
-
 	switch op {
 	case "f", "F", "f*":
-		fill()
+		r.fillContours(contours, gs, op == "f*")
 	case "S", "s":
-		stroke()
+		r.strokeContours(contours, gs)
 	case "B", "B*", "b", "b*":
-		fill()
-		stroke()
+		r.fillContours(contours, gs, op == "B*" || op == "b*")
+		r.strokeContours(contours, gs)
 	}
+}
+
+// paintGlyph paints one glyph outline, in device space, as gs's text render
+// mode says: fill (modes 0, 2, 4, 6), stroke (1, 2, 5, 6), and, for modes 4 to
+// 7, add it to the text clip that the ET operator applies. Mode 3 paints
+// nothing.
+func (r *renderer) paintGlyph(contours [][]content.Point, gs *renderState) {
+	mode := gs.renderMode
+	if mode == 0 || mode == 2 || mode == 4 || mode == 6 {
+		r.fillContours(contours, gs, false)
+	}
+	if mode == 1 || mode == 2 || mode == 5 || mode == 6 {
+		r.strokeContours(closedContours(contours), gs)
+	}
+	if mode >= 4 && mode <= 7 {
+		r.textClip = append(r.textClip, contours...)
+	}
+}
+
+// closedContours returns contours with each one's first point repeated at the
+// end, which is how the stroker tells a closed subpath from an open one.
+func closedContours(contours [][]content.Point) [][]content.Point {
+	out := make([][]content.Point, 0, len(contours))
+	for _, c := range contours {
+		if len(c) > 0 {
+			out = append(out, append(append(make([]content.Point, 0, len(c)+1), c...), c[0]))
+		}
+	}
+	return out
+}
+
+// fillContours fills contours, in device space, with gs's fill colour or
+// pattern, within its clip. Under a Pattern colour space there is no numeric
+// fill colour, so an unusable pattern paints nothing rather than the black
+// that Fill.RGB holds.
+func (r *renderer) fillContours(contours [][]content.Point, gs *renderState, evenOdd bool) {
+	target := r.clipTarget(gs)
+	switch {
+	case gs.Fill.IsPattern():
+		r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
+	default:
+		fillSolid(target, contours, evenOdd, gs.Fill.RGB, gs.fillAlpha, gs.mask)
+	}
+}
+
+// strokeContours strokes contours, in device space, with gs's stroke colour or
+// pattern and line style, within its clip.
+func (r *renderer) strokeContours(contours [][]content.Point, gs *renderState) {
+	target := r.clipTarget(gs)
+	if gs.Stroke.IsPattern() {
+		r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
+		return
+	}
+	StrokePathStyledShaded(target, contours, gs.strokeStyle(), gs.mask.wrap(constant(gs.Stroke.RGB, gs.strokeAlpha)))
 }
 
 // clipTarget is the canvas restricted to gs's clip: a sub-image sharing its
@@ -551,6 +752,71 @@ func clipToBounds(bounds image.Rectangle, rect [4]float64) image.Rectangle {
 	}
 	r := image.Rect(int(math.Floor(rect[0])), int(math.Floor(rect[1])), int(math.Ceil(rect[2])), int(math.Ceil(rect[3])))
 	return bounds.Intersect(r)
+}
+
+// lineCapOf converts a line cap value from the line cap operator (J) or the
+// LC entry of an ExtGState. Unknown values mean a butt cap.
+func lineCapOf(v float64) LineCap {
+	switch int(v) {
+	case 1:
+		return CapRound
+	case 2:
+		return CapSquare
+	}
+	return CapButt
+}
+
+// lineJoinOf converts a line join value from the line join operator (j) or
+// the LJ entry of an ExtGState. Unknown values mean a miter join.
+func lineJoinOf(v float64) LineJoin {
+	switch int(v) {
+	case 1:
+		return JoinRound
+	case 2:
+		return JoinBevel
+	}
+	return JoinMiter
+}
+
+// dashArray reads the dash array of the dash operator (d) or of the D entry
+// of an ExtGState. Non-numeric entries read as zero; the result is nil when
+// the value is not an array.
+func dashArray(v pdf.PDFValue) []float64 {
+	arr, ok := v.(pdf.PDFArray)
+	if !ok {
+		return nil
+	}
+	out := make([]float64, 0, len(arr))
+	for _, e := range arr {
+		f, _ := pdf.PDFNumberToFloat(e)
+		out = append(out, f)
+	}
+	return out
+}
+
+// strokeStyle is the graphics state's stroke style in device pixels.
+func (gs *renderState) strokeStyle() StrokeStyle {
+	k := ctmScale(gs.CTM)
+	st := StrokeStyle{
+		Width: gs.lineWidth * k, Cap: gs.lineCap, Join: gs.lineJoin,
+		MiterLimit: gs.miterLimit, DashPhase: gs.dashPhase * k,
+	}
+	for _, d := range gs.dash {
+		st.Dash = append(st.Dash, d*k)
+	}
+	return st
+}
+
+// strokeReach returns how far a stroke can reach beyond its path, in pixels:
+// half the line width, taking the width as at least one pixel, times the miter
+// limit (at least sqrt 2) for a mitered join, or times sqrt 2 otherwise. The
+// latter is the distance of a square cap's corners.
+func (gs *renderState) strokeReach() float64 {
+	half := math.Max(gs.lineWidth*ctmScale(gs.CTM), 1) / 2
+	if gs.lineJoin == JoinMiter {
+		return half * math.Max(gs.miterLimit, math.Sqrt2)
+	}
+	return half * math.Sqrt2
 }
 
 // ctmScale approximates a uniform scale factor from ctm, used to convert a
@@ -582,6 +848,22 @@ func (r *renderer) applyExtGState(operands []pdf.PDFValue, resources pdf.PDFDict
 	if CA, ok := pdf.PDFNumberToFloat(egs.Entries.Get("CA")); ok {
 		gs.strokeAlpha = CA
 	}
+	if lw, ok := pdf.PDFNumberToFloat(egs.Entries.Get("LW")); ok {
+		gs.lineWidth = lw
+	}
+	if lc, ok := pdf.PDFNumberToFloat(egs.Entries.Get("LC")); ok {
+		gs.lineCap = lineCapOf(lc)
+	}
+	if lj, ok := pdf.PDFNumberToFloat(egs.Entries.Get("LJ")); ok {
+		gs.lineJoin = lineJoinOf(lj)
+	}
+	if ml, ok := pdf.PDFNumberToFloat(egs.Entries.Get("ML")); ok {
+		gs.miterLimit = ml
+	}
+	if d, ok := egs.Entries.Get("D").(pdf.PDFArray); ok && len(d) == 2 {
+		phase, _ := pdf.PDFNumberToFloat(d[1])
+		gs.dash, gs.dashPhase = dashArray(d[0]), phase
+	}
 	if bm, ok := egs.Entries.Lookup("BM"); ok {
 		gs.blendMode = blendModeOf(bm)
 	}
@@ -600,7 +882,7 @@ func pathReach(path *pathBuilder, gs *renderState) image.Rectangle {
 		return image.Rectangle{}
 	}
 	minX, minY, maxX, maxY := boundsOfContours(contours)
-	grow := gs.lineWidth*ctmScale(gs.CTM) + 2
+	grow := gs.strokeReach() + 2
 	return clipToBounds(noHint, [4]float64{minX - grow, minY - grow, maxX + grow, maxY + grow})
 }
 
@@ -737,7 +1019,10 @@ func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState
 // paintImage decodes an Image XObject (and its /SMask, if present) and
 // composites it through the CTM.
 func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *renderState) {
-	img, err := DecodeImageRGBA(xobj, resources)
+	if r.textOnly() {
+		return
+	}
+	img, err := r.decodeImage(xobj, resources)
 	if err != nil && !r.dropPlaceholder(err) {
 		return
 	}
@@ -745,7 +1030,7 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 	// opacity would fade the whole picture, where no mask at least shows it.
 	var smask *image.RGBA
 	if sm, ok := xobj.Entries.Get("SMask").(pdf.PDFDict); ok {
-		if decoded, err := DecodeImageRGBA(sm, resources); err == nil {
+		if decoded, err := r.decodeImage(sm, resources); err == nil {
 			smask = decoded
 		} else {
 			r.dropPlaceholder(err)
@@ -756,14 +1041,31 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 	// mask, which takes precedence (ISO 32000-1 8.9.6.4).
 	if smask == nil {
 		if m, ok := xobj.Entries.Get("Mask").(pdf.PDFDict); ok {
-			if decoded, err := DecodeImageRGBA(m, resources); err == nil {
+			if decoded, err := r.decodeImage(m, resources); err == nil {
 				smask = stencilAlpha(decoded)
 			} else {
 				r.dropPlaceholder(err)
 			}
 		}
 	}
-	r.compositeImage(img, smask, isImageMask(xobj), gs)
+	r.compositeImage(img, smask, isImageMask(xobj), interpolates(xobj), gs)
+}
+
+// imageSource prepares img for drawing, reusing the pyramid the cache keeps for
+// it when there is one.
+func (r *renderer) imageSource(img *image.RGBA, area float64, interpolate bool) imageSource {
+	if r.cache == nil {
+		return newImageSource(img, area, interpolate)
+	}
+	return imageSourceOn(r.cache.sampler(img), img, area, interpolate)
+}
+
+// decodeImage decodes an image dictionary, through the cache when there is one.
+func (r *renderer) decodeImage(dict, resources pdf.PDFDict) (*image.RGBA, error) {
+	if r.cache == nil {
+		return DecodeImageRGBA(dict, resources)
+	}
+	return r.cache.decode(dict, resources)
 }
 
 // dropPlaceholder reports, as a drop, an image DecodeImageRGBA could only
@@ -817,24 +1119,32 @@ func isImageMask(dict pdf.PDFDict) bool {
 
 // compositeImage maps an image's unit square through the CTM, sampling the
 // decoded RGBA (and, if present, a soft mask's luminosity as a per-pixel alpha
-// multiplier) into the canvas with nearest-neighbour resampling. A stencil
-// mask paints gs.Fill.RGB through its alpha, since its samples carry only
-// coverage (DecodeImageRGBA renders those as opaque black).
-func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *renderState) {
+// multiplier) into the canvas. An image shown smaller than its pixels, and one
+// that sets interpolate, is filtered; an enlarged one keeps hard pixel edges.
+// A stencil mask paints gs.Fill.RGB through its alpha, since its samples
+// carry only coverage (DecodeImageRGBA renders those as opaque black).
+func (r *renderer) compositeImage(img, smask *image.RGBA, stencil, interpolate bool, gs *renderState) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	if w == 0 || h == 0 {
 		return
 	}
-	var smW, smH int
-	if smask != nil {
-		smW, smH = smask.Bounds().Dx(), smask.Bounds().Dy()
-	}
-
 	ctm := gs.CTM
 	inv, ok := ctm.Invert()
 	if !ok {
 		return
 	}
+	// The footprint is the side, in source pixels, of the square one device
+	// pixel covers. A footprint above 1 means the image is shrunk and is
+	// averaged through the pyramid; otherwise hard pixel edges are kept
+	// unless the image sets /Interpolate.
+	area := math.Abs(inv.A*inv.D - inv.B*inv.C)
+	src := r.imageSource(img, area, interpolate)
+	var msk *imageSource
+	if smask != nil {
+		m := r.imageSource(smask, area, interpolate)
+		msk = &m
+	}
+
 	corners := []content.Point{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}}
 	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	for _, c := range corners {
@@ -847,34 +1157,192 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 	x0, y0 := int(math.Max(math.Floor(clip[0]), float64(bounds.Min.X))), int(math.Max(math.Floor(clip[1]), float64(bounds.Min.Y)))
 	x1, y1 := int(math.Min(math.Ceil(clip[2]), float64(bounds.Max.X))), int(math.Min(math.Ceil(clip[3]), float64(bounds.Max.Y)))
 
+	if inv.B == 0 && inv.C == 0 && msk == nil && !stencil && gs.fillAlpha >= 1 && gs.mask == nil {
+		if !src.smooth {
+			r.compositeAligned(src, inv, x0, y0, x1, y1)
+			return
+		}
+		if src.s.isOpaque(src.level) {
+			r.compositeSmoothAligned(src, inv, x0, y0, x1, y1)
+			return
+		}
+	}
 	for y := y0; y < y1; y++ {
 		for x := x0; x < x1; x++ {
 			p := inv.Apply(content.Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
 			if p.X < 0 || p.X >= 1 || p.Y < 0 || p.Y >= 1 {
 				continue
 			}
-			col := pdf.ClampInt(int(p.X*float64(w)), 0, w-1)
-			row := pdf.ClampInt(int((1-p.Y)*float64(h)), 0, h-1)
-			po := img.PixOffset(col, row)
-			alpha := float64(img.Pix[po+3]) / 255 * gs.fillAlpha
-			if smask != nil {
-				// Sampled from p directly, not from the base image's col/row: a
+			rgb, a := src.at(p.X, 1-p.Y)
+			alpha := a * gs.fillAlpha
+			if msk != nil {
+				// Sampled from p directly, not from the base image's pixel: a
 				// low-res base under a higher-res mask would otherwise collapse
 				// the mask's shape down to the base's resolution.
-				scol := pdf.ClampInt(int(p.X*float64(smW)), 0, smW-1)
-				srow := pdf.ClampInt(int((1-p.Y)*float64(smH)), 0, smH-1)
-				alpha *= float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
+				m, _ := msk.at(p.X, 1-p.Y)
+				alpha *= m[0]
 			}
+			alpha *= gs.mask.at(x, y)
 			if alpha <= 0 {
 				continue
 			}
-			rgb := [3]float64{float64(img.Pix[po]) / 255, float64(img.Pix[po+1]) / 255, float64(img.Pix[po+2]) / 255}
 			if stencil {
 				rgb = gs.Fill.RGB
 			}
 			blendPixel(r.canvas, x, y, rgb, alpha)
 		}
 	}
+}
+
+// compositeAligned draws an unrotated, unsheared image whose pixels keep hard
+// edges, with no soft mask, stencil, transparency or non-rectangular clip, over
+// the device rectangle [x0, x1) x [y0, y1). The source pixel of each column and
+// row is found once, not per pixel, and opaque pixels are copied as bytes. The
+// result is that of the general loop in compositeImage.
+func (r *renderer) compositeAligned(src imageSource, inv content.Matrix, x0, y0, x1, y1 int) {
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+	img := src.s.levels[src.level]
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	// cols holds, for each device column, the source column it reads, or -1
+	// where the image does not reach. With inv.B and inv.C zero, the unit-square
+	// position depends on one device coordinate alone.
+	cols := make([]int, x1-x0)
+	for x := x0; x < x1; x++ {
+		u := inv.Apply(content.Point{X: float64(x) + 0.5}).X
+		cols[x-x0] = -1
+		if u >= 0 && u < 1 {
+			cols[x-x0] = clampPix(int(math.Floor(u*float64(w))), w)
+		}
+	}
+	canvas := r.canvas
+	for y := y0; y < y1; y++ {
+		v := inv.Apply(content.Point{Y: float64(y) + 0.5}).Y
+		if v < 0 || v >= 1 {
+			continue
+		}
+		sy := clampPix(int(math.Floor((1-v)*float64(h))), h)
+		srow := img.Pix[img.PixOffset(img.Rect.Min.X, img.Rect.Min.Y+sy):]
+		for x := x0; x < x1; x++ {
+			sx := cols[x-x0]
+			if sx < 0 {
+				continue
+			}
+			px := srow[4*sx : 4*sx+4 : 4*sx+4]
+			switch px[3] {
+			case 0:
+			case 255:
+				d := canvas.Pix[canvas.PixOffset(x, y):]
+				d[0], d[1], d[2], d[3] = px[0], px[1], px[2], 255
+			default:
+				blendPixel(canvas, x, y, [3]float64{float64(px[0]) / 255, float64(px[1]) / 255, float64(px[2]) / 255}, float64(px[3])/255)
+			}
+		}
+	}
+}
+
+// tapScale is the fixed-point one of a tap weight.
+const tapScale = 4096
+
+// taps is where one device column or row reads a smoothed image: the two
+// neighbouring source pixels, as byte offsets, and the weight of the second in
+// units of 1/tapScale. A column the image does not reach has first < 0.
+type taps struct {
+	first, second int
+	weight        int
+}
+
+// tapsFor returns the taps of n device pixels from d0, where unit(d) is the
+// unit-square position under device pixel d and size is the source size across.
+func tapsFor(d0, n, size, stride int, unit func(d int) float64) []taps {
+	out := make([]taps, n)
+	for i := range out {
+		u := unit(d0 + i)
+		if u < 0 || u >= 1 {
+			out[i].first = -1
+			continue
+		}
+		pos := u*float64(size) - 0.5
+		base := math.Floor(pos)
+		out[i] = taps{
+			first:  clampPix(int(base), size) * stride,
+			second: clampPix(int(base)+1, size) * stride,
+			weight: int((pos-base)*tapScale + 0.5),
+		}
+	}
+	return out
+}
+
+// compositeSmoothAligned is compositeAligned for an image read with bilinear
+// smoothing, whose pixels are all opaque. The taps of each column and row are
+// found once, and the blend is done in integers, so a pixel can differ from the
+// general loop's by one level of one channel.
+func (r *renderer) compositeSmoothAligned(src imageSource, inv content.Matrix, x0, y0, x1, y1 int) {
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+	img := src.s.levels[src.level]
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	cols := tapsFor(x0, x1-x0, w, 4, func(x int) float64 { return inv.Apply(content.Point{X: float64(x) + 0.5}).X })
+	rows := tapsFor(y0, y1-y0, h, img.Stride, func(y int) float64 { return 1 - inv.Apply(content.Point{Y: float64(y) + 0.5}).Y })
+	base := img.PixOffset(img.Rect.Min.X, img.Rect.Min.Y)
+	canvas := r.canvas
+	for y := y0; y < y1; y++ {
+		row := rows[y-y0]
+		if row.first < 0 {
+			continue
+		}
+		top, bottom := img.Pix[base+row.first:], img.Pix[base+row.second:]
+		d := canvas.Pix[canvas.PixOffset(x0, y):]
+		for x := x0; x < x1; x, d = x+1, d[4:] {
+			col := cols[x-x0]
+			if col.first < 0 {
+				continue
+			}
+			for c := 0; c < 3; c++ {
+				a := int64(top[col.first+c])*(tapScale-int64(col.weight)) + int64(top[col.second+c])*int64(col.weight)
+				b := int64(bottom[col.first+c])*(tapScale-int64(col.weight)) + int64(bottom[col.second+c])*int64(col.weight)
+				d[c] = uint8((a*(tapScale-int64(row.weight)) + b*int64(row.weight) + tapScale*tapScale/2) / (tapScale * tapScale))
+			}
+			d[3] = 255
+		}
+	}
+}
+
+// imageSource is an image read through a sampler at the pyramid level and
+// smoothing that its size on the page calls for.
+type imageSource struct {
+	s      *sampler
+	level  int
+	smooth bool
+}
+
+// newImageSource prepares img for drawing. area is the fraction of the image's
+// unit square that one device pixel covers. The footprint, the side in source
+// pixels of that square, decides the filtering: above 1 the image is shrunk and
+// averaged through the pyramid; otherwise hard pixel edges are kept unless
+// interpolate is set.
+func newImageSource(img *image.RGBA, area float64, interpolate bool) imageSource {
+	return imageSourceOn(newSampler(img), img, area, interpolate)
+}
+
+// imageSourceOn is newImageSource reading img through s, a sampler over it.
+func imageSourceOn(s *sampler, img *image.RGBA, area float64, interpolate bool) imageSource {
+	foot := math.Sqrt(area * float64(img.Rect.Dx()) * float64(img.Rect.Dy()))
+	return imageSource{s: s, level: s.levelFor(foot), smooth: interpolate || foot > 1}
+}
+
+// at returns the colour and alpha at the unit-square position (u, v).
+func (i imageSource) at(u, v float64) (rgb [3]float64, alpha float64) {
+	return i.s.at(i.level, u, v, i.smooth)
+}
+
+// interpolates reports whether an image dictionary asks for its pixels to be
+// smoothed when it is enlarged.
+func interpolates(dict pdf.PDFDict) bool {
+	b, _ := dict.Entries.Get("Interpolate").(pdf.PDFBoolean)
+	return bool(b)
 }
 
 // applyTf resolves a Tf operator's named font resource into gs, building (and
@@ -930,10 +1398,10 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 	if gs.font.Entries == nil || len(raw) == 0 {
 		return
 	}
-	// Render modes 3 (invisible) and 7 (clip-only) paint no marks -- most often
-	// the invisible OCR text layer over a scanned image, which must stay
-	// invisible.
-	invisible := gs.renderMode == 3 || gs.renderMode == 7
+	// Render modes 3 (invisible) and 7 (clip only) paint no marks. Mode 3 is
+	// typically the invisible OCR text layer laid over a scanned image.
+	mode := gs.renderMode
+	invisible := mode == 3 || mode == 7
 	fi := r.fontInfoFor(gs.font)
 	i := 0
 	for i < len(raw) {
@@ -957,7 +1425,8 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 		// A Type 3 glyph is a content stream in glyph space, not an outline,
 		// and its /FontMatrix stands in for the 1000-unit em below.
 		if fi.charProcs != nil {
-			if !invisible {
+			r.recordGlyph(fi, code, width*fi.fontMatrix.A*1000, gs)
+			if !invisible && !r.textOnly() {
 				r.drawType3Glyph(fi, code, resources, gs)
 			}
 			advance := (width*fi.fontMatrix.A*gs.fontSize + gs.charSpace + type3WordSpace(code, gs)) * gs.hScale
@@ -965,20 +1434,9 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 			continue
 		}
 
-		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && !invisible {
-			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
-			// rise) -> user space (tm) -> device (CTM).
-			glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
-			textToDevice := glyphToText.Mul(gs.tm).Mul(gs.CTM)
-			contours := make([][]content.Point, len(gp.Contours))
-			for ci, c := range gp.Contours {
-				dc := make([]content.Point, len(c))
-				for pi, p := range c {
-					dc[pi] = textToDevice.Apply(p)
-				}
-				contours[ci] = dc
-			}
-			FillPath(r.clipTarget(gs), contours, gs.Fill.RGB, gs.fillAlpha, false)
+		r.recordGlyph(fi, code, width, gs)
+		if mode != 3 && !r.textOnly() {
+			r.showOutline(fi, code, gs)
 		}
 
 		ws := 0.0
@@ -990,6 +1448,27 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 	}
 }
 
+// showOutline paints the outline of the glyph for code at the text position.
+func (r *renderer) showOutline(fi *fontInfo, code int, gs *renderState) {
+	gp, ok := fi.outline(code)
+	if !ok || len(gp.Contours) == 0 {
+		return
+	}
+	// Glyph space (1000-unit em) -> text space (font-size units, with Ts
+	// rise) -> user space (tm) -> device (CTM).
+	glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
+	textToDevice := glyphToText.Mul(gs.tm).Mul(gs.CTM)
+	contours := make([][]content.Point, len(gp.Contours))
+	for ci, c := range gp.Contours {
+		dc := make([]content.Point, len(c))
+		for pi, p := range c {
+			dc[pi] = textToDevice.Apply(p)
+		}
+		contours[ci] = dc
+	}
+	r.paintGlyph(contours, gs)
+}
+
 // fontInfo is a font resource's resolved rendering data: per-code advance
 // widths and a glyph-outline lookup, built once per font dict and cached.
 // A Type 3 font has no outlines -- charProcs is non-nil instead, and widths
@@ -999,10 +1478,36 @@ type fontInfo struct {
 	defaultWidth float64
 	widths       map[int]float64
 	glyphFor     func(code int) (GlyphPath, bool)
+	// outlines remembers what glyphFor returned for each code, since reading
+	// an outline from a font program is the dearer part of drawing a glyph.
+	outlines map[int]outline
+	// unicode returns the character a code stands for, or zero when it is not
+	// known.
+	unicode func(code int) rune
 
 	charProcs   map[int]pdf.PDFDict
 	fontMatrix  content.Matrix
 	t3Resources pdf.PDFDict
+}
+
+// outline is a glyph outline as glyphFor returned it.
+type outline struct {
+	path GlyphPath
+	ok   bool
+}
+
+// outline returns the outline of the glyph for code. The path is shared, so
+// callers must not change it.
+func (fi *fontInfo) outline(code int) (GlyphPath, bool) {
+	if o, ok := fi.outlines[code]; ok {
+		return o.path, o.ok
+	}
+	if fi.outlines == nil {
+		fi.outlines = map[int]outline{}
+	}
+	path, ok := fi.glyphFor(code)
+	fi.outlines[code] = outline{path, ok}
+	return path, ok
 }
 
 func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {
@@ -1016,6 +1521,12 @@ func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {
 }
 
 func buildFontInfo(font pdf.PDFDict) *fontInfo {
+	fi := buildFontInfoBase(font)
+	fi.unicode = unicodeMapFor(font)
+	return fi
+}
+
+func buildFontInfoBase(font pdf.PDFDict) *fontInfo {
 	if st, _ := font.Entries.Get("Subtype").(pdf.PDFName); st.Value == "Type3" {
 		return buildType3FontInfo(font)
 	}
@@ -1025,6 +1536,25 @@ func buildFontInfo(font pdf.PDFDict) *fontInfo {
 		}
 	}
 	return buildSimpleFontInfo(font)
+}
+
+// unicodeMapFor returns how the codes of font stand for characters: by its
+// /ToUnicode CMap if it has one, else, for a simple font, by its encoding. A
+// composite font without /ToUnicode maps every code to zero.
+func unicodeMapFor(font pdf.PDFDict) func(int) rune {
+	if tu, ok := font.Entries.Get("ToUnicode").(pdf.PDFDict); ok {
+		if data, err := pdf.DecodeStream(tu); err == nil {
+			if m := fontprog.ParseToUnicodeCMap(data); len(m) > 0 {
+				return func(code int) rune { return rune(m[code]) }
+			}
+		}
+	}
+	if st, _ := font.Entries.Get("Subtype").(pdf.PDFName); st.Value == "Type0" {
+		return func(int) rune { return 0 }
+	}
+	// Codes of a simple font are single bytes.
+	table := fontprog.SimpleFontCodeToUnicode(font.Entries.Get("Encoding"))
+	return func(code int) rune { return rune(table[code&0xFF]) }
 }
 
 // buildCompositeFontInfo handles Type0/Identity-H fonts: 2-byte codes are
@@ -1070,9 +1600,21 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 	if ff3, ok := desc2.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
-			if prog, ok := fontprog.ParseCFFCharstrings(fontprog.ExtractCFFBytes(data)); ok {
+			cff := fontprog.ExtractCFFBytes(data)
+			if prog, ok := fontprog.ParseCFFCharstrings(cff); ok {
+				// A CID-keyed program finds a CID's glyph through the charset.
+				// Otherwise cidToGID maps the CID.
+				gidFor := cidToGID
+				if gids, ok := fontprog.CFFCIDToGID(cff); ok {
+					gidFor = func(cid int) int {
+						if gid, found := gids[cid]; found {
+							return gid
+						}
+						return -1
+					}
+				}
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
-					return cffOutline(prog, cidToGID(code))
+					return cffOutline(prog, gidFor(code))
 				}
 				return fi
 			}
@@ -1192,16 +1734,36 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 				}
 			}
 		}
-		fi.glyphFor = func(code int) (GlyphPath, bool) {
+		// The face's glyph for a code, if it has one.
+		lookup := func(code int) (parsedFace, int, bool) {
 			if code < 0 || code > 255 || origTable[code] == 0 {
-				return GlyphPath{}, false
+				return parsedFace{}, 0, false
 			}
 			for _, f := range faces {
 				if gid, ok := f.cmap[origTable[code]]; ok && gid != 0 {
-					return glyphOutlineFromTrueType(f.tables, int(gid))
+					return f, int(gid), true
 				}
 			}
-			return GlyphPath{}, false
+			return parsedFace{}, 0, false
+		}
+		fi.glyphFor = func(code int) (GlyphPath, bool) {
+			f, gid, ok := lookup(code)
+			if !ok {
+				return GlyphPath{}, false
+			}
+			return glyphOutlineFromTrueType(f.tables, gid)
+		}
+		// A font without /Widths takes its advances from the substitute face.
+		// The standard 14 fonts may omit /Widths because their metrics are
+		// known, and the bundled faces are metric-compatible with them.
+		if len(fi.widths) == 0 {
+			for code := range 256 {
+				if f, gid, ok := lookup(code); ok {
+					if w := fontprog.TTAdvanceWidth(f.tables, gid); w >= 0 {
+						fi.widths[code] = w
+					}
+				}
+			}
 		}
 		return fi
 	}
@@ -1212,6 +1774,9 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 // paintInlineImage decodes an inline image and composites it exactly as an
 // Image XObject, reporting a drop only when it cannot be built or decoded.
 func (r *renderer) paintInlineImage(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+	if r.textOnly() {
+		return
+	}
 	params, raw, ok := pdf.InlineImageRawOperand(operands)
 	if !ok {
 		r.drop(dropInlineImage)
@@ -1227,7 +1792,7 @@ func (r *renderer) paintInlineImage(operands []pdf.PDFValue, resources pdf.PDFDi
 		r.drop(dropInlineImage)
 		return
 	}
-	r.compositeImage(img, nil, isImageMask(dict), gs)
+	r.compositeImage(img, nil, isImageMask(dict), interpolates(dict), gs)
 }
 
 // patternShading resolves a shading pattern's /Shading, caching the parsed
@@ -1260,9 +1825,10 @@ func (r *renderer) patternToDevice(pattern pdf.PDFDict) content.Matrix {
 	return m.Mul(r.patternBase)
 }
 
-// selectPattern resolves a scn/SCN pattern-name operand. A tiling pattern is
-// reported as a drop and yields no pattern, so the caller paints nothing
-// rather than a misleading flat colour.
+// selectPattern resolves the pattern name operand of the scn and SCN
+// operators. A pattern the rasterizer cannot use is reported as a drop and
+// yields no pattern, so the caller paints nothing rather than a misleading
+// flat colour.
 func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDict, bool) {
 	patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
 	pattern, ok := patterns.Entries.Get(name).(pdf.PDFDict)
@@ -1278,7 +1844,11 @@ func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDic
 		}
 		return pattern, true
 	case 1:
-		r.drop(dropTilingPattern)
+		if _, ok := parseTiling(pattern); !ok {
+			r.drop(dropTilingPattern)
+			return pdf.PDFDict{}, false
+		}
+		return pattern, true
 	default:
 		r.drop(DropShading)
 	}
@@ -1299,10 +1869,14 @@ func (r *renderer) trackPattern(cur pdf.PDFDict, was, name string, resources pdf
 	return pattern
 }
 
-// patternSampler returns a per-pixel colour source for a shading pattern, or
-// false when the shading is a mesh (which is geometry, not a field, and so is
-// painted separately).
-func (r *renderer) patternSampler(pattern pdf.PDFDict, alpha float64) (func(x, y int) ([3]float64, float64), bool) {
+// patternSampler returns a per-pixel colour source for a pattern: a tiling
+// pattern, which uses the under colour when it is uncoloured, or a shading
+// pattern. It reports false when the shading is a mesh (which is geometry, not
+// a field, and so is painted separately) or the pattern cannot be drawn.
+func (r *renderer) patternSampler(pattern pdf.PDFDict, under [3]float64, alpha float64) (func(x, y int) ([3]float64, float64), bool) {
+	if pdf.DictInt(pattern, "PatternType", 0) == 1 {
+		return r.tilingSampler(pattern, under, alpha)
+	}
 	sh, ok := r.patternShading(pattern)
 	if !ok || sh.isMesh() {
 		return nil, false
@@ -1322,9 +1896,8 @@ func (r *renderer) patternSampler(pattern pdf.PDFDict, alpha float64) (func(x, y
 }
 
 // paintPatternPath paints contours with gs's shading pattern, reporting
-// whether it handled the paint. Mesh patterns fall back to painting the mesh
-// over the path's bounding box, the same approximation the renderer already
-// makes for clipping.
+// whether it handled the paint. A mesh pattern is painted as geometry over the
+// path's bounding box, masked by the path's own shape.
 func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Point, pattern pdf.PDFDict, gs *renderState, evenOdd bool, stroke bool) bool {
 	if pattern.Entries == nil {
 		return false
@@ -1333,9 +1906,14 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 	if stroke {
 		alpha = gs.strokeAlpha
 	}
-	if sample, ok := r.patternSampler(pattern, alpha); ok {
+	under := gs.Fill.RGB
+	if stroke {
+		under = gs.Stroke.RGB
+	}
+	if sample, ok := r.patternSampler(pattern, under, alpha); ok {
+		sample = gs.mask.wrap(sample)
 		if stroke {
-			StrokePathShaded(target, contours, gs.lineWidth*ctmScale(gs.CTM), sample)
+			StrokePathStyledShaded(target, contours, gs.strokeStyle(), sample)
 		} else {
 			FillPathShaded(target, contours, evenOdd, sample)
 		}
@@ -1350,16 +1928,18 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 	area := clipToBounds(target.Bounds(), intersectRect(gs.clip, [4]float64{
 		math.Floor(minX), math.Floor(minY), math.Ceil(maxX), math.Ceil(maxY),
 	}))
-	r.paintShading(sh, r.patternToDevice(pattern), alpha, area)
+	// The mask is the path's own shape, within the clip in force.
+	shape := newClipMask(target.Bounds(), contours, evenOdd, gs.mask)
+	r.paintShading(sh, r.patternToDevice(pattern), alpha, area, shape)
 	return true
 }
 
 // paintShading fills area by mapping each device pixel back through
 // shadingToDevice and sampling the shading there. Mesh shadings define no
 // such field and are drawn as geometry instead.
-func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle) {
+func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle, mask *clipMask) {
 	if sh.isMesh() {
-		r.paintMeshShading(sh, shadingToDevice, alpha, area)
+		r.paintMeshShading(sh, shadingToDevice, alpha, area, mask)
 		return
 	}
 	inv, ok := shadingToDevice.Invert()
@@ -1373,7 +1953,9 @@ func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alp
 			if !ok {
 				continue
 			}
-			blendPixel(r.canvas, x, y, rgb, alpha)
+			if a := alpha * mask.at(x, y); a > 0 {
+				blendPixel(r.canvas, x, y, rgb, a)
+			}
 		}
 	}
 }
@@ -1381,11 +1963,14 @@ func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alp
 // paintShadingOp implements the sh operator: paint the named shading over the
 // current clip, in the current user space.
 func (r *renderer) paintShadingOp(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+	if r.textOnly() {
+		return
+	}
 	sh, ok := r.namedShading(operands, resources)
 	if !ok {
 		return
 	}
-	r.paintShading(sh, gs.CTM, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip))
+	r.paintShading(sh, gs.CTM, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip), gs.mask)
 }
 
 // namedShading resolves an operator's shading-name operand against the
@@ -1410,7 +1995,7 @@ func (r *renderer) namedShading(operands []pdf.PDFValue, resources pdf.PDFDict) 
 }
 
 // paintMeshShading decodes the mesh stream and paints it, clipped to area.
-func (r *renderer) paintMeshShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle) {
+func (r *renderer) paintMeshShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle, mask *clipMask) {
 	if area.Empty() || alpha <= 0 {
 		return
 	}
@@ -1424,7 +2009,7 @@ func (r *renderer) paintMeshShading(sh *shading, shadingToDevice content.Matrix,
 		target = r.canvas.SubImage(area).(*image.RGBA)
 	}
 
-	mp := &meshPainter{canvas: target, toDevice: shadingToDevice, alpha: alpha}
+	mp := &meshPainter{canvas: target, toDevice: shadingToDevice, alpha: alpha, mask: mask}
 	m := &meshReader{data: data}
 	switch sh.kind {
 	case 4:
