@@ -13,6 +13,7 @@ Verify and convert PDF documents with a small, predictable open source library.
 - PDF/A-2b verification and conversion, passing the veraPDF PDF/A-2b suite
 - PDF structural verification and repair against the Arlington object model
 - Decryption of encrypted PDFs (RC4 40/128, AES-128, AES-256)
+- Page rendering, text with its position, and links, for viewers
 - A CLI and two WebAssembly builds
 
 The API is **stable as of 1.0**; [CHANGELOG.md](CHANGELOG.md) states the
@@ -226,6 +227,26 @@ Failures can be matched with `errors.Is`:
 Damage short of that does not fail the document: it is reported as an issue
 and every other check still runs, and a conversion that had to null an object
 never reports itself valid.
+
+### Rendering pages
+
+A `Document` also gives random access to its pages, for a viewer:
+
+```go
+n, err := doc.Pages()       // walks the page tree; PageCount trusts /Count
+page, err := doc.Page(0)    // zero-based, or ErrPageRange
+w, h := page.Size()         // displayed size in points, rotation applied
+img, err := page.Render(ctx, gopdfrab.RenderOptions{
+    Scale:  2,                            // pixels per point: 144 dpi
+    Region: image.Rect(0, 0, 800, 600),   // optional: render only this part
+})
+glyphs, err := page.Glyphs(ctx) // each character with its box, for selection and search
+links, err := page.Links(ctx)   // URI links and links to pages, with their boxes
+```
+
+Positions are in points from the top-left corner of the displayed page. A
+render stops soon after its context is done. A document keeps decoded images,
+up to 64 MB, and glyph outlines between renders.
 
 ## Profiles and checks
 
