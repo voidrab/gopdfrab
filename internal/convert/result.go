@@ -115,8 +115,8 @@ func (r ConvertResult) WriteTo(w io.Writer) (int64, error) {
 // there is no output to save or the file cannot be written.
 //
 // The write is atomic: the output goes to a temp file in the same directory,
-// which is synced and renamed over path only once complete, also while path
-// is open in a Reader, on Windows as on unix. A failed Save
+// which is synced and renamed over path only once complete. This also holds
+// while path is open in a Reader, on Windows as on unix. A failed Save
 // leaves an existing file untouched -- which matters when path is the input
 // being converted. An existing file keeps its permissions; a new one gets
 // 0644. A symlink at path is written through, not replaced.

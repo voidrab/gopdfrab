@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestOpenFileLetsTheFileBeRenamedAndRemoved checks that a file open in a
-// Reader can be renamed and removed, which is what lets a converted copy be
-// saved over it, while the Reader goes on reading what it opened.
+// TestOpenFileLetsTheFileBeRenamedAndRemoved verifies that a file open in a
+// Reader can be renamed and then removed, and that the Reader still reads its
+// contents afterwards.
 func TestOpenFileLetsTheFileBeRenamedAndRemoved(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.pdf")

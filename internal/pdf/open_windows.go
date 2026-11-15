@@ -5,11 +5,10 @@ import (
 	"syscall"
 )
 
-// openFile opens path for reading, sharing it for deletion as well as for
-// reading and writing, so that the file can be renamed, replaced or removed
-// while a Reader holds it, as on unix. os.Open does not share for deletion,
-// so a file open in a Reader could not be replaced, not even by saving a
-// converted copy over it.
+// openFile opens path for reading, sharing it for reading, writing and
+// deletion, so that the file can be renamed or removed while a Reader holds
+// it, as on unix. os.Open does not share for deletion, so a file it opens
+// cannot be renamed or removed while open.
 func openFile(path string) (*os.File, error) {
 	name, err := syscall.UTF16PtrFromString(path)
 	if err != nil {

@@ -10,9 +10,8 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// TestSaveReplacesAnOpenInput checks that Save can write over a file a
-// Reader holds open, as when a document is converted in place while a viewer
-// shows it, and that the Reader goes on reading the file it opened.
+// TestSaveReplacesAnOpenInput verifies that Save can write over a file that a
+// Reader holds open, and that the Reader keeps reading the file it opened.
 func TestSaveReplacesAnOpenInput(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "in.pdf")
