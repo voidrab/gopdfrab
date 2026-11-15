@@ -125,6 +125,7 @@ var standardRepairs = repairs{
 		pdfaOnlyVisitor(inlineType1WidthSubrsInFont),
 		pdfaOnlyVisitor(normalizeCFFWidthDefaultsInFont),
 		pagesKidsRebalance,
+		pdfaOnlyVisitor(dropInvalidLang),
 		// Its builder captures the catalog's metadata identity after
 		// regenerateXMP has installed the fresh packet.
 		stripEmbeddedMetadataVisitor,

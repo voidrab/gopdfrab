@@ -710,3 +710,25 @@ func TestColourSpaceArrayDiscriminator(t *testing.T) {
 		t.Errorf("ByValue[ICCBased] = %q, want ICCBasedColorSpace", g.ByValue["ICCBased"])
 	}
 }
+
+func TestUnenumeratedTypes(t *testing.T) {
+	for _, m := range []*Model{pdf14, pdf17} {
+		attrs, ok := m.Type("StructureAttributesDict")
+		if !ok {
+			t.Fatalf("%s: StructureAttributesDict missing", m.Version())
+		}
+		lh := findKey(attrs, "LineHeight")
+		if lh == nil {
+			t.Fatalf("%s: LineHeight missing", m.Version())
+		}
+		if !reflect.DeepEqual(lh.UnenumeratedTypes, []ValueType{Number}) {
+			t.Errorf("%s: LineHeight UnenumeratedTypes = %v, want [Number]", m.Version(), lh.UnenumeratedTypes)
+		}
+
+		// A key with one enumerated type has no unenumerated types.
+		vp, _ := m.Type("ViewerPreferences")
+		if k := findKey(vp, "NonFullScreenPageMode"); k == nil || k.UnenumeratedTypes != nil {
+			t.Errorf("%s: NonFullScreenPageMode UnenumeratedTypes = %v, want nil", m.Version(), k)
+		}
+	}
+}

@@ -965,16 +965,14 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	val := d.Entries.Get(key)
 	violated := false
 
-	if !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
-		if s, ok := verify.EnumString(val); ok && !stringInList(s, kd.PossibleValues) {
-			if len(kd.PossibleValues) == 1 {
-				if nv, ok := scalarFromEnum(kd.PossibleValues[0], kd.Types); ok {
-					d.Entries.Set(key, nv)
-					return true
-				}
+	if verify.DisallowedEnum(val, kd) {
+		if len(kd.PossibleValues) == 1 {
+			if nv, ok := scalarFromEnum(kd.PossibleValues[0], kd.Types); ok {
+				d.Entries.Set(key, nv)
+				return true
 			}
-			violated = true
 		}
+		violated = true
 	}
 
 	for i := range kd.PinnedValues {
@@ -1070,12 +1068,10 @@ func repairDisallowedElement(m *objModel, p *fixPass, iss pdf.PDFError) bool {
 			}
 		}
 	}
-	if !kd.Predicated.Values && len(kd.PossibleValues) == 1 {
-		if s, ok := verify.EnumString(arr[idx]); ok && s != kd.PossibleValues[0] {
-			if nv, ok := scalarFromEnum(kd.PossibleValues[0], kd.Types); ok {
-				arr[idx] = nv
-				return true
-			}
+	if len(kd.PossibleValues) == 1 && verify.DisallowedEnum(arr[idx], kd) {
+		if nv, ok := scalarFromEnum(kd.PossibleValues[0], kd.Types); ok {
+			arr[idx] = nv
+			return true
 		}
 	}
 	if kd.ValueCond != nil {
@@ -1154,14 +1150,4 @@ func condBounds(c *arlington.Cond, key string) (lo, hi float64, hasLo, hasHi boo
 		}
 	}
 	return lo, hi, hasLo, hasHi
-}
-
-// stringInList reports whether s appears in list.
-func stringInList(s string, list []string) bool {
-	for _, item := range list {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }

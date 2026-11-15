@@ -229,6 +229,10 @@ type KeyDef struct {
 	SinceVersion   string
 	DeprecatedIn   string   // empty if never deprecated
 	PossibleValues []string // enumerated legal values, when constrained; predicate-only entries are dropped
+	// UnenumeratedTypes lists the types whose PossibleValues group is empty. A value
+	// of one of these types may take any value, so PossibleValues, which holds only
+	// the other types' values, does not apply to it.
+	UnenumeratedTypes []ValueType
 	// PinnedValues narrows PossibleValues conditionally: whenever a pin's condition holds,
 	// the key must have exactly that pin's value.
 	PinnedValues []PinnedValue

@@ -204,3 +204,37 @@ func TestStripEmbeddedMetadataKeepsConformingUnderPart2(t *testing.T) {
 		})
 	}
 }
+
+// TestWrapXMPPacket verifies that a kept object packet without xpacket
+// processing instructions gets them, after any XML declaration, and that a
+// wrapped packet is left alone.
+func TestWrapXMPPacket(t *testing.T) {
+	bare := xmpPacketWith("", dcTitleDescription)
+	bare = strings.TrimSuffix(bare, `<?xpacket end="r"?>`)
+	cases := []struct {
+		name, packet, wantPrefix string
+	}{
+		{"bare", bare, plainXPacketHeader},
+		{"XML declaration", `<?xml version="1.0"?>` + "\n" + bare, `<?xml version="1.0"?>` + "\n" + plainXPacketHeader},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			meta := metadataStream(tc.packet, "")
+			wrapXMPPacket(meta, []byte(tc.packet))
+			got := string(meta.Stream())
+			if !strings.HasPrefix(got, tc.wantPrefix) || !strings.HasSuffix(got, `<?xpacket end="w"?>`) {
+				t.Errorf("packet not wrapped:\n%s", got)
+			}
+			if !strings.Contains(got, "Kept title") {
+				t.Errorf("metadata lost:\n%s", got)
+			}
+		})
+	}
+
+	wrapped := xmpPacketWith(plainXPacketHeader, dcTitleDescription)
+	meta := metadataStream(wrapped, "")
+	wrapXMPPacket(meta, []byte(wrapped))
+	if got := string(meta.Stream()); got != wrapped {
+		t.Errorf("wrapped packet changed:\n%s", got)
+	}
+}

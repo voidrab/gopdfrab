@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/arlington"
@@ -59,14 +60,12 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			continue
 		}
 
-		if present && !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
-			if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
-				ctx.ReportObjModel(
-					pdf.Checks.ObjectModel.DisallowedValue,
-					v, typeName, kd.Name,
-					fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, kd.Name),
-				)
-			}
+		if present && disallowedEnum(val, &kd) {
+			ctx.ReportObjModel(
+				pdf.Checks.ObjectModel.DisallowedValue,
+				v, typeName, kd.Name,
+				fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, kd.Name),
+			)
 		}
 
 		if present && val != nil && kd.ValueCond != nil {
@@ -133,14 +132,12 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 				)
 				continue
 			}
-			if !wc.Predicated.Values && len(wc.PossibleValues) > 0 {
-				if s, ok := scalarEnumString(val); ok && !stringInList(s, wc.PossibleValues) {
-					ctx.ReportObjModel(
-						pdf.Checks.ObjectModel.DisallowedValue,
-						v, typeName, k,
-						fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, k),
-					)
-				}
+			if disallowedEnum(val, wc) {
+				ctx.ReportObjModel(
+					pdf.Checks.ObjectModel.DisallowedValue,
+					v, typeName, k,
+					fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, k),
+				)
 			}
 			if !wc.Predicated.Indirect && wc.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 				ctx.ReportObjModel(
@@ -159,7 +156,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// it is never flagged.
 	if ot.Wildcard == nil {
 		for k := range v.Entries.All() {
-			if stringInList(k, ot.LaterKeys) {
+			if slices.Contains(ot.LaterKeys, k) {
 				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
 					v, typeName, k,
@@ -246,14 +243,12 @@ func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeN
 		)
 		return
 	}
-	if !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
-		if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
-			ctx.ReportObjModelElem(
-				pdf.Checks.ObjectModel.DisallowedValue,
-				owner, typeName, entry, idx,
-				fmt.Sprintf("%s element %d has a value not in its enumerated legal values", typeName, idx),
-			)
-		}
+	if disallowedEnum(val, kd) {
+		ctx.ReportObjModelElem(
+			pdf.Checks.ObjectModel.DisallowedValue,
+			owner, typeName, entry, idx,
+			fmt.Sprintf("%s element %d has a value not in its enumerated legal values", typeName, idx),
+		)
 	}
 	if !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 		ctx.ReportObjModelElem(
@@ -319,9 +314,15 @@ func MatchesValueType(val pdf.PDFValue, allowed []arlington.ValueType) bool {
 	return matchesValueType(val, allowed)
 }
 
+// DisallowedEnum reports whether val breaks the enumeration of kd. Object-model
+// fixers call it so that they repair exactly the values the DisallowedValue
+// check flags.
+func DisallowedEnum(val pdf.PDFValue, kd *arlington.KeyDef) bool {
+	return disallowedEnum(val, kd)
+}
+
 // EnumString exposes the verifier's enum-literal formatting to object-model
-// fixers, keeping their PossibleValues membership tests in lockstep with the
-// DisallowedValue check.
+// fixers, so their pinned-value comparisons read a value as the checks do.
 func EnumString(val pdf.PDFValue) (string, bool) {
 	return scalarEnumString(val)
 }
@@ -572,6 +573,22 @@ func isIndirect(val pdf.PDFValue) bool {
 	return ok
 }
 
+// disallowedEnum reports whether val breaks the enumeration of kd. That requires
+// kd to enumerate legal values, val to be a scalar of a type the enumeration
+// covers, and val not to be among the legal values. A value of one of
+// kd.UnenumeratedTypes is never disallowed, since the enumeration holds only the
+// other types' values.
+func disallowedEnum(val pdf.PDFValue, kd *arlington.KeyDef) bool {
+	if kd.Predicated.Values || len(kd.PossibleValues) == 0 {
+		return false
+	}
+	s, ok := scalarEnumString(val)
+	if !ok || slices.Contains(kd.PossibleValues, s) {
+		return false
+	}
+	return len(kd.UnenumeratedTypes) == 0 || !matchesValueType(val, kd.UnenumeratedTypes)
+}
+
 // scalarEnumString returns val's string form for PossibleValues membership testing, for the
 // name, integer, and boolean types only: string/real matching against Arlington's enum column
 // is format-fragile (quoting, precision) and covers very few keys, so it is left unenforced.
@@ -589,16 +606,6 @@ func scalarEnumString(val pdf.PDFValue) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-// stringInList reports whether s appears in list.
-func stringInList(s string, list []string) bool {
-	for _, item := range list {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
 
 // matchesValueType reports whether val's PDF type is one of allowed. An empty allowed list

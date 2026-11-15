@@ -166,6 +166,7 @@ func (e *encoder) keyDef(kd *KeyDef) {
 	e.str(kd.SinceVersion)
 	e.str(kd.DeprecatedIn)
 	e.strs(kd.PossibleValues)
+	e.valueTypes(kd.UnenumeratedTypes)
 	e.uint(len(kd.PinnedValues))
 	for _, p := range kd.PinnedValues {
 		e.cond(p.When)
@@ -353,6 +354,7 @@ func (d *decoder) keyDef() KeyDef {
 		SinceVersion:      d.str(),
 		DeprecatedIn:      d.str(),
 		PossibleValues:    d.strs(),
+		UnenumeratedTypes: d.valueTypes(),
 	}
 	if n := d.uint(); n > 0 {
 		kd.PinnedValues = make([]PinnedValue, n)
