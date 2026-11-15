@@ -409,12 +409,12 @@ type Document struct {
 	// mu serializes page access and rendering, which share r's caches.
 	mu    sync.Mutex
 	pages []pageEntry
-	root  pdf.PDFDict // the catalog, once the pages are loaded
 	oc    *content.OptionalContent
 	cache *raster.Cache // fonts and images kept between renders
 	index bool
-	// catalog replaces r.Catalog; tests use it to force failures.
-	catalog func(keys ...string) (pdf.PDFDict, error)
+	// resolvePath replaces r.ResolveGraphByPath; tests use it to force
+	// failures.
+	resolvePath func(path []string) (pdf.PDFValue, error)
 }
 
 // Open initializes the PDF document at path, decrypting an encrypted file with

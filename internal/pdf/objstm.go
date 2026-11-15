@@ -72,8 +72,8 @@ func findObjStmEntry(entries []objStmEntry, index, objNum int) int {
 	if index >= 0 && index < len(entries) && entries[index].objNum == objNum {
 		return index
 	}
-	for i, e := range entries {
-		if e.objNum == objNum {
+	for i := range entries {
+		if entries[i].objNum == objNum {
 			return i
 		}
 	}

@@ -1113,34 +1113,6 @@ func (d *Reader) ResolveGraph() (PDFValue, error) {
 	return g, nil
 }
 
-// Catalog returns the document catalog (the effective trailer's /Root) with
-// the entries named by keys fully resolved in place. Its other entries are
-// not resolved and may still hold references, so that a large structure tree
-// is not parsed. A document without a catalog dictionary yields the zero
-// PDFDict.
-func (d *Reader) Catalog(keys ...string) (PDFDict, error) {
-	v, err := d.resolveShallow(d.EffectiveTrailer().Entries.Get("Root"))
-	if err != nil {
-		return PDFDict{}, err
-	}
-	root, ok := v.(PDFDict)
-	if !ok || root.Entries == nil {
-		return PDFDict{}, nil
-	}
-	for _, k := range keys {
-		val, found := root.Entries.Lookup(k)
-		if !found {
-			continue
-		}
-		r, err := d.resolveInPlace(val)
-		if err != nil {
-			return PDFDict{}, err
-		}
-		root.Entries.Set(k, r)
-	}
-	return root, nil
-}
-
 // SeedResolvedGraph pre-populates the Reader with an already-resolved graph
 // and object cache.
 func (d *Reader) SeedResolvedGraph(graph PDFDict, objs map[int]PDFValue) {
@@ -1149,34 +1121,41 @@ func (d *Reader) SeedResolvedGraph(graph PDFDict, objs map[int]PDFValue) {
 	d.objCache = objs
 }
 
+// ErrNoEntry reports that a path names a dictionary key or array index the
+// object graph does not have.
+var ErrNoEntry = errors.New("pdf: no such entry")
+
 // resolvePath walks a PDF object following path elements, which may be
 // dictionary keys or array indices, and returns the value reached, fully
 // resolved. Only the references on the path are followed on the way, so
 // reaching a small part of a large document, such as its information
-// dictionary, does not parse the rest of it.
+// dictionary, does not parse the rest of it. The walk stops early at a value
+// the next element cannot index: a scalar, or an array given a key.
 func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 	current, err := d.resolveShallow(node)
 	if err != nil {
 		return nil, err
 	}
+walk:
 	for _, key := range path {
-		if arr, ok := current.(PDFArray); ok {
+		switch v := current.(type) {
+		case PDFArray:
 			idx, err := strconv.Atoi(key)
 			if err != nil {
-				return d.ResolveObject(arr)
+				break walk
 			}
-			if idx < 0 || idx >= len(arr) {
-				return nil, fmt.Errorf("array index out of range: %d", idx)
+			if idx < 0 || idx >= len(v) {
+				return nil, fmt.Errorf("%w: array index %d out of range", ErrNoEntry, idx)
 			}
-			current = arr[idx]
-		} else if dict, ok := current.(PDFDict); ok {
-			val, found := dict.Entries.Lookup(key)
+			current = v[idx]
+		case PDFDict:
+			val, found := v.Entries.Lookup(key)
 			if !found {
-				return nil, fmt.Errorf("key %q not found in dictionary", key)
+				return nil, fmt.Errorf("%w: key %q not in dictionary", ErrNoEntry, key)
 			}
 			current = val
-		} else {
-			return current, nil
+		default:
+			break walk
 		}
 		if current, err = d.resolveShallow(current); err != nil {
 			return nil, err

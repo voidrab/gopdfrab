@@ -21,32 +21,41 @@ type pageEntry struct {
 	resources pdf.PDFDict
 }
 
-// catalogKeys are the catalog entries a Document reads: the page tree, the
-// named destinations (Dests, Names), and the optional content properties
-// (OCProperties). Other catalog entries, such as the structure tree, are not
-// resolved for viewing.
-var catalogKeys = []string{"Pages", "Dests", "Names", "OCProperties"}
+// catalogEntry returns the catalog entry at path, fully resolved, or nil when
+// the catalog has no such entry. Each entry is resolved when first asked for,
+// so the parts of the catalog a Document never reads, such as the structure
+// tree, are never parsed.
+func (d *Document) catalogEntry(path ...string) (pdf.PDFValue, error) {
+	resolve := d.r.ResolveGraphByPath
+	if d.resolvePath != nil {
+		resolve = d.resolvePath
+	}
+	v, err := resolve(append([]string{"Root"}, path...))
+	if errors.Is(err, pdf.ErrNoEntry) {
+		return nil, nil
+	}
+	return v, err
+}
 
 // loadPages resolves the page tree once. The caller holds d.mu.
 func (d *Document) loadPages() error {
 	if d.index {
 		return nil
 	}
-	catalog := d.r.Catalog
-	if d.catalog != nil {
-		catalog = d.catalog
-	}
-	root, err := catalog(catalogKeys...)
+	tree, err := d.catalogEntry("Pages")
 	if err != nil {
 		return err
 	}
-	if tree, ok := root.Entries.Get("Pages").(pdf.PDFDict); ok {
+	props, err := d.catalogEntry("OCProperties")
+	if err != nil {
+		return err
+	}
+	if tree, ok := tree.(pdf.PDFDict); ok {
 		pdf.WalkPages(tree, func(page, res pdf.PDFDict, _ [4]float64, _ int) {
 			d.pages = append(d.pages, pageEntry{dict: page, resources: res})
 		})
 	}
-	d.root = root
-	d.oc = content.NewOptionalContent(root)
+	d.oc = content.OptionalContentOf(props)
 	d.index = true
 	return nil
 }

@@ -164,10 +164,12 @@ func TestDestinationEdgeCases(t *testing.T) {
 	}
 
 	// The catalog may have /Dests without the name, and /Names without /Dests.
-	d := &Document{root: pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Dests": pdf.PDFDict{Entries: pdf.DictOf(nil)},
-		"Names": pdf.PDFDict{Entries: pdf.DictOf(nil)},
-	})}}
+	d := &Document{resolvePath: func(path []string) (pdf.PDFValue, error) {
+		if path[len(path)-1] == "Dests" && len(path) == 2 {
+			return pdf.PDFDict{Entries: pdf.DictOf(nil)}, nil
+		}
+		return nil, pdf.ErrNoEntry
+	}}
 	if d.namedDest("x") != nil {
 		t.Error("a destination was found in empty tables")
 	}

@@ -27,9 +27,9 @@ Everything under `internal/` may change in any release without notice.
 ### Changed
 
 - Opening a large document for viewing is much faster. `Document.Pages` and
-  `Document.Page` resolve only the parts of the catalog a viewer reads (the
-  page tree, named destinations and optional content) instead of the whole
-  object graph, so a big structure tree is never parsed. An object stored in
+  `Document.Page` resolve the page tree and the optional content instead of
+  the whole object graph, named destinations are resolved when a link first
+  needs one, and a big structure tree is never parsed. An object stored in
   an object stream is parsed when it is first used, not with every other
   object of its stream. `Document.Metadata`, `Document.XMPMetadata`,
   `Document.ClaimedConformance` and `Document.PageCount` read only what they

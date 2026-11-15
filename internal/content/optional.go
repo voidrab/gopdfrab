@@ -20,7 +20,13 @@ const maxVisibilityDepth = 64
 // /OCProperties. It returns nil when that configuration turns no group off,
 // so that a document with every layer visible needs no tracking.
 func NewOptionalContent(catalog pdf.PDFDict) *OptionalContent {
-	props, ok := catalog.Entries.Get("OCProperties").(pdf.PDFDict)
+	return OptionalContentOf(catalog.Entries.Get("OCProperties"))
+}
+
+// OptionalContentOf is NewOptionalContent given the catalog's /OCProperties
+// value itself, which may be nil.
+func OptionalContentOf(properties pdf.PDFValue) *OptionalContent {
+	props, ok := properties.(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
