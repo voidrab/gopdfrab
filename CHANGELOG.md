@@ -24,6 +24,13 @@ Everything under `internal/` may change in any release without notice.
 
 ## [Unreleased]
 
+### Added
+
+- `Page.Render` draws the page's annotations over its content, through their
+  normal appearance streams: signatures, stamps, ink, filled-in form fields
+  and the like. Hidden and NoView annotations, popups, annotations without an
+  appearance, and those in optional content that is off are not drawn.
+
 ### Fixed
 
 - Verify no longer reports an integer value of a key whose enumerated values
