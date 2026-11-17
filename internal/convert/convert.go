@@ -107,9 +107,9 @@ func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 }
 
 // RunContext is Run honouring ctx cancellation, checked before each verify/fix
-// iteration and each raster pass. It first fetches the substitute fonts that
-// the repairs embed, and returns an error if the font source fails for one of
-// them, so that no repair runs with a font missing.
+// iteration and each raster pass. It first fetches every substitute font and
+// returns an error if the font source fails for one of them, so that no repair
+// runs with a font missing.
 func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 	if err := fontsubst.Preload(); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)

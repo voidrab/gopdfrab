@@ -9,9 +9,9 @@ import (
 // SetFontSource makes src the source of the substitute fonts that gopdfrab
 // draws and embeds for fonts a document uses without embedding them, in place
 // of the built-in fonts; a nil src restores those. The src function returns
-// the gzip-compressed bytes of the named font file, one of FontFiles, as they
-// are in gopdfrab's internal/fontsubst/fonts directory. It may be called
-// concurrently for different fonts, and again for a font after a failure.
+// the gzip-compressed contents of the named font file, one of FontFiles. It may
+// be called concurrently for different fonts, and again for a font after a
+// failure.
 //
 // A build with the gopdfrab_nofonts tag leaves the built-in fonts out, for a
 // program, such as a WebAssembly build, that fetches them only when a document

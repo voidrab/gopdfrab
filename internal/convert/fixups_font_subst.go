@@ -348,11 +348,11 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		{fontsubst.NotoSymbols2(), "NotoSansSymbols2"},
 		{fontsubst.NotoSymbols(), "NotoSansSymbols"},
 	} {
-		// Every candidate is a bundled face (see
-		// TestBundledFacesSupportSubsetting), so the subsetter succeeds on
-		// it and its packed output parses and carries the format-4 (3,0)
-		// cmap it wrote. A candidate that cannot be loaded is nil, so the
-		// subsetter fails on it and the coverage check skips it.
+		// Every candidate is a bundled face, which
+		// TestBundledFacesSupportSubsetting pins to subset without error.
+		// The packed output parses and carries the format-4 (3,0) cmap it
+		// wrote. A candidate that cannot be loaded is nil; the subsetter
+		// fails on it and the coverage check skips it.
 		s, _ := fontedit.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
 		t, _ := fontprog.ParseSfnt(s)
 		_, _, gm, _ := fontedit.FirstFormat4CmapSubtable(t)

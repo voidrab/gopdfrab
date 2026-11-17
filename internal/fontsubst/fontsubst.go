@@ -55,8 +55,9 @@ var (
 )
 
 // Source returns the gzip-compressed bytes of the bundled font file name, one
-// of Files. It may be slow, as a network fetch is. It is called at most once
-// for each file, and again for a file after a failure.
+// of Files. It may be slow, for example when it fetches over a network. It is
+// called at most once for each file after each SetSource, and again for a file
+// after a failure.
 type Source func(name string) ([]byte, error)
 
 var (
