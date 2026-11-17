@@ -2,7 +2,9 @@ package raster
 
 import (
 	"context"
+	"errors"
 	"image"
+	"math"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/content"
@@ -109,6 +111,13 @@ func TestAnnotationNotDrawn(t *testing.T) {
 		"image appearance": annotWith(rect, pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 			"Subtype": pdf.PDFName{Value: "Image"}, "BBox": numArray(0, 0, 10, 10),
 		}), nil), nil),
+		"AP without N": {Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Rect": rect, "AP": pdf.PDFDict{Entries: pdf.DictOf(nil)},
+		})},
+		"AS naming no state": annotWith(rect, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"On": redAppearance()})},
+			map[string]pdf.PDFValue{"AS": pdf.PDFName{Value: "Off"}}),
+		"no BBox":       annotWith(rect, pdf.NewStreamDict(nil, []byte("1 0 0 rg 0 0 10 10 re f")), nil),
+		"infinite Rect": annotWith(pdf.PDFArray{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(math.Inf(1)), pdf.PDFReal(10)}, redAppearance(), nil),
 	}
 	for name, annot := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -117,6 +126,26 @@ func TestAnnotationNotDrawn(t *testing.T) {
 				t.Error("annotation was drawn")
 			}
 		})
+	}
+}
+
+// TestAnnotationNotADictionary covers an /Annots entry that is not a
+// dictionary: it is skipped and the annotations after it are drawn.
+func TestAnnotationNotADictionary(t *testing.T) {
+	img := renderAnnotPage(t, annotPage(pdf.PDFInteger(1), annotWith(numArray(0, 0, 10, 10), redAppearance(), nil)))
+	if !isRed(t, img, 5, 95) {
+		t.Error("the annotation after a non-dictionary entry was not drawn")
+	}
+}
+
+// TestAnnotationsStopWhenCancelled covers a render whose context is done: no
+// annotation is painted and the context's error is returned.
+func TestAnnotationsStopWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	page := annotPage(annotWith(numArray(0, 0, 10, 10), redAppearance(), nil))
+	if _, _, err := RenderPageContext(ctx, page, pdf.PDFDict{}, annotBox, 72, nil, nil); !errors.Is(err, context.Canceled) {
+		t.Errorf("RenderPageContext with a cancelled context returned %v, want context.Canceled", err)
 	}
 }
 
