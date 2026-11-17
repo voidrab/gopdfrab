@@ -7,12 +7,13 @@ import (
 	"testing"
 )
 
-// TestFontSource verifies that the substitute fonts come from the source
-// set, every one of FontFiles, which is a copy the caller may change.
+// TestFontSource verifies that PreloadFonts asks the source for every one of
+// FontFiles and returns its error, and that FontFiles returns a copy the
+// caller may change.
 func TestFontSource(t *testing.T) {
 	defer SetFontSource(nil)
 	offline := errors.New("offline")
-	var mu sync.Mutex // the source is asked for the fonts all at once
+	var mu sync.Mutex // Preload calls the source from several goroutines
 	var asked []string
 	SetFontSource(func(name string) ([]byte, error) {
 		mu.Lock()

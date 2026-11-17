@@ -7,7 +7,7 @@ import "embed"
 //go:embed fonts/*.ttf.gz
 var embedded embed.FS
 
-// builtIn reports that the fonts are built in.
+// builtIn is true because the fonts are built into the binary.
 const builtIn = true
 
 // builtin is the source of the built-in fonts.

@@ -93,7 +93,7 @@ func TestSourceFailures(t *testing.T) {
 // leaves inflating them to their first use, and returns the source's error.
 func TestPreload(t *testing.T) {
 	calls := useSource(t, fontsDir)
-	LiberationSansRegular() // loaded already: not fetched again
+	LiberationSansRegular() // already inflated, so Preload does not fetch it
 	if err := Preload(); err != nil {
 		t.Fatalf("Preload() = %v", err)
 	}

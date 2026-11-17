@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// TestNoSource verifies that a build without the fonts has none until a
-// source is set.
+// TestNoSource verifies that, in a build without the fonts, a font is nil and
+// Preload fails with ErrNoSource until a source is set.
 func TestNoSource(t *testing.T) {
 	SetSource(nil)
 	if data := LiberationSansRegular(); data != nil {

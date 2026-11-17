@@ -242,11 +242,11 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 
 	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
 	face := fontsubst.Pick(desc, baseFont.Value)
-	// face is a bundled Liberation face, loaded by RunContext's Preload,
-	// which TestBundledFacesSupportSubsetting pins to parse and carry a (3,1)
+	// face is a bundled Liberation face, which
+	// TestBundledFacesSupportSubsetting pins to parse and carry a (3,1)
 	// cmap: that is all SubsetTrueType can fail on, and its output is a
-	// packed sfnt that always parses. A face that could not be loaded is
-	// nil, which covers nothing, and the font is left as it is.
+	// packed sfnt that always parses. A face that cannot be loaded has nil
+	// Data, which covers no code, so the font is left as it is.
 	subset, _ := fontedit.SubsetTrueType(face.Data, unicodes)
 	tables, _ := fontprog.ParseSfnt(subset)
 	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
@@ -348,10 +348,11 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		{fontsubst.NotoSymbols2(), "NotoSansSymbols2"},
 		{fontsubst.NotoSymbols(), "NotoSansSymbols"},
 	} {
-		// Every candidate is a bundled face, loaded by RunContext's
-		// Preload (see TestBundledFacesSupportSubsetting), so the subsetter
-		// cannot fail; its packed output parses and carries the format-4
-		// (3,0) cmap it wrote. One that could not be loaded covers nothing.
+		// Every candidate is a bundled face (see
+		// TestBundledFacesSupportSubsetting), so the subsetter succeeds on
+		// it and its packed output parses and carries the format-4 (3,0)
+		// cmap it wrote. A candidate that cannot be loaded is nil, so the
+		// subsetter fails on it and the coverage check skips it.
 		s, _ := fontedit.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
 		t, _ := fontprog.ParseSfnt(s)
 		_, _, gm, _ := fontedit.FirstFormat4CmapSubtable(t)
@@ -695,9 +696,9 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		{fontsubst.NotoSymbols2(), "NotoSansSymbols2"},
 		{fontsubst.NotoSymbols(), "NotoSansSymbols"},
 	} {
-		// Every candidate is a bundled face, loaded by RunContext's Preload,
-		// with a format-4 (3,1) cmap (see TestBundledFacesSupportSubsetting).
-		// One that could not be loaded covers nothing.
+		// Every candidate is a bundled face with a format-4 (3,1) cmap (see
+		// TestBundledFacesSupportSubsetting). A candidate that cannot be
+		// loaded is nil and has no cmap, so the coverage check skips it.
 		faceTables, _ := fontprog.ParseSfnt(cand.data)
 		faceCmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(faceTables))
 		covered := true

@@ -55,8 +55,8 @@ var (
 )
 
 // Source returns the gzip-compressed bytes of the bundled font file name, one
-// of Files. It may be slow, as a fetch over the network is, and is called at
-// most once for each file until a call fails.
+// of Files. It may be slow, as a network fetch is. It is called at most once
+// for each file, and again for a file after a failure.
 type Source func(name string) ([]byte, error)
 
 var (
@@ -87,8 +87,8 @@ func SetSource(src Source) {
 	generation++
 }
 
-// current returns the source in use, the built-in one for none, and its
-// generation.
+// current returns the source in use, or the built-in source when none is set,
+// and the generation it belongs to.
 func current() (Source, int) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -98,8 +98,8 @@ func current() (Source, int) {
 	return source, generation
 }
 
-// fetch returns the font's compressed bytes from src, fetching them unless
-// they are at hand. f.mu must be held.
+// fetch returns the compressed bytes of the font from src, fetching them only
+// if none are held for generation gen. f.mu must be held.
 func (f *font) fetch(src Source, gen int) ([]byte, error) {
 	if f.gen != gen {
 		f.gen, f.z, f.data = gen, nil, nil
@@ -136,11 +136,10 @@ func (f *font) load() ([]byte, error) {
 	return b, nil
 }
 
-// bundled registers the font file name and returns a function that returns
-// it, loading it on its first call and returning those same bytes on every
-// call after. It returns nil while the font cannot be loaded, which the
-// faces' users treat as a face that covers nothing. Callers must not modify
-// the bytes.
+// bundled registers the font file name and returns a function that gives the
+// font's bytes, loading them on the first call. The function returns nil while
+// the font cannot be loaded, and a nil face covers no glyphs. Callers must not
+// modify the bytes.
 func bundled(name string) func() []byte {
 	f := &font{name: name}
 	fonts[name] = f
@@ -151,9 +150,9 @@ func bundled(name string) func() []byte {
 	}
 }
 
-// Preload fetches every bundled font from the source set, all at once, so
-// that no later use can fail, and returns their errors; each is inflated on
-// first use. With the built-in fonts it does nothing.
+// Preload fetches every bundled font from the source set, all at once, and
+// returns the errors. Inflating each font is left to its first use. With the
+// built-in fonts it does nothing.
 func Preload() error {
 	mu.Lock()
 	custom := source != nil
