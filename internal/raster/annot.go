@@ -13,25 +13,20 @@ const (
 	annotNoView = 1 << 5
 )
 
-// pageAnnots returns the page's /Annots array, or nil when it has none.
-func pageAnnots(page pdf.PDFDict) pdf.PDFArray {
-	annots, _ := page.Entries.Get("Annots").(pdf.PDFArray)
-	return annots
-}
-
 // paintAnnotations paints the normal appearance of each annotation over the
 // page, in the order the page lists them (ISO 32000-1 12.5.5). base maps the
 // page's default user space to device space and clip is the device clip a
 // drawing starts in. An annotation that is hidden, has no normal appearance,
 // or whose optional content is off is not drawn; nor is a popup, which a
-// viewer shows only on demand.
+// viewer shows only on demand. Nor is one outside the canvas, which would
+// paint nothing.
 func (r *renderer) paintAnnotations(annots pdf.PDFArray, resources pdf.PDFDict, base content.Matrix, clip [4]float64) {
 	for _, a := range annots {
-		if r.ctx != nil && r.ctx.Err() != nil {
+		if r.ctx.Err() != nil {
 			return
 		}
 		annot, ok := a.(pdf.PDFDict)
-		if !ok || annot.Entries == nil {
+		if !ok {
 			continue
 		}
 		if flags, _ := pdf.PDFNumberToInt(annot.Entries.Get("F")); flags&(annotHidden|annotNoView) != 0 {
@@ -51,7 +46,11 @@ func (r *renderer) paintAnnotations(annots pdf.PDFArray, resources pdf.PDFDict, 
 		if !ok {
 			continue
 		}
-		gs := newRenderState(place.Mul(base), clip)
+		ctm := place.Mul(base)
+		if clipToBounds(r.canvas.Bounds(), formClip(ap, formCTM(ap, ctm), clip)).Empty() {
+			continue
+		}
+		gs := newRenderState(ctm, clip)
 		r.doForm(ap, resources, &gs)
 	}
 }
@@ -61,13 +60,7 @@ func (r *renderer) paintAnnotations(annots pdf.PDFArray, resources pdf.PDFDict, 
 // one /AS selects.
 func normalAppearance(annot pdf.PDFDict) (pdf.PDFDict, bool) {
 	ap, _ := annot.Entries.Get("AP").(pdf.PDFDict)
-	if ap.Entries == nil {
-		return pdf.PDFDict{}, false
-	}
 	n, _ := ap.Entries.Get("N").(pdf.PDFDict)
-	if n.Entries == nil {
-		return pdf.PDFDict{}, false
-	}
 	if !n.IsStream() {
 		state, ok := annot.Entries.Get("AS").(pdf.PDFName)
 		if !ok {
@@ -98,21 +91,14 @@ func appearancePlacement(annot, ap pdf.PDFDict) (content.Matrix, bool) {
 	if err != nil || len(bbox) != 4 {
 		return content.Matrix{}, false
 	}
-	m := formCTM(ap, content.IdentityMatrix)
-	x0, y0, x1, y1 := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
-	for _, c := range []content.Point{{X: bbox[0], Y: bbox[1]}, {X: bbox[2], Y: bbox[1]}, {X: bbox[2], Y: bbox[3]}, {X: bbox[0], Y: bbox[3]}} {
-		p := m.Apply(c)
-		x0, y0 = math.Min(x0, p.X), math.Min(y0, p.Y)
-		x1, y1 = math.Max(x1, p.X), math.Max(y1, p.Y)
-	}
+	b := deviceBounds(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1], formCTM(ap, content.IdentityMatrix), 0)
 	rx0, ry0 := math.Min(rect[0], rect[2]), math.Min(rect[1], rect[3])
 	rx1, ry1 := math.Max(rect[0], rect[2]), math.Max(rect[1], rect[3])
-	if x1-x0 <= 0 || y1-y0 <= 0 || rx1-rx0 <= 0 || ry1-ry0 <= 0 {
+	sx, sy := (rx1-rx0)/(b[2]-b[0]), (ry1-ry0)/(b[3]-b[1])
+	// An empty rectangle or box, or an infinite one, gives a scale that is
+	// zero, infinite or NaN, which !(s > 0) rejects along with zero.
+	if !(sx > 0 && sy > 0) || math.IsInf(sx, 0) || math.IsInf(sy, 0) {
 		return content.Matrix{}, false
 	}
-	sx, sy := (rx1-rx0)/(x1-x0), (ry1-ry0)/(y1-y0)
-	if math.IsInf(sx, 0) || math.IsInf(sy, 0) || math.IsNaN(sx) || math.IsNaN(sy) {
-		return content.Matrix{}, false
-	}
-	return content.Matrix{A: sx, D: sy, E: rx0 - x0*sx, F: ry0 - y0*sy}, true
+	return content.Matrix{A: sx, D: sy, E: rx0 - b[0]*sx, F: ry0 - b[1]*sy}, true
 }

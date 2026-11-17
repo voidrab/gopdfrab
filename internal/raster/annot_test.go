@@ -13,9 +13,7 @@ import (
 
 // redAppearance is a form whose 10 by 10 box is filled red.
 func redAppearance() pdf.PDFDict {
-	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
-		"BBox": numArray(0, 0, 10, 10),
-	}), []byte("1 0 0 rg 0 0 10 10 re f"))
+	return formWithBBox("1 0 0 rg 0 0 10 10 re f", 0, 0, 10, 10)
 }
 
 // annotPage is a blank 100 by 100 page with the annotations given.
@@ -86,7 +84,7 @@ func TestAnnotationAppearanceMatrix(t *testing.T) {
 // TestAnnotationAppearanceState covers /N holding a stream per state: the one
 // /AS names is drawn.
 func TestAnnotationAppearanceState(t *testing.T) {
-	off := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"BBox": numArray(0, 0, 10, 10)}), []byte("0 0 1 rg 0 0 10 10 re f"))
+	off := formWithBBox("0 0 1 rg 0 0 10 10 re f", 0, 0, 10, 10)
 	states := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"On": redAppearance(), "Off": off})}
 	img := renderAnnotPage(t, annotPage(annotWith(numArray(0, 0, 10, 10), states, map[string]pdf.PDFValue{"AS": pdf.PDFName{Value: "On"}})))
 	if !isRed(t, img, 5, 95) {
@@ -116,7 +114,7 @@ func TestAnnotationNotDrawn(t *testing.T) {
 		})},
 		"AS naming no state": annotWith(rect, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"On": redAppearance()})},
 			map[string]pdf.PDFValue{"AS": pdf.PDFName{Value: "Off"}}),
-		"no BBox":       annotWith(rect, pdf.NewStreamDict(nil, []byte("1 0 0 rg 0 0 10 10 re f")), nil),
+		"no BBox":       annotWith(rect, formWithBBox("1 0 0 rg 0 0 10 10 re f"), nil),
 		"infinite Rect": annotWith(pdf.PDFArray{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(math.Inf(1)), pdf.PDFReal(10)}, redAppearance(), nil),
 	}
 	for name, annot := range cases {
@@ -179,7 +177,8 @@ func TestAnnotationOptionalContent(t *testing.T) {
 // TestRenderPageRegionDrawsAnnotations covers a region render, which shows
 // annotations like a whole-page one.
 func TestRenderPageRegionDrawsAnnotations(t *testing.T) {
-	page := annotPage(annotWith(numArray(0, 0, 10, 10), redAppearance(), nil))
+	// The second annotation lies outside the region and is skipped.
+	page := annotPage(annotWith(numArray(0, 0, 10, 10), redAppearance(), nil), annotWith(numArray(80, 80, 90, 90), redAppearance(), nil))
 	img, _, err := RenderPageRegion(context.Background(), page, pdf.PDFDict{}, annotBox, 72, image.Rect(0, 80, 20, 100), nil, nil)
 	if err != nil {
 		t.Fatalf("RenderPageRegion: %v", err)

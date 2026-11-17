@@ -27,11 +27,7 @@ import (
 // Content that oc hides is not drawn; a nil oc hides nothing. The page's
 // annotations are not drawn either, since they are not part of its content.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	src, err := PageContentBytes(page)
-	if err != nil {
-		return nil, nil, err
-	}
-	return renderArea(context.Background(), src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, nil, nil, nil)
+	return renderPage(context.Background(), page, resources, mediaBox, dpi, image.Rectangle{}, oc, nil, false)
 }
 
 // RenderPageContext renders the page as a viewer displays it: RenderPage
@@ -39,11 +35,21 @@ func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dp
 // signatures, stamps and filled-in form fields. It stops painting soon after
 // ctx is done, and then returns ctx.Err().
 func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
+	return renderPage(ctx, page, resources, mediaBox, dpi, image.Rectangle{}, oc, cache, true)
+}
+
+// renderPage renders region of the page's content, or all of it for an empty
+// region, followed by its annotations when withAnnots is set.
+func renderPage(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, region image.Rectangle, oc *content.OptionalContent, cache *Cache, withAnnots bool) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderArea(ctx, src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, cache, nil, pageAnnots(page))
+	var annots pdf.PDFArray
+	if withAnnots {
+		annots, _ = page.Entries.Get("Annots").(pdf.PDFArray)
+	}
+	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache, nil, annots)
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -108,16 +114,12 @@ func PixelSize(bounds [4]float64, dpi int) (width, height int) {
 // whole-page render, dpi is not lowered to fit the pixel budget. An empty
 // region, or one that misses the page, is an error.
 func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, region image.Rectangle, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
-	src, err := PageContentBytes(page)
-	if err != nil {
-		return nil, nil, err
-	}
 	w, h := PixelSize(mediaBox, dpi)
 	region = region.Intersect(image.Rect(0, 0, w, h))
 	if region.Empty() {
 		return nil, nil, fmt.Errorf("raster: empty render region")
 	}
-	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache, nil, pageAnnots(page))
+	return renderPage(ctx, page, resources, mediaBox, dpi, region, oc, cache, true)
 }
 
 // TextGlyph is one character shown on a page: its Unicode value, zero if the
@@ -211,9 +213,7 @@ func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [
 		r.fontCache = cache.fonts
 	}
 	r.execContent(src, resources, gs)
-	if len(annots) > 0 && !r.textOnly() {
-		r.paintAnnotations(annots, resources, base, clip)
-	}
+	r.paintAnnotations(annots, resources, base, clip)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
