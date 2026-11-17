@@ -54,9 +54,11 @@ func isRed(t *testing.T, img *image.RGBA, x, y int) bool {
 }
 
 // TestAnnotationAppearanceFitsRect covers an appearance whose box is scaled
-// onto a larger /Rect: it fills the rectangle, and nothing outside it.
+// onto a larger rectangle (/Rect): it fills that rectangle, and nothing outside
+// it.
 func TestAnnotationAppearanceFitsRect(t *testing.T) {
-	// Rect x 20..60, y 50..90 in PDF space: device rows 10..50.
+	// The rectangle spans x 20..60 and y 50..90 in PDF space, which is device
+	// rows 10..50.
 	img := renderAnnotPage(t, annotPage(annotWith(numArray(20, 50, 60, 90), redAppearance(), nil)))
 	for _, p := range []image.Point{{22, 12}, {40, 30}, {58, 48}} {
 		if !isRed(t, img, p.X, p.Y) {
@@ -70,8 +72,9 @@ func TestAnnotationAppearanceFitsRect(t *testing.T) {
 	}
 }
 
-// TestAnnotationAppearanceMatrix covers an appearance whose /Matrix moves its
-// box: the transformed box, not the raw one, is what is fitted to /Rect.
+// TestAnnotationAppearanceMatrix covers an appearance whose matrix (/Matrix)
+// moves its box: the transformed box, not the raw one, is fitted to the
+// rectangle (/Rect).
 func TestAnnotationAppearanceMatrix(t *testing.T) {
 	ap := redAppearance()
 	ap.Entries.Set("Matrix", numArray(1, 0, 0, 1, 500, 500))
@@ -81,8 +84,8 @@ func TestAnnotationAppearanceMatrix(t *testing.T) {
 	}
 }
 
-// TestAnnotationAppearanceState covers /N holding a stream per state: the one
-// /AS names is drawn.
+// TestAnnotationAppearanceState covers a normal appearance (/AP /N) holding one
+// stream per state: the stream that the state name (/AS) selects is drawn.
 func TestAnnotationAppearanceState(t *testing.T) {
 	off := formWithBBox("0 0 1 rg 0 0 10 10 re f", 0, 0, 10, 10)
 	states := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"On": redAppearance(), "Off": off})}
@@ -127,8 +130,9 @@ func TestAnnotationNotDrawn(t *testing.T) {
 	}
 }
 
-// TestAnnotationNotADictionary covers an /Annots entry that is not a
-// dictionary: it is skipped and the annotations after it are drawn.
+// TestAnnotationNotADictionary covers an entry of the page's annotation array
+// (/Annots) that is not a dictionary: it is skipped, and the annotations after
+// it are drawn.
 func TestAnnotationNotADictionary(t *testing.T) {
 	img := renderAnnotPage(t, annotPage(pdf.PDFInteger(1), annotWith(numArray(0, 0, 10, 10), redAppearance(), nil)))
 	if !isRed(t, img, 5, 95) {
@@ -147,7 +151,8 @@ func TestAnnotationsStopWhenCancelled(t *testing.T) {
 	}
 }
 
-// TestAnnotationPrintFlagDrawn covers the common /F 4 (Print): it is shown.
+// TestAnnotationPrintFlagDrawn covers an annotation whose flags (/F) are 4, the
+// Print flag alone: it is drawn.
 func TestAnnotationPrintFlagDrawn(t *testing.T) {
 	img := renderAnnotPage(t, annotPage(annotWith(numArray(0, 0, 10, 10), redAppearance(), map[string]pdf.PDFValue{"F": pdf.PDFInteger(4)})))
 	if !isRed(t, img, 5, 95) {
@@ -189,7 +194,7 @@ func TestRenderPageRegionDrawsAnnotations(t *testing.T) {
 }
 
 // TestRenderPageLeavesOutAnnotations covers RenderPage, which renders only the
-// page's content for conversion, where the annotations stay as they are.
+// page's content and leaves its annotations out.
 func TestRenderPageLeavesOutAnnotations(t *testing.T) {
 	page := annotPage(annotWith(numArray(0, 0, 10, 10), redAppearance(), nil))
 	img, _, err := RenderPage(page, pdf.PDFDict{}, annotBox, 72, nil)

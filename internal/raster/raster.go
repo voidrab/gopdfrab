@@ -947,8 +947,9 @@ func (r *renderer) doXObject(xobj, resources pdf.PDFDict, gs *renderState) {
 	}
 }
 
-// doForm paints a Form XObject, running its content under its /Matrix composed
-// with the CTM, clipped to its /BBox, and with its own resources if it has any.
+// doForm paints a Form XObject, running its content under its matrix (/Matrix)
+// composed with the CTM, clipped to its bounding box (/BBox), and with its own
+// resources if it has any.
 func (r *renderer) doForm(xobj, resources pdf.PDFDict, gs *renderState) {
 	if r.depth > maxFormDepth {
 		return

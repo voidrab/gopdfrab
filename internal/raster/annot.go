@@ -55,9 +55,9 @@ func (r *renderer) paintAnnotations(annots pdf.PDFArray, resources pdf.PDFDict, 
 	}
 }
 
-// normalAppearance returns the form XObject that draws annot normally: its
-// /AP /N stream, or, where /N holds one stream for each appearance state, the
-// one /AS selects.
+// normalAppearance returns the form XObject that draws annot in its normal
+// state: the normal appearance stream (/AP /N) or, where /N holds one stream
+// per appearance state, the stream that the state name (/AS) selects.
 func normalAppearance(annot pdf.PDFDict) (pdf.PDFDict, bool) {
 	ap, _ := annot.Entries.Get("AP").(pdf.PDFDict)
 	n, _ := ap.Entries.Get("N").(pdf.PDFDict)
@@ -71,17 +71,18 @@ func normalAppearance(annot pdf.PDFDict) (pdf.PDFDict, bool) {
 	if !n.IsStream() {
 		return pdf.PDFDict{}, false
 	}
-	// An appearance stream is a form, so it may leave out its /Subtype.
+	// An appearance stream is a form, so it may omit its subtype (/Subtype).
 	if st, ok := n.Entries.Get("Subtype").(pdf.PDFName); ok && st.Value != "Form" {
 		return pdf.PDFDict{}, false
 	}
 	return n, true
 }
 
-// appearancePlacement returns the matrix A of ISO 32000-1 12.5.5 that fits an
-// appearance's /BBox, transformed by its /Matrix, onto the annotation's /Rect.
-// The appearance's content then runs under its /Matrix, then A, then the
-// page's CTM. It reports false for a missing or degenerate rectangle or box.
+// appearancePlacement returns the matrix A of ISO 32000-1 12.5.5 that fits the
+// appearance's bounding box (/BBox), transformed by its matrix (/Matrix), onto
+// the annotation's rectangle (/Rect). The appearance's content then runs under
+// its matrix, then A, then the page's CTM. It reports false for a missing or
+// degenerate rectangle or box.
 func appearancePlacement(annot, ap pdf.PDFDict) (content.Matrix, bool) {
 	rect, err := pdf.FloatArray(annot.Entries.Get("Rect"))
 	if err != nil || len(rect) != 4 {
