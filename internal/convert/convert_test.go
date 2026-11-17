@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/corpustest"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -966,5 +967,16 @@ func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
 	// RasterDrops cannot stand in for this signal.
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
+	}
+}
+
+// TestConvertFailsWithoutFonts verifies that a conversion whose substitute
+// fonts cannot be loaded fails before it starts, naming the cause.
+func TestConvertFailsWithoutFonts(t *testing.T) {
+	offline := errors.New("offline")
+	fontsubst.SetSource(func(string) ([]byte, error) { return nil, offline })
+	defer fontsubst.SetSource(nil)
+	if _, err := RunContext(context.Background(), nil, pdf.PDFA1B, Options{}); !errors.Is(err, offline) {
+		t.Errorf("RunContext() = %v, want the font source's error", err)
 	}
 }

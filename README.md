@@ -248,6 +248,25 @@ Positions are in points from the top-left corner of the displayed page. A
 render stops soon after its context is done. A document keeps decoded images,
 up to 64 MB, and glyph outlines between renders.
 
+### Substitute fonts
+
+For fonts a document uses without embedding them, rendering draws and
+conversion embeds bundled substitutes: Liberation Sans, Serif and Mono and two
+Noto symbol faces, about 3.1 MB compressed. They are built in. A build with the
+`gopdfrab_nofonts` tag leaves them out, for a program that would rather fetch
+them only when a document needs one, as a WebAssembly build served over the
+network may:
+
+```go
+// name is one of gopdfrab.FontFiles(), as in internal/fontsubst/fonts;
+// the source returns its gzip-compressed bytes.
+gopdfrab.SetFontSource(func(name string) ([]byte, error) { return fetch("fonts/" + name) })
+err := gopdfrab.PreloadFonts() // optional: load them all now
+```
+
+A page rendered while a font cannot be loaded leaves out the glyphs it would
+draw; a conversion loads every font first and fails if one cannot be loaded.
+
 ## Profiles and checks
 
 `PDFA1B`, `Legacy1B`, `PDFA2B` and `PDF` are the ready-made profiles, named

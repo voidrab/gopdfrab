@@ -20,7 +20,8 @@ import (
 func isConvertOnly(name string) bool {
 	switch name {
 	case "PageFidelity", "RasterDrop", "ErrUnresolvableGraph",
-		"Page", "Pages", "RenderOptions", "ErrPageRange", "Rect", "Glyph", "Link":
+		"Page", "Pages", "RenderOptions", "ErrPageRange", "Rect", "Glyph", "Link",
+		"SetFontSource", "FontFiles", "PreloadFonts":
 		return true
 	}
 	return strings.Contains(name, "Convert")
