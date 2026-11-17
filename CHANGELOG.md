@@ -24,8 +24,17 @@ Everything under `internal/` may change in any release without notice.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-17
+
 ### Added
 
+- A build with the `gopdfrab_nofonts` tag leaves the bundled substitute fonts
+  out of the binary, about 3.1 MB compressed, for a program such as a
+  WebAssembly viewer that would rather fetch them when a document needs one.
+  `SetFontSource` supplies them, `FontFiles` lists the files a source serves,
+  and `PreloadFonts` fetches them all at once. A page rendered while a font
+  cannot be loaded leaves out the glyphs it would draw; a conversion loads
+  every font first and fails if one cannot be loaded.
 - `Page.Render` draws the page's annotations over its content, through their
   normal appearance streams: signatures, stamps, ink, filled-in form fields
   and the like. Hidden and NoView annotations, popups, annotations without an
