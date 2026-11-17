@@ -1,8 +1,9 @@
+//go:build !gopdfrab_nofonts
+
 package fontsubst
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -90,23 +91,33 @@ func TestBundledFonts(t *testing.T) {
 	}
 }
 
-// TestInflateCorrupt verifies that inflate panics with a "fontsubst: corrupt
-// bundled font" message on data that is not gzip and on a gzip stream cut
-// short.
+// TestInflateCorrupt verifies that inflate fails on data that is not gzip
+// and on a gzip stream cut short.
 func TestInflateCorrupt(t *testing.T) {
-	cases := map[string][]byte{
-		"not gzip":  []byte("not gzip"),
-		"truncated": libSansRegularGz[:len(libSansRegularGz)/2],
+	z, err := builtin("LiberationSans-Regular.ttf.gz")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, z := range cases {
+	for name, z := range map[string][]byte{"not gzip": []byte("not gzip"), "truncated": z[:len(z)/2]} {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				msg, _ := recover().(string)
-				if !strings.HasPrefix(msg, "fontsubst: corrupt bundled font: ") {
-					t.Errorf("inflate panicked with %q, want a corrupt bundled font message", msg)
-				}
-			}()
-			inflate(z)
+			if _, err := inflate(z); err == nil {
+				t.Error("inflate succeeded on corrupt data")
+			}
 		})
+	}
+}
+
+// TestPreloadBuiltIn verifies that Preload loads nothing for the built-in
+// fonts, which are loaded on first use.
+func TestPreloadBuiltIn(t *testing.T) {
+	SetSource(nil)
+	if err := Preload(); err != nil {
+		t.Fatalf("Preload() = %v, want nil", err)
+	}
+	_, gen := current()
+	for name, f := range fonts {
+		if f.gen == gen && (f.z != nil || f.data != nil) {
+			t.Errorf("Preload loaded the built-in %s", name)
+		}
 	}
 }

@@ -22,6 +22,10 @@ func isConvertOnly(name string) bool {
 	case "PageFidelity", "RasterDrop", "ErrUnresolvableGraph",
 		"Page", "Pages", "RenderOptions", "ErrPageRange", "Rect", "Glyph", "Link":
 		return true
+	case "SetFontSource", "FontFiles", "PreloadFonts":
+		// The substitute fonts serve rendering and conversion, which the
+		// verify package leaves out.
+		return true
 	}
 	return strings.Contains(name, "Convert")
 }
