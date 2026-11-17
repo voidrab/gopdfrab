@@ -1,518 +1,250 @@
 # Changelog
 
 All notable changes to gopdfrab are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to
-follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0
-onward.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
+follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0.
 
 ## Versioning and stability
 
-**From 1.0, the stability guarantee covers the public packages only:**
+The stability guarantee covers the public packages only:
 `github.com/voidrab/gopdfrab` and, from 1.3.0, `github.com/voidrab/gopdfrab/verify`.
-Everything under `internal/` may change in any release without notice.
+Everything under `internal/` may change in any release.
 
-- A **breaking change** is any change to a public package that requires a
-  consumer to edit their code to keep compiling, or that alters documented
-  behavior of a public symbol. These happen only in a major version after 1.0.
-- **Additions** (new functions, types, options) are minor releases.
-- **Fixes** that do not change the public surface are patch releases. A more
-  correct verdict for a given input is a fix, even if a caller relied on the old
-  one.
-- **Deprecation:** a symbol slated for removal is marked `// Deprecated:` with
-  its replacement, kept for at least one minor release, and removed no earlier
-  than the next major version.
+- A **breaking change** needs a consumer to edit their code to keep compiling,
+  or alters documented behavior of a public symbol. It happens only in a major
+  version.
+- **Additions** are minor releases; **fixes** that leave the public surface
+  alone are patch releases. A more correct verdict is a fix.
+- A symbol slated for removal is marked `// Deprecated:`, kept for at least one
+  minor release, and removed no earlier than the next major version.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-17
+
 ### Added
 
-- `Page.Render` draws the page's annotations over its content, through their
-  normal appearance streams: signatures, stamps, ink, filled-in form fields
-  and the like. Hidden and NoView annotations, popups, annotations without an
-  appearance, and those in optional content that is off are not drawn.
+- The `gopdfrab_nofonts` build tag leaves the bundled substitute fonts (about
+  3.1 MB) out of the binary. `SetFontSource` supplies them instead,
+  `FontFiles` lists the files a source serves, and `PreloadFonts` fetches them
+  all. A render leaves out glyphs whose font cannot be loaded; a conversion
+  fails.
+- `Page.Render` draws annotations through their normal appearance streams,
+  skipping hidden, NoView, popup and switched-off optional content ones.
 
 ### Fixed
 
-- Verify no longer reports an integer value of a key whose enumerated values
-  cover only its other types, such as an integer /LineHeight in a structure
-  attribute dictionary, as outside its legal values. A converted document that
-  stored such a value as a real no longer fails when it is verified again.
-- Convert removes a /Lang entry that is not a language tag, such as one left
-  encrypted by a tool that decrypted the rest of the document. Stricter
-  validators reject such a value.
-- At PDF/A-2 and later, convert wraps a kept image or other object metadata
-  packet in xpacket processing instructions when it has none, as stricter
-  validators require.
+- Verify no longer rejects a value of a multi-type key, such as an integer
+  /LineHeight, against the enumerated values of its other types.
+- Convert removes a /Lang that is not a language tag and, from PDF/A-2, wraps
+  kept object XMP in xpacket processing instructions.
 
 ## [1.5.2] - 2026-11-15
 
 ### Changed
 
-- Opening a large document for viewing is much faster. `Document.Pages` and
-  `Document.Page` resolve the page tree and the optional content instead of
-  the whole object graph, named destinations are resolved when a link first
-  needs one, and a big structure tree is never parsed. An object stored in
-  an object stream is parsed when it is first used, not with every other
-  object of its stream. `Document.Metadata`, `Document.XMPMetadata`,
-  `Document.ClaimedConformance` and `Document.PageCount` read only what they
-  return. On a 560-page tagged book, `Document.Pages` went from 0.71 s to
-  0.06 s, and `Document.Metadata` on a newly opened document from 0.69 s to
-  under a millisecond.
+- Opening a large document for viewing is much faster: `Document.Pages`,
+  `Document.Page`, `Document.Metadata` and the other document helpers read
+  only what they return, and objects in object streams are parsed on first
+  use. On a 560-page tagged book, `Document.Pages` went from 0.71 s to 0.06 s.
 
 ### Fixed
 
-- A damaged object outside the parts a call reads, such as in the structure
-  tree, no longer makes `Document.Pages`, `Document.Page` or
-  `Document.Metadata` fail.
+- A damaged object outside the parts a call reads no longer makes it fail.
 
 ## [1.5.1] - 2026-11-15
 
 ### Changed
 
-- The bundled substitute fonts are stored gzip-compressed and inflated on first
-  use, which makes every binary that links gopdfrab about 2.8 MB smaller. A
-  program that never substitutes a font never inflates one.
+- The bundled substitute fonts are stored gzip-compressed and inflated on
+  first use, making every binary about 2.8 MB smaller.
 
 ## [1.5.0] - 2026-11-15
 
 ### Added
 
-- A page API for viewers: `Document.Pages` and `Document.Page` give random
-  access to pages, and a `Page` reports its `Size` and `Rotation` and renders
-  with `Render`, onto white and rotated for display, at a `RenderOptions.Scale`
-  and, with `RenderOptions.Region`, only the part of the page asked for.
+- A page API for viewers: `Document.Pages` and `Document.Page`, and a `Page`
+  with `Size`, `Rotation` and `Render` (`RenderOptions.Scale` and `Region`).
   `ErrPageRange` reports an index outside the document.
-- `Page.Glyphs` returns each character a page shows with its box, and
-  `Page.Links` its URI links and links to pages, named destinations resolved.
-  Both give positions as `Rect`s in points on the displayed page.
+- `Page.Glyphs` and `Page.Links` give characters and links with their `Rect`s
+  on the displayed page.
 
 ### Changed
 
-- The renderer anti-aliases fills and clips, strokes with caps, joins, miter
-  limits and dashes, filters images when it scales them, and draws text render
-  modes 0 to 7, uncoloured patterns and tiling patterns. The raster fallback
-  and fidelity checks of conversion render with it too.
-- Rendering is faster and needs less memory: decoded images, image pyramids
-  and glyph outlines are kept between renders, clip masks are stored as runs,
-  and a render stops soon after its context is done.
+- The renderer anti-aliases, strokes with caps, joins, miters and dashes,
+  filters scaled images, and draws all text render modes and tiling and
+  uncoloured patterns. Conversion's raster fallback and fidelity checks use it.
+- Rendering is faster and leaner: images, pyramids and glyph outlines are
+  cached between renders, and a render stops soon after its context is done.
 
 ### Fixed
 
-- CFF and Type 1 outlines are scaled by the program's FontMatrix, and a CID in
-  a CID-keyed CFF program finds its glyph through the charset.
-- Unlisted standard fonts take their advances from the substitute face, and a
-  tiling pattern with a non-finite bounding box is rejected.
-- On Windows, a file open in a `Reader` can be renamed or deleted, as on unix,
-  and `ConvertResult.Save` can write over it, as when a document is converted
-  in place while it is open.
+- CFF and Type 1 outlines honour the FontMatrix, and CID-keyed CFF glyphs are
+  found through the charset.
+- On Windows, a file open in a `Reader` can be renamed or deleted, and
+  `ConvertResult.Save` can write over it.
 
 ## [1.4.0] - 2026-11-09
 
 ### Added
 
-- PDF/A-2b verification and conversion: the `A2B` level and the `PDFA2B`
-  profile, also in `gopdfrab/verify`, and `--profile pdfa2b` on the CLI.
-  `Profiles` and `ProfileByName` list it as `pdfa2b`. A converted file
-  declares PDF 1.7.
-- `PDFError.Level` and `PDFError.Clause` give the level an issue was reported
-  under and its clause there. An issue's text and JSON, `Result.Summary`,
-  `Result.Checks` and the CLI number each check by the clause of that level.
-  `Check.DescriptionIn` words a check's rule as a given level does.
-- Forty-five checks for rules only PDF/A-2 sets, with no PDF/A-1 clause (so
-  `Clause()` is empty and `ClauseIn` names their PDF/A-2 clause). They cover
-  names, permissions, signatures and page boundaries in
-  `Checks.Structure`; device colour, output intents and halftones in
-  `Checks.Colour` and `Checks.Transparency`; JPEG 2000 in `Checks.Image`;
-  CMaps and .notdef in `Checks.Font`; annotation flags in `Checks.Annotation`;
-  NeedsRendering in `Checks.Form`; extension schemas in `Checks.Metadata`;
-  optional content configurations; and embedded files, presentations and
-  requirements. Metadata is checked on an RDF model of the XMP, and an
-  embedded file must itself conform to PDF/A-1b or PDF/A-2b.
+- PDF/A-2b: the `A2B` level and `PDFA2B` profile (also in `gopdfrab/verify`,
+  and `--profile pdfa2b`). A converted file declares PDF 1.7.
+- `PDFError.Level`, `PDFError.Clause` and `Check.DescriptionIn`; issues and
+  summaries are numbered by the clause of their level.
+- Forty-five checks for rules only PDF/A-2 sets, across every check group,
+  with metadata checked on an RDF model of the XMP and embedded files required
+  to conform themselves.
 
 ### Changed
 
-- The raster fallback and fidelity renderer draw blend modes and ExtGState soft
-  masks; past a work limit they stop and report it in `RasterDrops`.
-- Converting to PDF/A-2b converts embedded PDFs (two levels deep), removes
-  non-conforming embedded files and reports them in `LostObjects`, and keeps an
-  XMP packet that already passes. A valid output intent stays at every level.
-- Converting a signed file removes its signatures at every level and reports
-  each in `LostObjects`; the rewrite used to invalidate them silently.
+- The raster fallback draws blend modes and soft masks, and reports work-limit
+  stops in `RasterDrops`.
+- PDF/A-2b conversion converts embedded PDFs and removes non-conforming
+  embedded files. Signatures are removed at every level. Both are reported in
+  `LostObjects`.
 
 ### Fixed
 
-- Convert rasterized every page when a font no fixer could embed was shown on
-  several pages; it now rasterizes only the pages that show it.
-- Fonts: CIDSet and width checks now follow a CIDToGIDMap stream, fonts used
-  only by Type 3 glyph procedures count as used, TrueType codes outside
-  `/Widths` and subset CIDFontType0 CIDs are compared with the program, and
-  convert repairs the findings instead of rasterizing.
-- Colour: the overprint rule missed DeviceCMYK under a DefaultCMYK and state
-  inherited by forms, and forms or Type 3 fonts without own resources were
-  wrongly excused by the page's Default colour spaces.
-- Annotations and actions: convert left emptied dictionaries in `/Annots` and
-  in action chains, which veraPDF reads as typeless objects; it now removes
-  them and keeps the permitted actions chained.
-- Verify reads the newest revision of an incrementally updated file
-  throughout, and reports a lone CR after `stream`.
-- Smaller fixes: XMP dates always carry a time and timezone, hexadecimal
-  strings obey the length limit, inline-image `/DP` parameters are no longer
-  lost, a trailer ID without identifier bytes is replaced, JP2 headers that
-  disagree with their codestream are corrected, and `Result.Summary` no longer
-  prints `/0`.
+- A font no fixer could embed rasterized every page, not only those showing it.
+- Font, overprint, annotation and action checks and repairs, the newest
+  revision of an incremental update, and several smaller parsing and XMP
+  defects.
 
 ## [1.3.0] - 2026-10-31
 
 ### Added
 
-- `github.com/voidrab/gopdfrab/verify`: the verification API alone, under the
-  same names and over the same types, for programs that never convert. It does
-  not compile or link the converter.
-- WebAssembly: a verify-only module, `./wasm/verify` (about 6.2 MB against the
-  full module's 15.1 MB), so a page can fetch the full module only to convert.
-  Both modules announce themselves with `{type: "ready", module}`.
-- `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn` and
-  `Check.AppliesTo` look checks up by clause within a conformance level.
-- `Profile.Name`, `ProfileByName` and `Profiles` name the ready-made profiles
-  (`pdfa1b`, `legacy1b`, `pdf`) and look them up by name.
+- `github.com/voidrab/gopdfrab/verify`: the verification API alone, without
+  the converter, and a matching verify-only WebAssembly module (6.2 MB
+  against 15.1 MB).
+- `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn`, `Check.AppliesTo`,
+  `Profile.Name`, `ProfileByName` and `Profiles`.
 
 ### Changed
 
-- Every binary is about 1 MB smaller (1.6 MB in WebAssembly): the Arlington
-  object model ships as 17.5 KB of embedded data decoded on first use instead
-  of generated Go code that also cost startup time.
-- Conversion makes about a third fewer allocations and runs about 15% faster
-  on object-heavy files, with a 12% lower peak heap. Verification allocates
-  6–14% less and skips a check family entirely when the profile enables none
-  of its checks.
-- Document-level issues from the Info dictionary, optional content, output
-  intent, interactive form and XMP checks name the object they were found in.
-- An `ObjectModel` profile that enables a PDF/A check is rejected with an error
-  naming the check, instead of being verified by PDF/A-1b's rules.
+- Binaries are about 1 MB smaller: the Arlington model ships as embedded data.
+- Conversion makes a third fewer allocations and runs about 15% faster on
+  object-heavy files.
+- Document-level issues name their object, and an `ObjectModel` profile that
+  enables a PDF/A check is rejected.
 
 ### Deprecated
 
-- `CheckByClause`, `ChecksForClause` and `Profile.Allows`, which read PDF/A-1
-  clauses only. Use the level-qualified lookups and `Profile.Has`.
+- `CheckByClause`, `ChecksForClause` and `Profile.Allows`; use the
+  level-qualified lookups and `Profile.Has`.
 
 ### Fixed
 
-- Convert removed embedded files and forbidden annotations without listing them
-  in `LostObjects`, and removing `/OCProperties` made layers the document hides
-  visible. Hidden layers are now removed and listed, and the fidelity gate
-  renders the input with them hidden.
-- Convert could write a corrupt stream into output it reported conformant: a
-  stream shared by several objects was rewritten through only one of them, and
-  a repair to a font program several fonts share reached only one font.
-- `ConvertObjectModel` and the `PDF` profile stamped the output as PDF/A-1b
-  (XMP identifier, OutputIntent, font repairs) without any PDF/A check.
-- Fewer needless rasterizations: a transparency group with only opaque
-  graphics states, or one drawing nested forms, now stays vector; an issue
-  after a link annotation no longer points at the link's destination page; and
-  hitting `MaxIterations` no longer rasterizes pages the last pass repaired.
-- Transparency flattening: fills under 50% opacity vanished and lighter ones
-  turned grey, overlapping fills washed out, forms on a page with its own group
-  came out opaque, a form drawn after a colour space operator kept the previous
-  colour, and nested forms raced between workers.
-- Repairs that read a page's content ignored `/Resources` inherited from the
-  page tree, so resource pruning could delete resources in use. The DeviceN
-  repair kept a colour space past the `Q` that restored it.
-- Raster fallback: simple fonts map codes to glyphs as verify does (ISO 32000-1
-  9.6.6); CFF and Type 1 glyphs using subroutines, flex or `seac` no longer
-  lose segments; TrueType contours of only off-curve points curve correctly;
-  transparency groups are composited once; sub-pixel strokes are drawn; a
-  colour space operator starts at the space's initial colour; operators short
-  of operands are skipped; and an image claiming more data than it has is an
-  `oversized image` drop instead of a multi-gigabyte allocation.
-- The 6.3.6 width check and repair handle Type 1 glyphs that set their width
-  with `sbw` or compute it with `div`.
-- A violation repeated throughout a content stream is reported once per check
-  with a count, instead of once per operator, which could run verify out of
-  memory.
-- The 6.2.2 output intent findings printed profile streams byte by byte; they
-  name them by reference and show the offending `/S` value.
-- A cross-reference stream with a wrong `/Length` is read up to `endstream`
-  instead of forcing a rebuild of the object table.
-- Verify reported Info/XMP Title and Subject mismatches in a random order.
+- Convert removed embedded files, forbidden annotations and hidden layers
+  without listing them in `LostObjects`.
+- Convert could write a corrupt shared stream or font program into output it
+  reported conformant, and `ConvertObjectModel` stamped output as PDF/A-1b.
+- Fewer needless rasterizations, correct transparency flattening, inherited
+  page resources honoured, and many raster fallback drawing fixes.
+- A violation repeated throughout a content stream is reported once with a
+  count, instead of once per operator.
 
 ## [1.2.0] - 2026-10-11
 
 ### Added
 
-- CLI: `--detail` on `verify` and `convert` lists every location of an issue.
-- CLI: `convert` reports the pages it rasterized and what it could not draw
-  on them (`rasterized:` and `dropped:` lines, `rasterizedPages` and
-  `rasterDrops` in `--json`). A conversion that turned an image into a gray
-  box used to print only `result: conformant`.
+- CLI: `--detail` lists every location of an issue, and `convert` reports
+  rasterized pages and what could not be drawn on them.
 
 ### Changed
 
-- CLI: issues are grouped into one line per check and message, with a count,
-  the pages as ranges and the number of objects.
-- CLI: the profile is named once in a `profile:` header instead of
-  `PDF/A violation` on every issue line.
-- CLI: the text output of `verify` and `convert` has a fixed, parseable layout,
-  described in the README. `--json` keeps its existing fields.
-- Convert repairs more pages in place instead of rasterizing them: graphics
-  state nested past the 28-level limit, tiling patterns painting in a device
-  colour space the output intent does not cover, inline images with an
-  array-form LZW filter, and CID fonts whose text draws an unmapped CID the
-  font has no glyph for.
+- CLI: issues are grouped per check with counts and page ranges, under a
+  `profile:` header, in a fixed, parseable text layout.
+- Convert repairs more pages in place instead of rasterizing them.
 
 ### Fixed
 
-- `PDFError.String` printed an issue's object as `ref &{4 0}`; it is `ref 4 0 R` now.
-- A profile whose level is not `A1B` or `ObjectModel` (for example
-  `NewProfile("A-2b")`, or a zero-value `Profile`) ran no checks and verified
-  as `Valid`; Verify and Convert now return an error for it.
-- JPEG 2000, JBIG2 and undecodable CCITT images painted as a gray box by the
-  raster fallback are now reported in `RasterDrops`.
-- 6.3.5: text after `Q`, or in a form XObject using its caller's font, was
-  checked against the wrong font, giving false missing-glyph reports and
-  needlessly rasterized pages.
-- 6.3.5 missed used glyphs absent from a Type 1 subset when the font had no
-  `/Encoding` (built-in encoding) or a hexadecimal `/CharSet`.
-- 6.3.5/6.3.6: simple TrueType codes resolve through `/Encoding` and the
-  (3,1) and (1,0) cmaps as ISO 32000-1 9.6.6.4 says, not by raw code, which
-  both missed and invented findings.
-- XMP: the `exif:Flash` field `Function` was rejected as undefined.
-- Converted files that veraPDF or BFO rejected: CFF fonts with fractional
-  default widths (including CID-keyed), Type 1 glyphs that take their width
-  from a subroutine, substitute fonts without a glyph for code 160, and
-  TrueType programs with a truncated empty-glyph record or wrong checksums.
-- Raster fallback: `MacRomanEncoding` fonts drew wrong glyphs for 0x27, 0x60
-  and codes above 0x7F, WinAnsi 0x9F drew ÿ instead of Ÿ, form XObjects were
-  not clipped to their `/BBox`, and text ignored the clip.
-- Encrypted files with an inconsistent `/V` and `/R` (V5 with R2–R4, R5/R6
-  without V5) or a `/UE`/`/OE` that is not 32 bytes failed with `ErrInternal`;
-  they now return `ErrEncrypted`.
+- A profile with an unsupported level ran no checks and verified as `Valid`;
+  it is now an error.
+- `PDFError.String` printed the object as `ref &{4 0}`.
+- Font checks (6.3.5, 6.3.6) read the wrong font after `Q` and in forms, and
+  mapped TrueType codes incorrectly.
+- Converted fonts that veraPDF or BFO rejected, raster fallback encoding and
+  clipping errors, and inconsistent encryption dictionaries failing with
+  `ErrInternal`.
 
 ## [1.1.0] - 2026-10-10
 
 ### Added
 
-- `ErrInternal`: a panic inside gopdfrab is recovered at the public entry points
-  and returned as an error wrapping `ErrInternal`, instead of crashing the
-  caller's process. Panics in internal worker goroutines are carried back to the
-  calling goroutine first.
-- `VerifyAllContext` honours `Options.Workers` (0 still means
-  `runtime.NumCPU`). It used to ignore the field, which was documented as
-  applying to the batch convert entry points only.
-- CLI: `--password` falls back to `$GOPDFRAB_PASSWORD`.
+- `ErrInternal`: a panic inside gopdfrab is returned as an error instead of
+  crashing the caller.
+- `VerifyAllContext` honours `Options.Workers`, and `--password` falls back to
+  `$GOPDFRAB_PASSWORD`.
 
 ### Changed
 
-- `ConvertResult.Save` is atomic: it writes a temp file beside the target and
-  renames it into place, so a failed save no longer truncates an existing file
-  (including the input, when converting in place). An existing file keeps its
-  permissions, a new one gets 0644, and a symlink is written through.
-- `VerifyContext` now polls the context during the object-graph walk instead of
-  only at entry, and Convert's raster passes stop dispatching page renders once
-  the context is cancelled.
-- A stream that fails to decode is remembered per document, so a decompression
-  bomb is inflated up to the size cap once rather than once per check and per
-  convert iteration. Inflate buffers grown past 16 MB are no longer pooled.
-- Damaged-file recovery scans for object headers and `xref` keywords without
-  regular expressions: 4–7× faster on the recovery benchmark, and on the
-  non-mmap read path it reads the file in 1 MB chunks instead of loading it
-  whole.
-- CLI: `convert` rejects an output path given both as `-o` and as a second
-  argument, and rejects extra arguments, instead of ignoring them.
+- `ConvertResult.Save` is atomic and keeps the target's permissions.
+- `VerifyContext` and Convert's raster passes stop promptly on cancellation.
+- Damaged-file recovery is 4–7× faster, and a failed stream decode is
+  remembered per document.
+- CLI: `convert` rejects conflicting or extra arguments.
 
 ### Fixed
 
-- 6.1.7/6.1.8 object- and stream-framing issues reported the object number as
-  the issue's `Page()`. They are now document-level, with the object in
-  `ObjectRef()`, and no longer steer which pages Convert's raster fallback
-  targets.
-- 6.1.12 `IndirectObjectsExceeded` now fires when a file has more than 8,388,607
-  indirect objects. It used to fire on an empty cross-reference table instead.
-- Object-framing diagnostics for objects outside the page graph, and trailer
-  recovery, now resolve objects in object-number order, so `Issues` is the same
-  on every run.
-- A stream whose `/Length` is wrong by more than a few bytes is now recovered
-  from its `endstream` keyword and reported under 6.1.7, instead of being
-  dropped to null and its content lost.
-- One malformed object inside an object stream no longer loses every other
-  object in that stream, and a wrong cross-reference index into an object stream
-  no longer returns a different object than the one requested.
-- Encrypted files: revision 5 (AES-256, Adobe Extension Level 3) now
-  authenticates. It was hashed with the revision 6 algorithm, so every
-  password, including the correct one, was rejected. A V4 handler without a
-  key length now defaults to 128 bits instead of 40. A string that fails to
-  decrypt is kept as stored and reported against its object instead of
-  passing silently.
-- A document's own `/_ref` or `/_dirty` dictionary keys are kept. `/_ref`
-  collided with an internal bookkeeping key (overwritten on indirect objects,
-  and on a direct dictionary it made the writer treat that dictionary as an
-  indirect object); `/_dirty` was dropped on write.
-- The writer no longer emits `NaN` or `Inf` for a non-finite real (it writes
-  `0`), and escapes whitespace and delimiters in names built by fixers as `#XX`
-  instead of letting them break the token stream.
-- Convert no longer leaves spilled temp files behind when the document writer or
-  the final verify fails, or for `ConvertEach` results that complete after the
-  callback has returned an error.
-- A file whose structure fails to parse is now unmapped, not just closed.
-- `Document.Close` can be called more than once; later calls return nil.
-- Convert could report a non-conformant output as valid. A stream whose
-  `/Filter` used an inline-image abbreviation (`/Fl`) had the filter deleted by
-  the object-model repair, leaving its compressed bytes to be read as content,
-  and the decode cache still answered with the old decoded bytes. Abbreviations
-  are now expanded to the full filter name, the repair never deletes a key that
-  says how stream bytes are read, and the decode cache is keyed on the filter
-  chain as well as the bytes.
+- Object-framing issues reported object numbers as pages, 6.1.12 fired on the
+  wrong condition, and some diagnostics came out in a random order.
+- Streams with a wrong `/Length` and malformed objects in object streams lost
+  content.
+- Revision 5 encryption rejected every password.
+- Convert could report non-conformant output as valid when a filter name was
+  abbreviated, and left temp files behind on failure.
+- The writer emitted `NaN` reals and unescaped names, and dropped a
+  document's own `/_ref` and `/_dirty` keys.
 
 ### Security
 
-- Hostile input can no longer crash the process or exhaust memory through:
-  - a stream `/Length` past the end of the file, which sized a heap allocation
-    on the non-mmap (Windows) read path;
-  - a cross-reference stream offset too large for `int64`, which wrapped
-    negative and panicked the lexer;
-  - a long run of comment lines, which grew the lexer's stack one frame per
-    line;
-  - a page tree whose `/Kids` lists a node itself or an ancestor, which sent
-    Convert's page walk into unbounded recursion (a fatal stack overflow).
-- The CLI's `--password` flag is visible to other users in `ps`. Its help text
-  now says so and points at `$GOPDFRAB_PASSWORD`.
+- Hostile input could crash the process or exhaust memory through an oversized
+  stream `/Length`, a huge xref offset, long comment runs or a cyclic page
+  tree.
+- The `--password` help text warns that the flag is visible in `ps`.
 
 ## [1.0.0] - 2026-08-26
 
 First changelog entry; earlier history lives in the git log.
 
 ### Added
-- Generic ISO 32000 object-model checks, driven by the Arlington model, in both
-  verification and conversion: the `ObjectModel` level, the `PDF` profile,
-  `NewProfile`/`ObjectModelOnly`, and `VerifyObjectModel`/`ConvertObjectModel`
-  with their `Bytes` forms.
-- Four checks that were declared but never reported now do, each with a fixer:
-  `FontFileSubtype`, `FontBaseFont`, `XMPNoCorrespondingType` and
-  `ICCBasedComponentsMismatch`.
-- A WebAssembly build under `wasm/`, registering `gopdfrabVerify` and
-  `gopdfrabConvert` as JavaScript globals.
-- `OpenBytes`/`OpenBytesWithPassword` open a `*Document` from an in-memory PDF,
-  so the document helpers (`PageCount`, `Version`, `ClaimedConformance`,
-  `Metadata`, `XMPMetadata`) are reachable without a file on disk.
-- Content a file draws at zero opacity is taken out rather than repainted
-  opaque, and `ConvertResult.OverpaintedPages` reports any page drawn over.
-- `ConvertResult.LostObjects` reports content a conversion could not carry over
-  as its own fact, so a valid output is no longer reported as invalid for it.
-- `ICCBasedProfileInvalid` rejects an ICCBased colour space whose embedded ICC
-  profile is a version or kind PDF/A-1 does not allow, and conversion replaces
-  it; output-intent profiles are now held to the same clause's narrower set.
-- **Breaking:** `ConvertResult.Output` is now `Output() ([]byte, error)`; large
-  output spills to a temp file, and a new `Close()` releases it.
-- `Limits.MaxResidentBytes` and `--max-resident-mb` cap the caches one open
-  document keeps; a conversion releases them when it finishes.
-- `Limits`/`SetLimits`/`CurrentLimits`/`DefaultLimits` and `--max-decoded-mb`
-  make the decompression-bomb cap configurable.
-- `ConvertEach`/`ConvertEachContext` pass each batch result to a callback as it
-  completes; `Options.Workers` bounds the concurrency of both batch forms.
-- `…Context` counterparts of every `Verify`/`Convert` entry point, taking a
-  `context.Context` and an `Options` value.
-- `Options.CheckFidelity` populates `ConvertResult.Fidelity` with per-page
-  similarity and ink coverage.
-- `ConvertResult.RasterizedPages` lists the pages a conversion rebuilt as a flat
-  image; `RasterDrops` lists content the rasterizer could not draw.
-- `ConvertResult.WriteTo(io.Writer)` streams the converted PDF to any sink.
+
+- Arlington-driven ISO 32000 object-model checks and repairs: the
+  `ObjectModel` level, the `PDF` profile, `NewProfile`, `ObjectModelOnly`,
+  `VerifyObjectModel` and `ConvertObjectModel`.
+- `OpenBytes` and `OpenBytesWithPassword`, standard security handler
+  decryption, and cross-reference and per-object recovery of damaged files.
+- `…Context` forms of every entry point with `Options`, plus `ConvertEach`,
+  `Options.Workers` and `Options.CheckFidelity`.
+- `ConvertResult.LostObjects`, `RasterizedPages`, `RasterDrops`,
+  `OverpaintedPages`, `BlankedPages`, `Fidelity` and `WriteTo`.
+- `Limits`, `SetLimits`, `CurrentLimits` and `DefaultLimits`, with
+  `--max-decoded-mb` and `--max-resident-mb`.
 - `ErrNotPDF`, `ErrDamaged`, `ErrEncrypted`, `ErrPasswordRequired` and
-  `ErrUnresolvableGraph` sentinels, matchable with `errors.Is`.
-- `Check`, `PDFError` and `Result` implement `MarshalJSON`.
-- Standard security handler decryption (RC4 40/128, AES-128, AES-256), with
-  `OpenWithPassword`/`OpenBytesWithPassword` for non-empty passwords.
-- Cross-reference recovery: a missing or unusable `startxref` rebuilds the table
-  by a full-file scan instead of failing the open.
-- Per-object recovery: an object that fails to parse at its recorded offset is
-  re-located or resolved to null, and reported.
-- Command-line tool `cmd/gopdfrab`: `verify`/`convert`, `--json`, recursive
-  input, exit codes 0/1/2, SIGINT cancellation.
-- Package documentation (`doc.go`) and runnable examples.
-- A real-world corpus of test documents.
+  `ErrUnresolvableGraph`, and JSON marshalling for `Check`, `PDFError` and
+  `Result`.
+- A WebAssembly build, the `cmd/gopdfrab` CLI, package documentation and
+  examples.
 
 ### Changed
-- The declared minimum Go version is 1.24. It was a 1.26.4 patch-level
-  directive, which made that exact patch the floor.
-- The bundled one-component ICC profile is the CC0 sGrey v2 profile. The
-  previous one was byte-identical to Ghostscript's `sgray.icc`, which is GPL,
-  and conversion embeds it in the output. `NOTICE` names every bundled asset.
-- **Breaking:** renamed for Go convention — `A_1B` → `A1B`, `PDFA_1B` →
-  `PDFA1B`, `Legacy_1B` → `Legacy1B`, `GetPageCount`/`GetVersion`/`GetMetadata`
-  → `PageCount`/`Version`/`Metadata`.
-- Content-stream tokenization streams past `Limits.MaxResidentBytes` rather than
-  materializing first, and the default budget drops from 256 MB to 64 MB.
-- The raster fallback draws inline images, all seven shading types, shading
-  patterns and Type 3 glyphs, and honours text render mode and rise.
-- Convert refuses a file that requires a password with `ErrPasswordRequired`
-  instead of emitting undecryptable streams.
-- The concurrency contract of each public type is documented and race-tested.
+
+- **Breaking:** `ConvertResult.Output` is now `Output() ([]byte, error)`,
+  spilling large output to a temp file released by `Close()`.
+- **Breaking:** renamed for Go convention: `A_1B` → `A1B`, `PDFA_1B` →
+  `PDFA1B`, `Legacy_1B` → `Legacy1B`, and `GetPageCount`, `GetVersion` and
+  `GetMetadata` → `PageCount`, `Version` and `Metadata`.
+- The minimum Go version is 1.24, and the bundled gray ICC profile is the CC0
+  sGrey profile.
+- The raster fallback draws inline images, shadings and Type 3 glyphs, and
+  Convert refuses password-protected files with `ErrPasswordRequired`.
 
 ### Fixed
-- Advance widths are scaled by a font program's declared `FontMatrix` instead of
-  skipping the 6.3.6 check, and the Type1 width fixer no longer writes
-  glyph-space numbers into `/Widths`.
-- A page's `/Contents` array is scanned as one stream, so a font selected at the
-  end of one part still applies to the text at the start of the next.
-- Type1 programs: the program's own `/lenIV` and `-|` charstring operator are
-  honoured, widths follow `callsubr`, and a built-in `/Encoding` built as an
-  array is read, not just a named one (6.3.6).
-- An advance width is compared as a real number rather than rounded to an
-  integer first, which widened the 6.3.6 tolerance to +-1.5 units.
-- A character code no cmap maps is reported whatever the descriptor's symbolic
-  flag says (6.3.5).
-- An annotation dictionary without `/Type` is checked and repaired; `/Type` is
-  optional there (6.5.3).
-- A forbidden action is taken off the entry that names it, instead of leaving an
-  action dictionary with no `/S` (6.6.1).
-- An `/Info` text string that does not round trip is written back, so `/Info` and
-  the XMP packet built from it describe the same string (6.7.3).
-- A TrueType glyph whose contour endpoints do not increase read past its point
-  arrays, which crashed a rasterizer worker goroutine.
-- A flattened form keeps what it did not paint, instead of covering the page
-  with the unpainted part of its bounding box, and a soft mask too faint to
-  threshold fades into the samples instead of masking the image out.
-- Eight repairs that emptied a page or drew over one: a group form rasterized
-  against the wrong resources, in the wrong colour, or at a size nothing could
-  decode; a soft mask composited over white rather than turned into a stencil
-  `/Mask`; a partial opacity made opaque; and a drawing begun in no colour
-  space (6.4).
-- An out-of-range coordinate (6.1.12) is rescaled into the CTM rather than
-  clamped, which emptied pages drawn at a small scale while still verifying
-  clean; `ConvertResult.BlankedPages` reports any page that comes out empty.
-- A cross-reference table with bare CR line endings was unparseable; CR, LF and
-  CRLF are all accepted now, on both read paths.
-- An object listed in the xref but defined nowhere in the file is resolved to
-  null instead of reported as lost content.
-- The Info/XMP `Author` sync check (6.1.5, 6.7.3) rejected values matching its
-  own, over undecoded XML entities and one-sided whitespace trimming.
-- The TrueType CIDSet check (6.3.5) demanded glyphs the document never renders,
-  rejecting real PDF/A; it is scoped to rendered CIDs now.
-- The PDF/A identifier was recognised only in double-quoted XMP attributes, so
-  every Ghostscript-produced PDF/A was reported as missing it (6.7.11).
-- A TrueType glyph with an empty outline and a non-zero advance — the space in
-  any monospaced subset — was reported as missing (6.3.5).
-- A transparency group in an annotation appearance stream was unreachable by the
-  fixer, so no digitally signed document could be converted (6.4).
-- `/EncryptMetadata false` was not honoured, degrading the metadata stream to
-  null.
-- A character code absent from a non-symbolic TrueType's (3,1) cmap skipped the
-  (1,0) lookup ISO 32000-1 9.6.6.4 prescribes next.
-- The simple-font coverage check and the `/XObject` resource walk both took map
-  order, naming a different character code and `RasterDrops` order per run.
-- A `/Resources` dictionary pruned to the 4095-entry limit dropped entries in map
-  order, so a conversion was not byte-reproducible.
-- Two verifier false-negatives caught against the veraPDF binary: a referenced
-  PostScript XObject (6.2.7), and a non-embedded font used only by a tiling
-  pattern (6.3.4).
-- Two verifier messages named an arbitrary map element (6.3.5 CharSet, 6.5.3
-  appearance entry) instead of a sorted one.
-- A fill under a `/Pattern` colour space painted flat black, and an `/ImageMask`
-  ignored the fill colour, both without any report.
-- Undecodable content streams are reported (`StreamUndecodable`) rather than
-  turning a violation into a pass.
-- A single bad cross-reference offset suppressed unrelated checks; verification
-  now degrades per object.
-- `Convert` could return empty output with a nil error.
-- `InflateZlib` truncated silently past the 256 MB cap instead of returning
-  `ErrOutputTooLarge`.
-- The Windows seek/ReadAt read path is now exercised on any OS and asserted to
-  match the mmap path over both corpora.
+
+- Many font, colour, annotation, action and metadata verdicts, several of
+  them caught against veraPDF, and repairs that emptied or covered pages.
+- Coordinates out of range are rescaled into the CTM instead of clamped.
+- Output is byte-reproducible, and verifier messages are deterministic.
+- `Convert` could return empty output with a nil error, and `InflateZlib`
+  truncated silently past its cap.
