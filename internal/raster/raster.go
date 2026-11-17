@@ -24,19 +24,26 @@ import (
 // Tm/T*/Tj/TJ/'/"). Clipping (W/W*) confines painting to the clip path: a
 // rectangle exactly, to whole pixels, and any other shape by its anti-aliased
 // coverage.
-// Content that oc hides is not drawn; a nil oc hides nothing.
+// Content that oc hides is not drawn; a nil oc hides nothing. The page's
+// annotations are not drawn either, since they are not part of its content.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	return RenderPageContext(context.Background(), page, resources, mediaBox, dpi, oc, nil)
+	src, err := PageContentBytes(page)
+	if err != nil {
+		return nil, nil, err
+	}
+	return renderArea(context.Background(), src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, nil, nil, nil)
 }
 
-// RenderPageContext is RenderPage that stops painting soon after ctx is done,
-// and then returns ctx.Err().
+// RenderPageContext renders the page as a viewer displays it: RenderPage
+// followed by the normal appearances of the page's annotations, such as
+// signatures, stamps and filled-in form fields. It stops painting soon after
+// ctx is done, and then returns ctx.Err().
 func RenderPageContext(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent, cache *Cache) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderArea(ctx, src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, cache, nil)
+	return renderArea(ctx, src, resources, mediaBox, dpi, image.Rectangle{}, InheritedPaint{}, paperBackdrop, oc, cache, nil, pageAnnots(page))
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -84,7 +91,7 @@ const (
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
 func renderContent(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
-	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc, nil, nil)
+	return renderArea(ctx, src, resources, bounds, dpi, image.Rectangle{}, inherited, bd, oc, nil, nil, nil)
 }
 
 // PixelSize returns the size in pixels of a page whose crop box is bounds
@@ -94,7 +101,8 @@ func PixelSize(bounds [4]float64, dpi int) (width, height int) {
 	return int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72)), int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
 }
 
-// RenderPageRegion renders region of the page, in pixels of the unrotated page
+// RenderPageRegion renders region of the page, with its annotations as
+// RenderPageContext draws them, in pixels of the unrotated page
 // at dpi counted from its top-left corner, cut to the page. The result is as
 // large as the region and equals that part of the whole page at dpi. Unlike a
 // whole-page render, dpi is not lowered to fit the pixel budget. An empty
@@ -109,7 +117,7 @@ func RenderPageRegion(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDi
 	if region.Empty() {
 		return nil, nil, fmt.Errorf("raster: empty render region")
 	}
-	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache, nil)
+	return renderArea(ctx, src, resources, mediaBox, dpi, region, InheritedPaint{}, paperBackdrop, oc, cache, nil, pageAnnots(page))
 }
 
 // TextGlyph is one character shown on a page: its Unicode value, zero if the
@@ -131,7 +139,7 @@ func ExtractText(ctx context.Context, page pdf.PDFDict, resources pdf.PDFDict, m
 	var glyphs []TextGlyph
 	// The canvas is one pixel at 72 dpi, so painting has no visible effect.
 	// At 72 dpi one device unit is one point, which the glyph boxes rely on.
-	_, _, err = renderArea(ctx, src, resources, mediaBox, 72, image.Rect(0, 0, 1, 1), InheritedPaint{}, paperBackdrop, oc, cache, &glyphs)
+	_, _, err = renderArea(ctx, src, resources, mediaBox, 72, image.Rect(0, 0, 1, 1), InheritedPaint{}, paperBackdrop, oc, cache, &glyphs, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +170,10 @@ func (r *renderer) recordGlyph(fi *fontInfo, code int, w1000 float64, gs *render
 // glyph boxes come from the advances, not the outlines.
 func (r *renderer) textOnly() bool { return r.glyphs != nil }
 
-// renderArea renders the content within bounds at dpi. A non-empty region, in
-// pixels of the whole page, limits the canvas to that part and keeps dpi as given.
-func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache, glyphs *[]TextGlyph) (*image.RGBA, []string, error) {
+// renderArea renders the content within bounds at dpi, then the appearances of
+// annots over it. A non-empty region, in pixels of the whole page, limits the
+// canvas to that part and keeps dpi as given.
+func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, region image.Rectangle, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent, cache *Cache, glyphs *[]TextGlyph, annots pdf.PDFArray) (*image.RGBA, []string, error) {
 	if region.Empty() {
 		dpi = dpiWithin(bounds, dpi)
 	}
@@ -192,7 +201,8 @@ func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [
 	base := content.Matrix{A: scale, D: -scale, E: -bounds[0]*scale - float64(region.Min.X), F: bounds[3]*scale - float64(region.Min.Y)}
 	// The colour a drawing starts in is black in DeviceGray, so "1 sc"
 	// without a preceding cs selects white.
-	gs := newRenderState(base, [4]float64{0, 0, float64(width), float64(height)})
+	clip := [4]float64{0, 0, float64(width), float64(height)}
+	gs := newRenderState(base, clip)
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
@@ -201,6 +211,9 @@ func renderArea(ctx context.Context, src []byte, resources pdf.PDFDict, bounds [
 		r.fontCache = cache.fonts
 	}
 	r.execContent(src, resources, gs)
+	if len(annots) > 0 && !r.textOnly() {
+		r.paintAnnotations(annots, resources, base, clip)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -928,31 +941,37 @@ func (r *renderer) doXObject(xobj, resources pdf.PDFDict, gs *renderState) {
 	subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)
 	switch subtype.Value {
 	case "Form":
-		if r.depth > maxFormDepth {
-			return
-		}
-		r.depth++
-		defer func() { r.depth-- }()
-		formRes := resourcesOr(xobj, resources)
-		childGS := *gs
-		childGS.CTM = formCTM(xobj, gs.CTM)
-		childGS.clip = formClip(xobj, childGS.CTM, childGS.clip)
-		data, err := pdf.DecodeStream(xobj)
-		if err != nil {
-			return
-		}
-		if group, _ := xobj.Entries.Get("Group").(pdf.PDFDict); isTransparencyGroup(group) {
-			if !paintsThrough(group, gs) {
-				r.paintGroup(data, formRes, childGS, gs.fillAlpha)
-				return
-			}
-			// A group's content starts at full opacity whichever way it paints.
-			childGS.strokeAlpha = 1
-		}
-		r.execContent(data, formRes, childGS)
+		r.doForm(xobj, resources, gs)
 	case "Image":
 		r.paintImage(xobj, resources, gs)
 	}
+}
+
+// doForm paints a Form XObject, running its content under its /Matrix composed
+// with the CTM, clipped to its /BBox, and with its own resources if it has any.
+func (r *renderer) doForm(xobj, resources pdf.PDFDict, gs *renderState) {
+	if r.depth > maxFormDepth {
+		return
+	}
+	r.depth++
+	defer func() { r.depth-- }()
+	formRes := resourcesOr(xobj, resources)
+	childGS := *gs
+	childGS.CTM = formCTM(xobj, gs.CTM)
+	childGS.clip = formClip(xobj, childGS.CTM, childGS.clip)
+	data, err := pdf.DecodeStream(xobj)
+	if err != nil {
+		return
+	}
+	if group, _ := xobj.Entries.Get("Group").(pdf.PDFDict); isTransparencyGroup(group) {
+		if !paintsThrough(group, gs) {
+			r.paintGroup(data, formRes, childGS, gs.fillAlpha)
+			return
+		}
+		// A group's content starts at full opacity whichever way it paints.
+		childGS.strokeAlpha = 1
+	}
+	r.execContent(data, formRes, childGS)
 }
 
 // resourcesOr returns the resources a form's content reads names from: its own,
