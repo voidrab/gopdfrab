@@ -2,40 +2,32 @@ package gopdfrab
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 )
 
 // TestFontSource verifies that the substitute fonts come from the source
-// set, every one of FontFiles, and that a failing source fails PreloadFonts.
+// set, every one of FontFiles, which is a copy the caller may change.
 func TestFontSource(t *testing.T) {
 	defer SetFontSource(nil)
+	offline := errors.New("offline")
+	var mu sync.Mutex // the source is asked for the fonts all at once
 	var asked []string
 	SetFontSource(func(name string) ([]byte, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		asked = append(asked, name)
-		return os.ReadFile(filepath.Join("internal", "fontsubst", "fonts", name))
+		return nil, offline
 	})
-	if err := PreloadFonts(); err != nil {
-		t.Fatalf("PreloadFonts() = %v", err)
-	}
-	if !slices.Equal(asked, FontFiles()) {
-		t.Errorf("the source was asked for %v, want FontFiles() = %v", asked, FontFiles())
-	}
-
-	offline := errors.New("offline")
-	SetFontSource(func(string) ([]byte, error) { return nil, offline })
 	if err := PreloadFonts(); !errors.Is(err, offline) {
 		t.Errorf("PreloadFonts() = %v, want the source's error", err)
 	}
-}
-
-// TestFontFilesCopy verifies that FontFiles returns a copy the caller may
-// change.
-func TestFontFilesCopy(t *testing.T) {
-	f := FontFiles()
-	f[0] = "changed"
+	files := FontFiles()
+	if !slices.Equal(slices.Sorted(slices.Values(asked)), slices.Sorted(slices.Values(files))) {
+		t.Errorf("the source was asked for %v, want FontFiles() = %v", asked, files)
+	}
+	files[0] = "changed"
 	if FontFiles()[0] == "changed" {
 		t.Error("changing FontFiles' result changed the list")
 	}

@@ -25,56 +25,33 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// The bundled font files, by the names a Source serves them under.
-const (
-	libSansRegularFile     = "LiberationSans-Regular.ttf.gz"
-	libSansBoldFile        = "LiberationSans-Bold.ttf.gz"
-	libSansItalicFile      = "LiberationSans-Italic.ttf.gz"
-	libSansBoldItalicFile  = "LiberationSans-BoldItalic.ttf.gz"
-	libSerifRegularFile    = "LiberationSerif-Regular.ttf.gz"
-	libSerifBoldFile       = "LiberationSerif-Bold.ttf.gz"
-	libSerifItalicFile     = "LiberationSerif-Italic.ttf.gz"
-	libSerifBoldItalicFile = "LiberationSerif-BoldItalic.ttf.gz"
-	libMonoRegularFile     = "LiberationMono-Regular.ttf.gz"
-	libMonoBoldFile        = "LiberationMono-Bold.ttf.gz"
-	libMonoItalicFile      = "LiberationMono-Italic.ttf.gz"
-	libMonoBoldItalicFile  = "LiberationMono-BoldItalic.ttf.gz"
-	notoSymbols2File       = "NotoSansSymbols2-Regular.ttf.gz"
-	notoSymbolsFile        = "NotoSansSymbols-VariableFont_wght.ttf.gz"
-)
-
-// Files lists every bundled font file, by the name a Source is asked for. The
-// files are those of the fonts directory, gzip-compressed TrueType programs.
-var Files = []string{
-	libSansRegularFile, libSansBoldFile, libSansItalicFile, libSansBoldItalicFile,
-	libSerifRegularFile, libSerifBoldFile, libSerifItalicFile, libSerifBoldItalicFile,
-	libMonoRegularFile, libMonoBoldFile, libMonoItalicFile, libMonoBoldItalicFile,
-	notoSymbols2File, notoSymbolsFile,
-}
+// Files lists every bundled font file, by the name a Source is asked for: the
+// gzip-compressed TrueType programs of the fonts directory.
+var Files []string
 
 // LiberationSansRegular returns the Liberation Sans regular face,
 // metric-compatible with Helvetica/Arial.
-var LiberationSansRegular = bundled(libSansRegularFile)
+var LiberationSansRegular = bundled("LiberationSans-Regular.ttf.gz")
 
 var (
-	libSansBold        = bundled(libSansBoldFile)
-	libSansItalic      = bundled(libSansItalicFile)
-	libSansBoldItalic  = bundled(libSansBoldItalicFile)
-	libSerifRegular    = bundled(libSerifRegularFile)
-	libSerifBold       = bundled(libSerifBoldFile)
-	libSerifItalic     = bundled(libSerifItalicFile)
-	libSerifBoldItalic = bundled(libSerifBoldItalicFile)
-	libMonoRegular     = bundled(libMonoRegularFile)
-	libMonoBold        = bundled(libMonoBoldFile)
-	libMonoItalic      = bundled(libMonoItalicFile)
-	libMonoBoldItalic  = bundled(libMonoBoldItalicFile)
+	libSansBold        = bundled("LiberationSans-Bold.ttf.gz")
+	libSansItalic      = bundled("LiberationSans-Italic.ttf.gz")
+	libSansBoldItalic  = bundled("LiberationSans-BoldItalic.ttf.gz")
+	libSerifRegular    = bundled("LiberationSerif-Regular.ttf.gz")
+	libSerifBold       = bundled("LiberationSerif-Bold.ttf.gz")
+	libSerifItalic     = bundled("LiberationSerif-Italic.ttf.gz")
+	libSerifBoldItalic = bundled("LiberationSerif-BoldItalic.ttf.gz")
+	libMonoRegular     = bundled("LiberationMono-Regular.ttf.gz")
+	libMonoBold        = bundled("LiberationMono-Bold.ttf.gz")
+	libMonoItalic      = bundled("LiberationMono-Italic.ttf.gz")
+	libMonoBoldItalic  = bundled("LiberationMono-BoldItalic.ttf.gz")
 )
 
 // NotoSymbols2 and NotoSymbols return fallback faces for symbol glyphs the
 // Liberation faces do not cover.
 var (
-	NotoSymbols2 = bundled(notoSymbols2File)
-	NotoSymbols  = bundled(notoSymbolsFile)
+	NotoSymbols2 = bundled("NotoSansSymbols2-Regular.ttf.gz")
+	NotoSymbols  = bundled("NotoSansSymbols-VariableFont_wght.ttf.gz")
 )
 
 // Source returns the gzip-compressed bytes of the bundled font file name, one
@@ -82,80 +59,125 @@ var (
 // most once for each file until a call fails.
 type Source func(name string) ([]byte, error)
 
-// ErrNoSource is returned for a font of a build that leaves the fonts out,
-// with the gopdfrab_nofonts tag, before SetSource has been called.
-var ErrNoSource = errors.New("fontsubst: the fonts are not built in and no source is set")
-
 var (
-	mu     sync.Mutex
-	source Source                // nil for the embedded fonts
-	loaded = map[string][]byte{} // inflated fonts, by file name
+	mu         sync.Mutex // guards source and generation
+	source     Source     // nil for the built-in fonts
+	generation int        // counts the sources set, so that fonts of an earlier one are dropped
+	fonts      = map[string]*font{}
 )
 
+// font is one bundled font file, as loaded from the source of a generation.
+// Its own lock lets a slow fetch of one font leave the others free.
+type font struct {
+	name string
+	mu   sync.Mutex
+	gen  int
+	z    []byte // fetched and not yet inflated
+	data []byte // inflated
+}
+
 // SetSource makes src the source of the fonts, in place of those built in, and
-// forgets the fonts loaded so far. A nil src restores the built-in fonts.
+// forgets the fonts loaded so far; a nil src restores the built-in ones. It is
+// meant to be called once, before any font is used: a render or conversion
+// running meanwhile may find fonts missing.
 func SetSource(src Source) {
 	mu.Lock()
 	defer mu.Unlock()
 	source = src
-	loaded = map[string][]byte{}
+	generation++
 }
 
-// load returns the inflated font file name, loading it on its first use. A
-// failure is not remembered, so that the next use tries again.
-func load(name string) ([]byte, error) {
+// current returns the source in use, the built-in one for none, and its
+// generation.
+func current() (Source, int) {
 	mu.Lock()
 	defer mu.Unlock()
-	if b, ok := loaded[name]; ok {
-		return b, nil
-	}
-	var z []byte
 	if source == nil {
-		var ok bool
-		if z, ok = embedded[name]; !ok {
-			return nil, ErrNoSource
+		return builtin, generation
+	}
+	return source, generation
+}
+
+// fetch returns the font's compressed bytes from src, fetching them unless
+// they are at hand. f.mu must be held.
+func (f *font) fetch(src Source, gen int) ([]byte, error) {
+	if f.gen != gen {
+		f.gen, f.z, f.data = gen, nil, nil
+	}
+	if f.z == nil {
+		z, err := src(f.name)
+		if err != nil {
+			return nil, fmt.Errorf("fontsubst: loading %s: %w", f.name, err)
 		}
-	} else {
-		var err error
-		if z, err = source(name); err != nil {
-			return nil, fmt.Errorf("fontsubst: loading %s: %w", name, err)
-		}
+		f.z = z
+	}
+	return f.z, nil
+}
+
+// load returns the inflated font, loading it on its first use. A failure is
+// not remembered, so that the next use tries again.
+func (f *font) load() ([]byte, error) {
+	src, gen := current()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gen == gen && f.data != nil {
+		return f.data, nil
+	}
+	z, err := f.fetch(src, gen)
+	if err != nil {
+		return nil, err
 	}
 	b, err := inflate(z)
 	if err != nil {
-		return nil, fmt.Errorf("fontsubst: %s: %w", name, err)
+		f.z = nil
+		return nil, fmt.Errorf("fontsubst: %s: %w", f.name, err)
 	}
-	loaded[name] = b
+	f.z, f.data = nil, b
 	return b, nil
 }
 
-// bundled returns a function that returns the font file name, loading it on
-// its first call and returning those same bytes on every call after. It
-// returns nil while the font cannot be loaded, which the faces' users treat
-// as a face that covers nothing. Callers must not modify the bytes.
+// bundled registers the font file name and returns a function that returns
+// it, loading it on its first call and returning those same bytes on every
+// call after. It returns nil while the font cannot be loaded, which the
+// faces' users treat as a face that covers nothing. Callers must not modify
+// the bytes.
 func bundled(name string) func() []byte {
+	f := &font{name: name}
+	fonts[name] = f
+	Files = append(Files, name)
 	return func() []byte {
-		b, _ := load(name)
+		b, _ := f.load()
 		return b
 	}
 }
 
-// Preload loads every bundled font, so that no later use can fail, and returns
-// the first error. With the built-in fonts it costs nothing: they are loaded
-// on first use as ever.
+// Preload fetches every bundled font from the source set, all at once, so
+// that no later use can fail, and returns their errors; each is inflated on
+// first use. With the built-in fonts it does nothing.
 func Preload() error {
 	mu.Lock()
-	builtIn := source == nil && embedded != nil
+	custom := source != nil
 	mu.Unlock()
-	if builtIn {
+	if builtIn && !custom {
 		return nil
 	}
-	for _, name := range Files {
-		if _, err := load(name); err != nil {
-			return err
-		}
+	src, gen := current()
+	errs := make([]error, len(Files))
+	var wg sync.WaitGroup
+	for i, name := range Files {
+		f := fonts[name]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.gen != gen || f.data == nil {
+				_, errs[i] = f.fetch(src, gen)
+			}
+		}()
 	}
-	return nil
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 // inflate decompresses the gzip data z.

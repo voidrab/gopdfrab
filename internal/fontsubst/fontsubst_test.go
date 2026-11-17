@@ -4,7 +4,6 @@ package fontsubst
 
 import (
 	"bytes"
-	"errors"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -95,11 +94,11 @@ func TestBundledFonts(t *testing.T) {
 // TestInflateCorrupt verifies that inflate fails on data that is not gzip
 // and on a gzip stream cut short.
 func TestInflateCorrupt(t *testing.T) {
-	cases := map[string][]byte{
-		"not gzip":  []byte("not gzip"),
-		"truncated": libSansRegularGz[:len(libSansRegularGz)/2],
+	z, err := builtin("LiberationSans-Regular.ttf.gz")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, z := range cases {
+	for name, z := range map[string][]byte{"not gzip": []byte("not gzip"), "truncated": z[:len(z)/2]} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := inflate(z); err == nil {
 				t.Error("inflate succeeded on corrupt data")
@@ -115,19 +114,10 @@ func TestPreloadBuiltIn(t *testing.T) {
 	if err := Preload(); err != nil {
 		t.Fatalf("Preload() = %v, want nil", err)
 	}
-	mu.Lock()
-	n := len(loaded)
-	mu.Unlock()
-	if n != 0 {
-		t.Errorf("Preload loaded %d built-in fonts, want none", n)
-	}
-}
-
-// TestUnknownBuiltIn verifies that a file not among the built-in fonts
-// cannot be loaded without a source.
-func TestUnknownBuiltIn(t *testing.T) {
-	SetSource(nil)
-	if _, err := load("Missing.ttf.gz"); !errors.Is(err, ErrNoSource) {
-		t.Errorf("load() = %v, want ErrNoSource", err)
+	_, gen := current()
+	for name, f := range fonts {
+		if f.gen == gen && (f.z != nil || f.data != nil) {
+			t.Errorf("Preload loaded the built-in %s", name)
+		}
 	}
 }
