@@ -31,7 +31,7 @@ func checkSignature(d *pdf.Reader, sig pdf.PDFDict, sections []int64) []pdf.PDFE
 		return pdf.NewError(c, []error{fmt.Errorf(format, args...)}, 0, ref)
 	}
 	var errs []pdf.PDFError
-	if br, ok := byteRangeOf(sig); !ok || ref == nil || !byteRangeCoversRevision(d, *ref, br, sections) {
+	if br, ok := pdf.ByteRangeOf(sig); !ok || ref == nil || !d.CoversRevision(*ref, br, sections) {
 		errs = append(errs, report(pdf.Checks.Form.SignatureByteRange,
 			"signature ByteRange does not cover the entire file except the signature value"))
 	}
@@ -49,57 +49,6 @@ func checkSignature(d *pdf.Reader, sig pdf.PDFDict, sections []int64) []pdf.PDFE
 			"signature PKCS#7 object has %d signers instead of one", sd.signers))
 	}
 	return errs
-}
-
-// byteRangeCoversRevision reports whether byteRange, the ByteRange of the
-// signature dictionary that is object sig, covers the revision that dictionary
-// was written in, apart from the signature value itself.
-//
-// The expected range is derived from the file's bytes, as veraPDF does: it
-// starts at offset 0, skips exactly the signature dictionary's Contents
-// string, and ends after the first %%EOF that follows the next
-// cross-reference section (or the Contents string, when no section follows),
-// plus at most one EOL marker unless that marker ends the file. A signature
-// dictionary whose Contents cannot be located covers nothing. sections holds
-// the file's cross-reference sections, as pdf.Reader.XRefSectionOffsets returns
-// them.
-func byteRangeCoversRevision(d *pdf.Reader, sig pdf.PDFRef, byteRange [4]int64, sections []int64) bool {
-	start, end, ok := d.ContentsSpan(sig)
-	if !ok || byteRange[0] != 0 || byteRange[1] != start || byteRange[2] != end {
-		return false
-	}
-	eof, slack := d.RevisionEnd(nextXRefSection(sections, d.PDFStart(), end))
-	want := eof - end
-	return byteRange[3] >= want-slack && byteRange[3] <= want
-}
-
-// nextXRefSection returns the smallest of sections, each shifted by pdfStart,
-// that lies after off, or off when none does.
-func nextXRefSection(sections []int64, pdfStart, off int64) int64 {
-	next := off
-	for _, o := range sections {
-		if o += pdfStart; o > off && (next == off || o < next) {
-			next = o
-		}
-	}
-	return next
-}
-
-// byteRangeOf returns a signature dictionary's ByteRange, which must be an
-// array of four integers.
-func byteRangeOf(sig pdf.PDFDict) (br [4]int64, ok bool) {
-	arr, ok := sig.Entries.Get("ByteRange").(pdf.PDFArray)
-	if !ok || len(arr) != 4 {
-		return br, false
-	}
-	for i, v := range arr {
-		n, ok := v.(pdf.PDFInteger)
-		if !ok {
-			return br, false
-		}
-		br[i] = int64(n)
-	}
-	return br, true
 }
 
 // SignatureFields returns the signature fields of the interactive form of

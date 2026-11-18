@@ -98,7 +98,8 @@ func (d *Reader) parseXRefSectionAt(offset int64, fillIn bool, table map[int]int
 // When strict, a section the file ends inside is an error, and an entry's
 // offset must be ten digits. Otherwise reading stops at the first damage
 // without error, and an offset padded with spaces is read. When fillIn, an
-// object the table already holds keeps its entry, as a newer revision's.
+// object the table already holds, or that an object stream holds, keeps its
+// entry, as a newer revision's.
 func (d *Reader) readXRefSection(offset int64, strict, fillIn bool, table map[int]int64) (*SectionCursor, error) {
 	c := d.SectionAt(offset)
 	line, ok := c.ReadLine()
@@ -144,7 +145,9 @@ func (d *Reader) readXRefSection(offset int64, strict, fillIn bool, table map[in
 			}
 			if entry[17] == 'n' && table != nil { // 'n' = used entry
 				objNum := startObjID + i
-				if !fillIn || table[objNum] == 0 {
+				// A newer xref stream may hold the object compressed.
+				_, compressed := d.compressedXref[objNum]
+				if !fillIn || table[objNum] == 0 && !compressed {
 					table[objNum] = xrefEntryOffset(entry[:10], !strict) + d.pdfStart
 				}
 			}

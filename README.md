@@ -14,6 +14,8 @@ Verify and convert PDF documents with a small, predictable open source library.
 - PDF structural verification and repair against the Arlington object model
 - Decryption of encrypted PDFs (RC4 40/128, AES-128, AES-256)
 - Page rendering, text with its position, and links, for viewers
+- Digital signature checks, offline: integrity, signer trust, timestamps,
+  embedded revocation data and changes made after signing
 - A CLI and two WebAssembly builds
 
 The API is **stable as of 1.0**; [CHANGELOG.md](CHANGELOG.md) states the
@@ -247,6 +249,39 @@ links, err := page.Links(ctx)   // URI links and links to pages, with their boxe
 Positions are in points from the top-left corner of the displayed page. A
 render stops soon after its context is done. A document keeps decoded images,
 up to 64 MB, and glyph outlines between renders.
+
+### Checking signatures
+
+`Signatures` reads the document's signed signature fields and checks each one:
+
+```go
+sigs, err := doc.Signatures(ctx, gopdfrab.SignatureOptions{}) // nil Roots: the system's
+for _, s := range sigs {
+    fmt.Println(s.Field, s.Status, s.Name, s.Time) // s.Signer is the certificate
+    for _, c := range s.Checks {
+        fmt.Println(" ", c.Name, c.Result, c.Detail)
+    }
+}
+```
+
+`Status` is the worst of what the checks found: `SignatureInvalid` when the
+signed bytes or the signature value do not match, or the signer's certificate
+was revoked; `SignatureUnsupported` when the signature could not be checked;
+`SignatureModified` when the document was changed after it was signed, by more
+than further signatures and the data that validates them; `SignatureUntrusted`
+when the signer's certificate does not chain to a trusted root at the signing
+time; and `SignatureValid` otherwise. `Widgets` gives where each field shows on
+its page, with a box like a link's.
+
+`SignatureOptions.ExtraRoots` adds trust anchors tried after `Roots`, such
+as the qualified authorities of the EU trusted lists, which the system's store
+of web-site authorities leaves out. They need not be self-signed.
+
+The checks never go online. Revocation is checked only against the CRLs and
+OCSP responses the document carries, in its signatures and its document
+security store. The signature formats read are `adbe.pkcs7.detached`,
+`adbe.pkcs7.sha1`, `ETSI.CAdES.detached` and `ETSI.RFC3161` document
+timestamps, signed with RSA (PKCS #1 v1.5 or PSS), ECDSA or Ed25519.
 
 ### Substitute fonts
 

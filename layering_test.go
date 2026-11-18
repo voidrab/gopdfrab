@@ -18,6 +18,8 @@ import (
 // anything both need belongs one layer down.
 var allowedInternalImports = map[string][]string{
 	"arlington":  nil,
+	"ber":        nil,
+	"cms":        {"ber"},
 	"content":    {"pdf"},
 	"corpustest": {"pdf"},
 	"convert":    {"arlington", "content", "fidelity", "fontedit", "fontprog", "fontsubst", "pdf", "pdfa", "raster", "verify", "writer"},
@@ -29,7 +31,7 @@ var allowedInternalImports = map[string][]string{
 	"pdfa":       {"pdf"},
 	"pdfgen":     nil,
 	"raster":     {"content", "fontprog", "fontsubst", "pdf"},
-	"verify":     {"arlington", "fontprog", "pdf", "pdfa"},
+	"verify":     {"arlington", "ber", "fontprog", "pdf", "pdfa"},
 	"writer":     {"pdf"},
 }
 
@@ -97,10 +99,11 @@ func internalImports(t *testing.T, dir string) []string {
 	return out
 }
 
-// convertOnly is every internal package that exists for conversion alone.
-// The verify package must not reach any of them, directly or transitively:
-// keeping them out of verify-only binaries is that package's reason to exist.
-var convertOnly = []string{"convert", "fidelity", "fontedit", "fontsubst", "raster", "writer"}
+// convertOnly is every internal package that exists for conversion, or for
+// viewing and signature checking, alone. The verify package must not reach any
+// of them, directly or transitively: keeping them out of verify-only binaries
+// is that package's reason to exist.
+var convertOnly = []string{"cms", "convert", "fidelity", "fontedit", "fontsubst", "raster", "writer"}
 
 // TestVerifyPackageIsLight fails when the public verify package comes to
 // depend, through any chain of internal imports, on a conversion-only package.
