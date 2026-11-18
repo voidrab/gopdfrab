@@ -287,8 +287,8 @@ func TestByteRangeCoversRevision(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r, br := sigRevisionDoc(t, tc.body, tc.tail)
 			br[3] += tc.shift
-			if got := byteRangeCoversRevision(r, pdf.PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()); got != tc.want {
-				t.Errorf("byteRangeCoversRevision(%v) = %v, want %v", br, got, tc.want)
+			if got := r.CoversRevision(pdf.PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()); got != tc.want {
+				t.Errorf("CoversRevision(%v) = %v, want %v", br, got, tc.want)
 			}
 		})
 	}
@@ -297,24 +297,7 @@ func TestByteRangeCoversRevision(t *testing.T) {
 func TestByteRangeRejectsNonZeroStart(t *testing.T) {
 	r, br := sigRevisionDoc(t, "<< /Contents <abcd> >>", "")
 	br[0] = 1
-	if byteRangeCoversRevision(r, pdf.PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()) {
+	if r.CoversRevision(pdf.PDFRef{ObjNum: 2}, br, r.XRefSectionOffsets()) {
 		t.Error("a range not starting at 0 covers its revision")
-	}
-}
-
-func TestNextXRefSection(t *testing.T) {
-	for _, tc := range []struct {
-		sections      []int64
-		pdfStart, off int64
-		want          int64
-	}{
-		{nil, 0, 10, 10},
-		{[]int64{5, 40, 20}, 0, 10, 20},
-		{[]int64{5, 40, 20}, 3, 30, 43},
-		{[]int64{5}, 0, 10, 10},
-	} {
-		if got := nextXRefSection(tc.sections, tc.pdfStart, tc.off); got != tc.want {
-			t.Errorf("nextXRefSection(%v, %d, %d) = %d, want %d", tc.sections, tc.pdfStart, tc.off, got, tc.want)
-		}
 	}
 }

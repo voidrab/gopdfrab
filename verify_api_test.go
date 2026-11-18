@@ -14,9 +14,9 @@ import (
 )
 
 // isConvertOnly reports whether a root identifier belongs to conversion or to
-// page viewing (Page, Pages, RenderOptions, ErrPageRange, and the text and
-// link types Rect, Glyph and Link), and so has no counterpart in the verify
-// package.
+// page viewing (Page, Pages, RenderOptions, ErrPageRange, the text and link
+// types Rect, Glyph and Link, and the signature API), and so has no
+// counterpart in the verify package.
 func isConvertOnly(name string) bool {
 	switch name {
 	case "PageFidelity", "RasterDrop", "ErrUnresolvableGraph",
@@ -27,7 +27,27 @@ func isConvertOnly(name string) bool {
 		// verify package leaves out.
 		return true
 	}
-	return strings.Contains(name, "Convert")
+	return signatureAPI[name] || strings.Contains(name, "Convert")
+}
+
+// signatureAPI is the root package's digital-signature API, which serves
+// viewing, as pages and links do. Each name is listed, so that a name that
+// merely starts with Signature is still held to parity.
+var signatureAPI = map[string]bool{
+	"Signatures": true, "Signature": true, "SignatureCheck": true, "SignatureOptions": true,
+	"SignatureResult": true, "SignatureStatus": true, "SignatureTimeSource": true,
+	"SignatureTimestamp": true, "SignatureWidget": true,
+
+	"SignatureValid": true, "SignatureUntrusted": true, "SignatureModified": true,
+	"SignatureUnsupported": true, "SignatureInvalid": true,
+
+	"SignaturePassed": true, "SignatureFailed": true, "SignatureSkipped": true,
+
+	"SignatureCheckIntegrity": true, "SignatureCheckValue": true, "SignatureCheckTimestamp": true,
+	"SignatureCheckTrust": true, "SignatureCheckValidity": true, "SignatureCheckKeyUsage": true,
+	"SignatureCheckRevocation": true, "SignatureCheckChanges": true,
+
+	"SignatureTimeFromTimestamp": true, "SignatureTimeFromSigner": true, "SignatureTimeFromDocument": true,
 }
 
 // apiSurface returns the exported package-level identifiers declared in the

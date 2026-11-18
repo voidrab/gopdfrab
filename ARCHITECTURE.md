@@ -28,6 +28,8 @@ The entire project is a single Go module with no dependencies other than `klausp
 | `internal/fidelity`  | Compares input and output renders page by page, for the fidelity gate.           |
 | `internal/writer`    | Serializes the object graph back into PDF bytes.                                 |
 | `internal/arlington` | Contains the Arlington PDF Model tables used by the object-model checks.         |
+| `internal/cms`       | Reads and checks the CMS objects, timestamps and OCSP responses of signatures.   |
+| `internal/ber`       | Reads BER-encoded ASN.1 values, and rewrites them as DER.                        |
 | `internal/pdfgen`    | Generates PDFs for tests and fuzzing.                                            |
 | `internal/corpustest`| Lists the conformance corpora for tests: directory, level, profile, flavour.     |
 
@@ -35,12 +37,14 @@ The packages form layers, and imports only point downwards:
 
 ```text
 convert                                    → verify, fidelity, raster, writer, fontedit, content, fontprog, fontsubst, arlington, pdfa, pdf
-verify                                     → fontprog, arlington, pdfa, pdf
+verify                                     → fontprog, arlington, ber, pdfa, pdf
 fidelity                                   → raster, content, pdf
 raster                                     → content, fontprog, fontsubst, pdf
 fontedit                                   → fontprog
 content, fontprog, fontsubst, writer, pdfa → pdf
 corpustest                                 → pdf
+cms                                        → ber
+ber, arlington, pdfgen                     → (nothing internal)
 ```
 
 `verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. Rewriting them is the converter's business alone, so that half sits in `fontedit`, which only `convert` imports. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
@@ -86,6 +90,12 @@ A `Profile` as found in `profile.go` contains a conformance level and a set of e
 verify and convert both read the spec, so a check and the fixer that repairs it cannot disagree on a level's rules. verify reaches it through `ValidationContext.Spec`; a convert run binds it into every fixer that reads one (the `levelBound` capability) and passes it to the pre-emptive fixups, which skip PDF/A-only repairs for a plain-PDF level. `For` returns a copy, and the `Names` sets inside are read-only, so no caller can change a level's rules for another.
 
 The reader states what it saw in a file's structure as neutral `pdf.Diagnostic` values (a malformed object frame, a cross-reference stream, an object degraded to null) and reports no checks itself. `Spec.Issue` decides which check a diagnostic raises under the level, if any, so a level that permits cross-reference streams raises nothing for one.
+
+## internal/cms and signatures.go — digital signatures
+
+`signatures.go` at the root finds the signed signature fields (in the form's field tree, on the pages' widgets, and a certification signature in the catalog's `/Perms`) and checks each: the byte range must leave out exactly the hex string of the signature value, the bytes it covers are hashed straight from the file, and `internal/cms` checks the CMS signature over them. The chain is verified with `crypto/x509`, at the time of a timestamp by a trusted authority, else at the signer's claimed time. Revocation is checked only against the CRLs and OCSP responses the file carries. Changes after signing are judged by comparing the document with the revision the signature signs, which `pdf.Reader.Prefix` opens as a reader of its own: each object a later revision adds or replaces (`pdf.Reader.ObjectsFrom`, objects in object streams included) must hold what it held before. The catalog, the form and the pages may differ only in the fields and widgets of later signatures that verify, and only in objects those signatures sign; the document security store, the metadata, the document information and cross-reference and object streams may differ freely. Anything else, such as a rewritten page, content stream or page tree node, marks the signature modified. A timestamp's time is relied on only when its authority chains to a trusted root.
+
+`internal/cms` reads BER by rewriting it as DER for `encoding/asn1`, with `internal/ber`, its only internal import. `internal/verify` uses `internal/ber` alone, for the PDF/A signature checks, so the verify-only binaries and wasm module carry no `crypto/x509`. The `cmstest` package under `internal/cms` builds certificates, signatures, timestamps and revocation data for tests.
 
 ## internal/verify — the checks
 

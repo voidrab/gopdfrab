@@ -52,6 +52,13 @@
 // [NewProfile] starts from an empty one. The [Checks] registry names every
 // selectable check.
 //
+// # Signatures
+//
+// [Document.Signatures] reads a document's signed signature fields and checks
+// each one offline, against trusted roots that default to the system's. A
+// [Signature] gives its [SignatureStatus], the [SignatureCheck] values behind
+// it, the signer's certificate chain and where its fields show on the pages.
+//
 // # Options, limits, and cancellation
 //
 // The two-argument entry points cover the common case; the ...Context forms add

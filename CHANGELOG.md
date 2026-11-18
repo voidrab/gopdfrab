@@ -20,6 +20,25 @@ Everything under `internal/` may change in any release.
 
 ## [Unreleased]
 
+### Added
+
+- `Document.Signatures` reads a document's signed signature fields and checks
+  each one offline: that the signed bytes are unchanged, that the signature
+  verifies, that the signer's certificate chains to a trusted root
+  (`SignatureOptions.Roots`, the system's by default, then
+  `SignatureOptions.ExtraRoots`, such as a trusted list's authorities) and was
+  valid and fit to
+  sign when it signed, its RFC 3161 timestamp, revocation against the CRLs and
+  OCSP responses the document carries, and what was changed after signing. A
+  `Signature` gives its status, the checks behind it, the signer's
+  certificate chain, its time and where its fields show on the pages.
+
+### Fixed
+
+- An object that an incremental update moved into an object stream is read as
+  the update wrote it. The reader took the older revision's copy when that
+  revision used a classic cross-reference table.
+
 ## [1.6.0] - 2026-11-17
 
 ### Added

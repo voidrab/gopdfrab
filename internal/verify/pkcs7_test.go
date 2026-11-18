@@ -1,34 +1,8 @@
 package verify
 
 import (
-	"bytes"
 	"testing"
 )
-
-func TestReadBERRejectsMalformed(t *testing.T) {
-	deep := bytes.Repeat([]byte{0x30, 0x80}, maxBERDepth+2)
-	for _, tc := range []struct {
-		name string
-		in   []byte
-	}{
-		{"truncated", []byte{0x30}},
-		{"multi-octet tag", []byte{0x1f, 0x01, 0x00}},
-		{"indefinite primitive", []byte{0x04, 0x80, 0x00, 0x00}},
-		{"indefinite with a bad element", []byte{0x30, 0x80, 0x04}},
-		{"indefinite too deep", deep},
-		{"length of five octets", []byte{0x04, 0x85, 1, 0, 0, 0, 0}},
-		{"length octets missing", []byte{0x04, 0x82, 1}},
-		{"content shorter than its length", []byte{0x04, 0x81, 0x05, 1}},
-	} {
-		if _, _, ok := readBER(tc.in); ok {
-			t.Errorf("%s: readBER(% x) succeeded", tc.name, tc.in)
-		}
-	}
-	e, rest, ok := readBER([]byte{0x04, 0x81, 0x01, 0xaa, 0xbb})
-	if !ok || e.tag != 0x04 || !bytes.Equal(e.content, []byte{0xaa}) || !bytes.Equal(rest, []byte{0xbb}) {
-		t.Errorf("readBER(long form) = %+v, % x, %v", e, rest, ok)
-	}
-}
 
 func TestReadSignedDataRejectsOtherShapes(t *testing.T) {
 	seq := func(content ...byte) []byte { return append([]byte{0x30, byte(len(content))}, content...) }
