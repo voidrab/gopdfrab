@@ -1099,3 +1099,239 @@ func TestSignatureLaterFieldWithKids(t *testing.T) {
 		}
 	}
 }
+
+// countdownCtx is a context whose Err reports cancellation after n calls.
+type countdownCtx struct {
+	context.Context
+	n int
+}
+
+func (c *countdownCtx) Err() error {
+	if c.n--; c.n < 0 {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestSignaturesCancelledPartway(t *testing.T) {
+	doc := signedDoc(t, cmstest.Options{}).buf
+	for _, n := range []int{1, 2} {
+		d, err := gopdfrab.OpenBytes(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.Signatures(&countdownCtx{context.Background(), n}, trusted()); err == nil {
+			t.Errorf("cancelled after %d checks: Signatures succeeded", n)
+		}
+		d.Close()
+	}
+}
+
+func TestSignatureCheckMissing(t *testing.T) {
+	s := onlySignature(t, signedDoc(t, cmstest.Options{}).buf, trusted())
+	if _, ok := s.Check("no such check"); ok {
+		t.Error("Check found a check the signature does not have")
+	}
+}
+
+func TestSignatureNoSystemTrustStore(t *testing.T) {
+	defer gopdfrab.NoSystemCertPool()()
+	s := onlySignature(t, signedDoc(t, cmstest.Options{}).buf, gopdfrab.SignatureOptions{})
+	if c, _ := s.Check(gopdfrab.SignatureCheckTrust); !strings.Contains(c.Detail, "no trust store is available") {
+		t.Errorf("trust detail %q", c.Detail)
+	}
+}
+
+func TestSignatureFieldTreeOddities(t *testing.T) {
+	p := newSigPDF()
+	objs := baseObjects(sigDict("adbe.pkcs7.detached", ""))
+	// Fields lists the field twice, a number, and a tree too deep to follow.
+	objs[1] = "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 4 0 R 7 20 0 R] /SigFlags 3 >> >>"
+	for n := 20; n < 60; n++ {
+		objs[n] = fmt.Sprintf("<< /T (L%d) /Kids [%d 0 R] >>", n, n+1)
+	}
+	objs[60] = "<< /FT /Sig /T (Deep) /V 5 0 R >>"
+	// The page shows widgets of a text field and of no field.
+	objs[3] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 6 0 R /Annots [4 0 R 10 0 R 11 0 R] >>"
+	objs[10] = "<< /Type /Annot /Subtype /Widget /T (Name) /Parent 12 0 R /Rect [0 0 1 1] >>"
+	objs[11] = "<< /Type /Annot /Subtype /Widget /T (Loose) /Rect [0 0 1 1] >>"
+	objs[12] = "<< /FT /Tx /T (Person) /Kids [10 0 R] >>"
+	p.revision(objs)
+	p.sign(t, detached(alice, cmstest.Options{}))
+	if s := onlySignature(t, p.buf, trusted()); s.Field != "Approval" || s.Status != gopdfrab.SignatureValid {
+		t.Errorf("field %q, status %v, checks %+v", s.Field, s.Status, s.Checks)
+	}
+}
+
+func TestCertificationSignatureOtherTransform(t *testing.T) {
+	// A FieldMDP reference is passed over; DocMDP's P defaults to 2.
+	ref := "/Reference [<< /Type /SigRef /TransformMethod /FieldMDP >>] "
+	p := newSigPDF()
+	objs := baseObjects(sigDict("adbe.pkcs7.detached", ref))
+	objs[1] = "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> /Perms << /DocMDP 5 0 R >> >>"
+	p.revision(objs)
+	p.sign(t, detached(alice, cmstest.Options{}))
+	if s := onlySignature(t, p.buf, trusted()); s.Certifies != 2 {
+		t.Errorf("Certifies %d, want 2", s.Certifies)
+	}
+}
+
+func TestSignatureByteRangeNotFromStart(t *testing.T) {
+	p := signedDoc(t, cmstest.Options{})
+	at := bytes.Index(p.buf, []byte("/ByteRange [0 "))
+	p.buf[at+len("/ByteRange [")] = '1'
+	s := onlySignature(t, p.buf, trusted())
+	if s.Status != gopdfrab.SignatureInvalid {
+		t.Fatalf("status %v, checks %+v", s.Status, s.Checks)
+	}
+	wantCheck(t, s, gopdfrab.SignatureCheckIntegrity, gopdfrab.SignatureFailed)
+}
+
+// The DER of the object identifiers the tests below edit in signatures.
+var (
+	oidSHA256DER      = []byte{0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01}
+	oidECDSASHA256DER = []byte{0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02}
+	oidTSTInfoDER     = []byte{0x06, 0x0b, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x10, 0x01, 0x04}
+)
+
+// unknownOID returns b with every occurrence of the object identifier oid,
+// or only the last, made into another of the same length.
+func unknownOID(b, oid []byte, onlyLast bool) []byte {
+	other := bytes.Clone(oid)
+	other[len(other)-1] = 0x7f
+	if !onlyLast {
+		return bytes.ReplaceAll(b, oid, other)
+	}
+	out := bytes.Clone(b)
+	i := bytes.LastIndex(out, oid)
+	copy(out[i:], other)
+	return out
+}
+
+func TestSignatureValueProblems(t *testing.T) {
+	noSigners := []byte{
+		0x30, 0x23, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02, // signedData
+		0xa0, 0x16, 0x30, 0x14, 0x02, 0x01, 0x01, 0x31, 0x00, // version, digestAlgorithms
+		0x30, 0x0b, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01, // data
+		0x31, 0x00, // signerInfos
+	}
+	for _, tc := range []struct {
+		name   string
+		value  func([]byte) []byte
+		status gopdfrab.SignatureStatus
+		check  string
+		result gopdfrab.SignatureResult
+	}{
+		{"no signer", func([]byte) []byte { return noSigners },
+			gopdfrab.SignatureInvalid, gopdfrab.SignatureCheckValue, gopdfrab.SignatureFailed},
+		{"unknown digest", func(d []byte) []byte { return unknownOID(detached(alice, cmstest.Options{})(d), oidSHA256DER, false) },
+			gopdfrab.SignatureUnsupported, gopdfrab.SignatureCheckIntegrity, gopdfrab.SignatureSkipped},
+		{"no certificate", detached(alice, cmstest.Options{NoCert: true}),
+			gopdfrab.SignatureUnsupported, gopdfrab.SignatureCheckValue, gopdfrab.SignatureSkipped},
+		{"unknown signature algorithm", func(d []byte) []byte {
+			return unknownOID(detached(alice, cmstest.Options{})(d), oidECDSASHA256DER, true)
+		}, gopdfrab.SignatureUnsupported, gopdfrab.SignatureCheckValue, gopdfrab.SignatureSkipped},
+		{"unreadable timestamp", func(d []byte) []byte {
+			return unknownOID(detached(alice, cmstest.Options{TSA: tsa, TSATime: signedAt})(d), oidTSTInfoDER, false)
+		}, gopdfrab.SignatureValid, gopdfrab.SignatureCheckTimestamp, gopdfrab.SignatureSkipped},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newSigPDF()
+			p.revision(baseObjects(sigDict("adbe.pkcs7.detached", "")))
+			p.sign(t, tc.value)
+			s := onlySignature(t, p.buf, trusted())
+			if s.Status != tc.status {
+				t.Fatalf("status %v, checks %+v", s.Status, s.Checks)
+			}
+			wantCheck(t, s, tc.check, tc.result)
+		})
+	}
+}
+
+func TestDocumentTimestampValueProblems(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		edit   func([]byte) []byte
+		status gopdfrab.SignatureStatus
+	}{
+		{"unknown signature algorithm", func(b []byte) []byte { return unknownOID(b, oidECDSASHA256DER, true) }, gopdfrab.SignatureUnsupported},
+		{"bad signature", func(b []byte) []byte { b[len(b)-1] ^= 1; return b }, gopdfrab.SignatureInvalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newSigPDF()
+			p.revision(baseObjects(sigDict("ETSI.RFC3161", "")))
+			p.sign(t, func(d []byte) []byte { return tc.edit(cmstest.Timestamp(tsa, d, signedAt)) })
+			if s := onlySignature(t, p.buf, trusted()); s.Status != tc.status {
+				t.Errorf("status %v, checks %+v", s.Status, s.Checks)
+			}
+		})
+	}
+}
+
+func TestSignatureSignedBytesUnreadable(t *testing.T) {
+	signature := signedDoc(t, cmstest.Options{}).buf
+	stamp := newSigPDF()
+	stamp.revision(baseObjects(sigDict("ETSI.RFC3161", "")))
+	stamp.sign(t, func(d []byte) []byte { return cmstest.Timestamp(tsa, d, signedAt) })
+	for _, tc := range []struct {
+		name string
+		doc  []byte
+		read int
+	}{
+		{"first part", signature, 1},
+		{"second part", signature, 2},
+		{"document timestamp", stamp.buf, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gopdfrab.FailSignedBytesRead(tc.read)()
+			s := onlySignature(t, tc.doc, trusted())
+			if s.Status != gopdfrab.SignatureInvalid {
+				t.Fatalf("status %v, checks %+v", s.Status, s.Checks)
+			}
+			wantCheck(t, s, gopdfrab.SignatureCheckIntegrity, gopdfrab.SignatureFailed)
+		})
+	}
+}
+
+func TestSignatureValidityPeriod(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		o      cmstest.IssueOptions
+		status gopdfrab.SignatureStatus
+		result gopdfrab.SignatureResult
+		detail string
+	}{
+		{"not yet valid", cmstest.IssueOptions{NotBefore: signedAt.Add(24 * time.Hour)},
+			gopdfrab.SignatureUntrusted, gopdfrab.SignatureFailed, "not yet valid"},
+		{"expired since", cmstest.IssueOptions{NotAfter: signedAt.Add(24 * time.Hour)},
+			gopdfrab.SignatureValid, gopdfrab.SignaturePassed, "has since expired"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := testRoot.Issue("Carol", tc.o)
+			p := newSigPDF()
+			p.revision(baseObjects(sigDict("adbe.pkcs7.detached", "")))
+			p.sign(t, detached(id, cmstest.Options{}))
+			s := onlySignature(t, p.buf, trusted())
+			if s.Status != tc.status {
+				t.Fatalf("status %v, checks %+v", s.Status, s.Checks)
+			}
+			wantCheck(t, s, gopdfrab.SignatureCheckValidity, tc.result)
+			if c, _ := s.Check(gopdfrab.SignatureCheckValidity); !strings.Contains(c.Detail, tc.detail) {
+				t.Errorf("detail %q", c.Detail)
+			}
+		})
+	}
+}
+
+func TestSignatureRevocationPartlyChecked(t *testing.T) {
+	ca := testRoot.Issue("Issuing CA", cmstest.IssueOptions{CA: true})
+	bob := ca.Issue("Bob", cmstest.IssueOptions{})
+	ocsp := cmstest.OCSP(ca, bob.Cert, signedAt, time.Time{})
+	p := newSigPDF()
+	p.revision(baseObjects(sigDict("adbe.pkcs7.detached", "")))
+	p.sign(t, detached(bob, cmstest.Options{Chain: []*x509.Certificate{ca.Cert}, OCSPs: [][]byte{ocsp}}))
+	s := onlySignature(t, p.buf, trusted())
+	if c, _ := s.Check(gopdfrab.SignatureCheckRevocation); !strings.HasPrefix(c.Detail, "Partly checked") {
+		t.Errorf("revocation %+v, checks %+v", c, s.Checks)
+	}
+}

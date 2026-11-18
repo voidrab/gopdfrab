@@ -207,6 +207,13 @@ func (s *Signature) Check(name string) (SignatureCheck, bool) {
 	return SignatureCheck{}, false
 }
 
+// systemCertPool and copyRange are x509.SystemCertPool and the Reader method,
+// which tests replace to see the system pool missing and a read failing.
+var (
+	systemCertPool = x509.SystemCertPool
+	copyRange      = (*pdf.Reader).CopyRange
+)
+
 // SignatureOptions tune Document.Signatures.
 type SignatureOptions struct {
 	// Roots are the trusted root certificates. nil means the system's; where
@@ -243,7 +250,7 @@ func (d *Document) Signatures(ctx context.Context, o SignatureOptions) ([]Signat
 	roots, rootsNote := o.Roots, ""
 	if roots == nil {
 		var err error
-		if roots, err = x509.SystemCertPool(); err != nil || roots == nil {
+		if roots, err = systemCertPool(); err != nil || roots == nil {
 			roots, rootsNote = x509.NewCertPool(), "no trust store is available"
 		}
 	}
@@ -636,10 +643,10 @@ func (c *sigCheck) coverage(br [4]int64) {
 // digest returns the hash under h of the bytes br signs.
 func (c *sigCheck) digest(h crypto.Hash, br [4]int64) ([]byte, error) {
 	w := h.New()
-	if err := c.v.d.r.CopyRange(w, br[0], br[1]); err != nil {
+	if err := copyRange(c.v.d.r, w, br[0], br[1]); err != nil {
 		return nil, err
 	}
-	if err := c.v.d.r.CopyRange(w, br[2], br[3]); err != nil {
+	if err := copyRange(c.v.d.r, w, br[2], br[3]); err != nil {
 		return nil, err
 	}
 	return w.Sum(nil), nil
@@ -1005,22 +1012,18 @@ func (c *sigCheck) changes() {
 	// The document is read afresh too: its graph, resolved in place, no
 	// longer shows which arrays are objects of their own.
 	end := c.s.ByteRange[2] + c.s.ByteRange[3]
-	unreadable := func() {
+	old, err := c.v.d.r.Prefix(end)
+	cur, errCur := c.v.d.r.Prefix(c.v.d.r.Size())
+	for _, rd := range []*pdf.Reader{old, cur} {
+		if rd != nil {
+			defer rd.Close()
+		}
+	}
+	if err != nil || errCur != nil {
 		c.modified = true
 		c.add(SignatureCheckChanges, SignatureFailed, "The document was changed after it was signed: the signed bytes are no revision that can be read.")
-	}
-	old, err := c.v.d.r.Prefix(end)
-	if err != nil {
-		unreadable()
 		return
 	}
-	defer old.Close()
-	cur, err := c.v.d.r.Prefix(c.v.d.r.Size())
-	if err != nil {
-		unreadable()
-		return
-	}
-	defer cur.Close()
 	other := c.v.newRevisionDiff(old, cur, end).changes()
 	if other == 0 {
 		c.add(SignatureCheckChanges, SignaturePassed, "Later revisions only add signatures and the data that validates them.")

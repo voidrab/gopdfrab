@@ -44,3 +44,29 @@ func TestToDERConstructedString(t *testing.T) {
 		t.Error("ToDER accepted a truncated value")
 	}
 }
+
+func TestToDERNestedConstructedString(t *testing.T) {
+	// An OCTET STRING whose first piece is itself in pieces.
+	in := []byte{0x24, 0x80, 0x24, 0x80, 0x04, 0x01, 'a', 0, 0, 0x04, 0x01, 'b', 0, 0}
+	der, err := ToDER(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []byte{0x04, 0x02, 'a', 'b'}; !bytes.Equal(der, want) {
+		t.Errorf("ToDER = % x, want % x", der, want)
+	}
+}
+
+func TestToDERRejectsMixedStringPieces(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   []byte
+	}{
+		{"piece of another type", []byte{0x24, 0x03, 0x02, 0x01, 0x00}},
+		{"nested piece of another type", []byte{0x24, 0x80, 0x24, 0x03, 0x02, 0x01, 0x00, 0, 0}},
+	} {
+		if _, err := ToDER(tc.in); err == nil {
+			t.Errorf("%s: ToDER(% x) succeeded", tc.name, tc.in)
+		}
+	}
+}

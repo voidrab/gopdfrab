@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -42,19 +43,20 @@ const (
 	RSA
 )
 
-func newKey(kt KeyType) crypto.Signer {
-	if kt == RSA {
-		k, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			panic(err)
-		}
-		return k
-	}
-	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+// must returns v, or panics with err: the builders here fail only on a
+// broken test.
+func must[T any](v T, err error) T {
 	if err != nil {
 		panic(err)
 	}
-	return k
+	return v
+}
+
+func newKey(kt KeyType) crypto.Signer {
+	if kt == RSA {
+		return must(rsa.GenerateKey(rand.Reader, 2048))
+	}
+	return must(ecdsa.GenerateKey(elliptic.P256(), rand.Reader))
 }
 
 // Root returns a self-signed certificate authority called name.
@@ -65,10 +67,7 @@ func Root(name string) *Identity {
 		NotBefore: Epoch, NotAfter: Epoch.AddDate(10, 0, 0),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
-	if err != nil {
-		panic(err)
-	}
+	der := must(x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key))
 	cert, _ := x509.ParseCertificate(der)
 	return &Identity{Cert: cert, Key: key}
 }
@@ -103,10 +102,7 @@ func (ca *Identity) Issue(name string, o IssueOptions) *Identity {
 		tmpl.IsCA, tmpl.BasicConstraintsValid = true, true
 		tmpl.KeyUsage |= x509.KeyUsageCertSign | x509.KeyUsageCRLSign
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, key.Public(), ca.Key)
-	if err != nil {
-		panic(err)
-	}
+	der := must(x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, key.Public(), ca.Key))
 	cert, _ := x509.ParseCertificate(der)
 	return &Identity{Cert: cert, Key: key}
 }
@@ -215,17 +211,10 @@ type attribute struct {
 }
 
 func mustMarshal(v any, params ...string) []byte {
-	var b []byte
-	var err error
 	if len(params) > 0 {
-		b, err = asn1.MarshalWithParams(v, params[0])
-	} else {
-		b, err = asn1.Marshal(v)
+		return must(asn1.MarshalWithParams(v, params[0]))
 	}
-	if err != nil {
-		panic(err)
-	}
-	return b
+	return must(asn1.Marshal(v))
 }
 
 func raw(b []byte) asn1.RawValue { return asn1.RawValue{FullBytes: b} }
@@ -341,11 +330,7 @@ func sign(id *Identity, o Options, msg []byte, prehashed bool) (pkix.AlgorithmId
 			alg.Algorithm = oidECDSASHA256
 		}
 	}
-	sig, err := id.Key.Sign(rand.Reader, digest, opts)
-	if err != nil {
-		panic(err)
-	}
-	return alg, sig
+	return alg, must(id.Key.Sign(rand.Reader, digest, opts))
 }
 
 func revocationInfo(crls, ocsps [][]byte) []byte {
@@ -399,29 +384,49 @@ func CRL(ca *Identity, at time.Time, revoked ...*x509.Certificate) []byte {
 		tmpl.RevokedCertificateEntries = append(tmpl.RevokedCertificateEntries,
 			x509.RevocationListEntry{SerialNumber: c.SerialNumber, RevocationTime: at})
 	}
-	der, err := x509.CreateRevocationList(rand.Reader, tmpl, ca.Cert, ca.Key)
-	if err != nil {
-		panic(err)
-	}
-	return der
+	return must(x509.CreateRevocationList(rand.Reader, tmpl, ca.Cert, ca.Key))
 }
 
 // OCSP returns an OCSP response by issuer that says cert is good, or revoked
 // at revokedAt when that is not zero.
 func OCSP(issuer *Identity, cert *x509.Certificate, at, revokedAt time.Time) []byte {
-	nameHash := crypto.SHA1.New()
-	nameHash.Write(issuer.Cert.RawSubject)
-	var spki struct {
-		Alg pkix.AlgorithmIdentifier
-		Key asn1.BitString
+	return OCSPWith(issuer, cert, at, OCSPOptions{RevokedAt: revokedAt})
+}
+
+// OCSPOptions tune OCSPWith.
+type OCSPOptions struct {
+	// RevokedAt, if set, says the certificate was revoked then.
+	RevokedAt time.Time
+	// Unknown says the responder does not know the certificate.
+	Unknown bool
+	// ByKey names the responder by the hash of its key, not its name.
+	ByKey bool
+	// Responder, if set, signs the response in the issuer's place and is
+	// carried in it, as a delegated responder is.
+	Responder *Identity
+}
+
+// OCSPWith returns an OCSP response about cert, issued by issuer, as o says.
+func OCSPWith(issuer *Identity, cert *x509.Certificate, at time.Time, o OCSPOptions) []byte {
+	signer := issuer
+	if o.Responder != nil {
+		signer = o.Responder
 	}
-	_, _ = asn1.Unmarshal(issuer.Cert.RawSubjectPublicKeyInfo, &spki)
-	keyHash := crypto.SHA1.New()
-	keyHash.Write(spki.Key.RightAlign())
 	status := asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0}
-	if !revokedAt.IsZero() {
+	switch {
+	case o.Unknown:
+		status.Tag = 2
+	case !o.RevokedAt.IsZero():
 		status = asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 1, IsCompound: true,
-			Bytes: mustMarshal(revokedAt.UTC(), "generalized")}
+			Bytes: mustMarshal(o.RevokedAt.UTC(), "generalized")}
+	}
+	responder := asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 1, IsCompound: true, Bytes: signer.Cert.RawSubject}
+	if o.ByKey {
+		responder = asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 2, IsCompound: true, Bytes: mustMarshal(keyHash(signer.Cert))}
+	}
+	var certs []asn1.RawValue
+	if o.Responder != nil {
+		certs = []asn1.RawValue{raw(o.Responder.Cert.Raw)}
 	}
 	type certID struct {
 		Alg      pkix.AlgorithmIdentifier
@@ -439,17 +444,18 @@ func OCSP(issuer *Identity, cert *x509.Certificate, at, revokedAt time.Time) []b
 		ProducedAt time.Time `asn1:"generalized"`
 		Responses  []single
 	}{
-		asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 1, IsCompound: true, Bytes: issuer.Cert.RawSubject},
+		responder,
 		at.UTC(),
 		[]single{{certID{pkix.AlgorithmIdentifier{Algorithm: oidSHA1, Parameters: asn1.NullRawValue},
-			nameHash.Sum(nil), keyHash.Sum(nil), cert.SerialNumber}, status, at.UTC()}},
+			sha1Sum(issuer.Cert.RawSubject), keyHash(issuer.Cert), cert.SerialNumber}, status, at.UTC()}},
 	})
-	alg, sig := sign(issuer, Options{Hash: crypto.SHA256}, tbs, false)
+	alg, sig := sign(signer, Options{Hash: crypto.SHA256}, tbs, false)
 	basic := mustMarshal(struct {
-		TBS asn1.RawValue
-		Alg pkix.AlgorithmIdentifier
-		Sig asn1.BitString
-	}{raw(tbs), alg, asn1.BitString{Bytes: sig, BitLength: 8 * len(sig)}})
+		TBS   asn1.RawValue
+		Alg   pkix.AlgorithmIdentifier
+		Sig   asn1.BitString
+		Certs []asn1.RawValue `asn1:"explicit,optional,tag:0"`
+	}{raw(tbs), alg, asn1.BitString{Bytes: sig, BitLength: 8 * len(sig)}, certs})
 	return mustMarshal(struct {
 		Status   asn1.Enumerated
 		Response struct {
@@ -462,13 +468,26 @@ func OCSP(issuer *Identity, cert *x509.Certificate, at, revokedAt time.Time) []b
 	}{oidOCSPBasic, basic}})
 }
 
+func sha1Sum(b []byte) []byte {
+	h := sha1.Sum(b)
+	return h[:]
+}
+
+// keyHash returns the SHA-1 hash of c's public key bits, as OCSP names keys.
+func keyHash(c *x509.Certificate) []byte {
+	var spki struct {
+		Alg pkix.AlgorithmIdentifier
+		Key asn1.BitString
+	}
+	must(asn1.Unmarshal(c.RawSubjectPublicKeyInfo, &spki))
+	return sha1Sum(spki.Key.RightAlign())
+}
+
 // Indefinite rewrites the outermost SEQUENCE of a DER value with an
 // indefinite length, as some signers write, to test BER input.
 func Indefinite(der []byte) []byte {
 	var v asn1.RawValue
-	if _, err := asn1.Unmarshal(der, &v); err != nil {
-		panic(err)
-	}
+	must(asn1.Unmarshal(der, &v))
 	out := []byte{der[0], 0x80}
 	out = append(out, v.Bytes...)
 	return append(out, 0, 0)

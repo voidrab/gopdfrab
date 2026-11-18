@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -199,5 +200,36 @@ func TestPrefix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// shortReaderAt reads nothing, and reports no error for it.
+type shortReaderAt struct{}
+
+func (shortReaderAt) ReadAt([]byte, int64) (int, error) { return 0, nil }
+
+// failingWriter fails every write.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("full") }
+
+func TestCopyRangeFailures(t *testing.T) {
+	failing := &Reader{src: source{file: failingReaderAt{}, size: 10}}
+	if _, err := failing.ReadRange(0, 4); err == nil {
+		t.Error("ReadRange of an unreadable file succeeded")
+	}
+	if err := failing.CopyRange(&bytes.Buffer{}, 8, 4); err == nil {
+		t.Error("CopyRange past the end of the file succeeded")
+	}
+	short := &Reader{src: source{file: shortReaderAt{}, size: 10}}
+	if err := short.CopyRange(&bytes.Buffer{}, 0, 4); err == nil {
+		t.Error("CopyRange of a file that reads nothing succeeded")
+	}
+	mem := &Reader{src: source{mem: []byte("0123456789"), size: 10}}
+	if err := mem.CopyRange(failingWriter{}, 0, 4); err == nil {
+		t.Error("CopyRange to a failing writer succeeded")
+	}
+	if failing.endsWithEOF(5) {
+		t.Error("endsWithEOF of an unreadable file")
 	}
 }
